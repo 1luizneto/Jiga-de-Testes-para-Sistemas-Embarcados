@@ -1,0 +1,3 @@
+../Core/Src/freertos.c:85:6:MX_FREERTOS_Init	1
+../Core/Src/freertos.c:133:6:StartDefaultTask	1
+../Core/Src/freertos.c:152:6:CommTask	1
