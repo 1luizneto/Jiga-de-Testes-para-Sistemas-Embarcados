@@ -20,6 +20,7 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "adc.h"
+#include "crc.h"
 #include "dac.h"
 #include "eth.h"
 #include "i2c.h"
@@ -31,6 +32,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include "Bsp.h"
+#include "DebugLog.h"
 
 /* USER CODE END Includes */
 
@@ -113,7 +117,13 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_UART4_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
+
+  Bsp_Init();
+
+  HAL_Delay(1000);
+  DebugLog_SendTerminal("\n\n\n[SYSTEM] Iniciando o sistema\n\n\n");
 
   /* USER CODE END 2 */
 

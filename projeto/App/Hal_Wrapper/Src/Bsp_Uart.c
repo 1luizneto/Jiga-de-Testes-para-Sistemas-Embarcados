@@ -1,5 +1,5 @@
 /***********************************************************************************************************************
- *   @file         Bsp.c
+ *   @file         Bsp_Uart.c
  *   @addtogroup   App
  *   @brief        Arquivo que implementa a abstração da Uart
  *   @author       Luiz Neto
@@ -25,6 +25,10 @@
  **********************************************************************************************************************/
 
 #include "Bsp_Uart.h"
+#include "main.h"
+#include "usart.h"
+#include "DebugLog.h"
+#include "cmsis_os.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -37,22 +41,18 @@
  * TIPOS LOCAIS
  **********************************************************************************************************************/
 
-static struct bspUart
-{
-
-
-
-} bspUart;
 
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
  **********************************************************************************************************************/
 
+extern osMutexId_t uartDebugMutexHandle;
+
 /***********************************************************************************************************************
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
 
-bspUartReturn_t BspUart_Send(void);
+bspUartReturn_t BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize);
 bspUartReturn_t BspUart_Received(void);
 
 
@@ -60,7 +60,12 @@ bspUartReturn_t BspUart_Received(void);
  * FUNCOES PUBLICAS
  **********************************************************************************************************************/
 
+bspUartReturn_t BspUart_Init(void)
+{
+	DebugLog_Init((void *)BspUart_Send);
 
+	return eBSP_UART_RETURN_OK;
+}
 
 /***********************************************************************************************************************
  * FUNCOES LOCAIS
@@ -69,10 +74,12 @@ bspUartReturn_t BspUart_Received(void);
 bspUartReturn_t BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize)
 {
 
+	osMutexAcquire(uartDebugMutexHandle, 10);
 	if (HAL_UART_Transmit(&huart3, txBuffer, bufferSize, dTIMEOUT_UART) == HAL_OK)
 	{
 		return eBSP_UART_RETURN_OK;
 	}
+	osMutexRelease(uartDebugMutexHandle);
 
 	return eBSP_UART_RETURN_ERROR;
 }

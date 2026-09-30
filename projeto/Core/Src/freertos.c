@@ -25,7 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "../../App/Comm/Inc/DebugLog.h"
+#include "DebugLog.h"
+#include "crc.h"
+#include "Crc16.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +48,47 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
+
+uint32_t I2CEmulationTaskBuffer[ 256 ];
+StaticTask_t I2CEmulationTaskControlBlock;
+
+const osThreadAttr_t I2CEmulationTask_attributes = {
+  .name = "I2CEmulationTask",
+  .cb_mem = &I2CEmulationTaskControlBlock,
+  .cb_size = sizeof(I2CEmulationTaskControlBlock),
+  .stack_mem = &I2CEmulationTaskBuffer[0],
+  .stack_size = sizeof(I2CEmulationTaskBuffer),
+  .priority = (osPriority_t) osPriorityHigh,
+};
+
+uint32_t SPIEmulationTaskBuffer[ 256 ];
+StaticTask_t SPIEmulationTaskControlBlock;
+
+const osThreadAttr_t SPIEmulationTask_attributes = {
+  .name = "SPIEmulationTask",
+  .cb_mem = &SPIEmulationTaskControlBlock,
+  .cb_size = sizeof(SPIEmulationTaskControlBlock),
+  .stack_mem = &SPIEmulationTaskBuffer[0],
+  .stack_size = sizeof(SPIEmulationTaskBuffer),
+  .priority = (osPriority_t) osPriorityHigh,
+};
+
+uint32_t UARTEmulationTaskBuffer[ 256 ];
+StaticTask_t UARTEmulationTaskControlBlock;
+
+const osThreadAttr_t UARTEmulationTask_attributes = {
+  .name = "UARTEmulationTask",
+  .cb_mem = &UARTEmulationTaskControlBlock,
+  .cb_size = sizeof(UARTEmulationTaskControlBlock),
+  .stack_mem = &UARTEmulationTaskBuffer[0],
+  .stack_size = sizeof(UARTEmulationTaskBuffer),
+  .priority = (osPriority_t) osPriorityHigh,
+};
+
+
+//taskNameTesteHandle = osThreadNew(entryFunctionTeste, NULL, &taskNameTeste_attributes);
+
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -61,6 +104,13 @@ const osThreadAttr_t Comm_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for TestExec */
+osThreadId_t TestExecHandle;
+const osThreadAttr_t TestExec_attributes = {
+  .name = "TestExec",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
 /* Definitions for uartDebugMutex */
 osMutexId_t uartDebugMutexHandle;
 const osMutexAttr_t uartDebugMutex_attributes = {
@@ -74,6 +124,7 @@ const osMutexAttr_t uartDebugMutex_attributes = {
 
 void StartDefaultTask(void *argument);
 void CommTask(void *argument);
+void TestExecTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -84,6 +135,8 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+
+
 
   /* USER CODE END Init */
   /* Create the mutex(es) */
@@ -112,6 +165,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of Comm */
   CommHandle = osThreadNew(CommTask, NULL, &Comm_attributes);
+
+  /* creation of TestExec */
+  TestExecHandle = osThreadNew(TestExecTask, NULL, &TestExec_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -153,12 +209,37 @@ void CommTask(void *argument)
 {
   /* USER CODE BEGIN CommTask */
   /* Infinite loop */
+	DebugLog_SendTerminal("[TASK -> COMM] Inicio da Task\n");
+
+	char buf[] = "123456789";
+	uint16_t crcOut = 0;
+
+	crc16Return_t ret = Crc16_Calcule((uint8_t *)buf, 9, &crcOut, dCRC_INITIAL_VALUE);
+
+	DebugLog_SendTerminal("[TASK -> COMM]  CRC = 0x%04lX\n", crcOut);
   for(;;)
   {
 
-    osDelay(1);
   }
   /* USER CODE END CommTask */
+}
+
+/* USER CODE BEGIN Header_TestExecTask */
+/**
+* @brief Function implementing the TestExec thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_TestExecTask */
+void TestExecTask(void *argument)
+{
+  /* USER CODE BEGIN TestExecTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END TestExecTask */
 }
 
 /* Private application code --------------------------------------------------*/
