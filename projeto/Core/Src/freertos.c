@@ -214,7 +214,7 @@ void CommTask(void *argument)
 	char buf[] = "123456789";
 	uint16_t crcOut = 0;
 
-	crc16Return_t ret = Crc16_Calcule((uint8_t *)buf, 9, &crcOut, dCRC_INITIAL_VALUE);
+	Crc16_Calcule((uint8_t *)buf, 9, &crcOut, dCRC_INITIAL_VALUE);
 
 	DebugLog_SendTerminal("[TASK -> COMM]  CRC = 0x%04lX\n", crcOut);
   for(;;)
