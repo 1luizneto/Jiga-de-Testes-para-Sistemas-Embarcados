@@ -1,1 +1,5 @@
-../App/Test/Suites/Test_Crc16.c:6:6:test_Crc16_hardware_vetor_referencia	1
+../App/Test/Suites/Test_Crc16.c:6:6:Test_Crc16_HardwareVetorReferencia	1
+../App/Test/Suites/Test_Crc16.c:20:6:Test_Crc16_HardwareInicialValue	1
+../App/Test/Suites/Test_Crc16.c:33:6:Test_Crc16_HardwareDataEmpty	1
+../App/Test/Suites/Test_Crc16.c:46:6:Test_Crc16_HardwareCalculosSeguidos	1
+../App/Test/Suites/Test_Crc16.c:91:6:Test_Crc16_HardwareBUfferMaximoComm	1

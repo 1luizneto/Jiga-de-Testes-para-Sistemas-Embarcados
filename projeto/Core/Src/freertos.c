@@ -220,12 +220,6 @@ void CommTask(void *argument)
   /* Infinite loop */
 	DebugLog_SendTerminal("[TASK -> COMM] Inicio da Task\n");
 
-	char buf[] = "123456789";
-	uint16_t crcOut = 0;
-
-	Crc16_Calcule((uint8_t *)buf, 9, &crcOut, dCRC_INITIAL_VALUE);
-
-	DebugLog_SendTerminal("[TASK -> COMM]  CRC = 0x%04lX\n", crcOut);
   for(;;)
   {
 

@@ -20,7 +20,13 @@ void tearDown(void) {}
 static void TestRunnerTast(void *argument)
 {
 	UNITY_BEGIN();
-	RUN_TEST(test_Crc16_hardware_vetor_referencia);
+
+		RUN_TEST(Test_Crc16_HardwareVetorReferencia);
+		RUN_TEST(Test_Crc16_HardwareInicialValue);
+		RUN_TEST(Test_Crc16_HardwareDataEmpty);
+		RUN_TEST(Test_Crc16_HardwareCalculosSeguidos);
+		RUN_TEST(Test_Crc16_HardwareBUfferMaximoComm);
+
 	UNITY_END();
 
 	for (;;)

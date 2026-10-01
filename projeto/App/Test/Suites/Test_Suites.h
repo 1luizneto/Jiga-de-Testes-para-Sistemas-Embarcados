@@ -8,8 +8,12 @@
 #ifndef APP_TEST_SUITES_TEST_SUITES_H_
 #define APP_TEST_SUITES_TEST_SUITES_H_
 
-
-void test_Crc16_hardware_vetor_referencia(void);
+// Testes CRC16
+void Test_Crc16_HardwareVetorReferencia(void);
+void Test_Crc16_HardwareInicialValue(void);
+void Test_Crc16_HardwareDataEmpty(void);
+void Test_Crc16_HardwareCalculosSeguidos(void);
+void Test_Crc16_HardwareBUfferMaximoComm(void);
 
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
