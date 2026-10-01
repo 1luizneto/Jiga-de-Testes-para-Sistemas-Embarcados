@@ -36,6 +36,6 @@ typedef enum commReturn
 
 
 commReturn_t Comm_Init(void);
-
+commReturn_t Comm_Handle(void);
 
 #endif /* COMM_INC_COMM_H_ */
