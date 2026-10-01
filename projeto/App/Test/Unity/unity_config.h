@@ -10,7 +10,7 @@
 
 
 void TestOutput_PutChar(int c);
-#define UNITY_OUTPUT_CHAR(c)  TestOutput_PutChar(c
+#define UNITY_OUTPUT_CHAR(c)  TestOutput_PutChar(c)
 
 
 #endif /* TEST_UNITY_UNITY_CONFIG_H_ */

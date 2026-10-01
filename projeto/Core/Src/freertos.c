@@ -28,6 +28,11 @@
 #include "DebugLog.h"
 #include "crc.h"
 #include "Crc16.h"
+
+#ifdef UNIT_TEST_ON_TARGET
+#include "TestRunner.h"
+#endif
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -171,6 +176,10 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+#ifdef UNIT_TEST_ON_TARGET
+  TestRunner_Start();
+#endif
+
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

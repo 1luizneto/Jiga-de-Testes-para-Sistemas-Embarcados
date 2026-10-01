@@ -25,7 +25,6 @@ SUBDIRS := \
 App/Comm/Src \
 App/Hal_Wrapper/Src \
 App/System \
-App/Test/Unity \
 Core/Src \
 Core/Startup \
 Drivers/STM32F7xx_HAL_Driver/Src \
