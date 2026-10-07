@@ -54,7 +54,8 @@ Core/Src/freertos.o: ../Core/Src/freertos.c \
  ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h \
  C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Comm/Inc/DebugLog.h \
  ../Core/Inc/crc.h ../Core/Inc/main.h \
- C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/System/Inc/Crc16.h
+ C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/System/Inc/Crc16.h \
+ C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Comm/Inc/Comm.h
 ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h:
 ../Core/Inc/FreeRTOSConfig.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h:
@@ -113,3 +114,4 @@ C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistema
 ../Core/Inc/crc.h:
 ../Core/Inc/main.h:
 C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/System/Inc/Crc16.h:
+C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Comm/Inc/Comm.h:

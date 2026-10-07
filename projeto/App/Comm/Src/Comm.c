@@ -31,19 +31,43 @@
  * DEFINES LOCAIS
  **********************************************************************************************************************/
 
+// Tamanho máximo do payload
+#define dPAYLOAD_MAX_SIZE (240U)
+
 /***********************************************************************************************************************
  * TIPOS LOCAIS
  **********************************************************************************************************************/
 
-//static struct comm
-//{
-//
-//}comm;
 
 typedef enum commState
 {
+	eCOMM_STATE_AGUARDA_SOF,
+	eCOMM_STATE_LE_CABECALHO,
+	eCOMM_STATE_LE_PAYLOAD,
+	eCOMM_STATE_VALIDA_CRC,
 
-};
+	eCOMM_STATE_END_ENUM
+} commState_t;
+
+
+static struct comm
+{
+
+	commState_t commState;
+
+}comm;
+
+typedef struct commFrame
+{
+
+	uint8_t begin; //1 Byte
+	uint8_t size;  //1 Byte (0 a 240)
+	uint8_t seq;   //1 Byte
+	uint8_t cmd;   //1 Byte Código do comando
+	uint8_t payload[dPAYLOAD_MAX_SIZE];
+	uint16_t crc16;
+
+} commFrame_t;
 
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
@@ -59,11 +83,50 @@ typedef enum commState
 
 commReturn_t Comm_Init(void)
 {
+
+	comm.commState = eCOMM_STATE_AGUARDA_SOF;
+
 	return eCOMM_RETURN_OK;
 }
 
 commReturn_t Comm_Handle(void)
 {
+
+	switch (comm.commState)
+	{
+
+		case eCOMM_STATE_AGUARDA_SOF:
+
+			//DebugLog_SendTerminal("");
+			comm.commState = eCOMM_STATE_LE_CABECALHO;
+
+		break;
+
+		case eCOMM_STATE_LE_CABECALHO:
+
+			comm.commState = eCOMM_STATE_LE_PAYLOAD;
+
+		break;
+
+		case eCOMM_STATE_LE_PAYLOAD:
+
+			comm.commState = eCOMM_STATE_VALIDA_CRC;
+
+		break;
+
+		case eCOMM_STATE_VALIDA_CRC:
+
+			comm.commState = eCOMM_STATE_AGUARDA_SOF;
+
+		break;
+
+		default:
+
+			comm.commState = eCOMM_STATE_END_ENUM;
+
+		break;
+
+	}
 
 	return eCOMM_RETURN_OK;
 }

@@ -28,6 +28,7 @@
 #include "DebugLog.h"
 #include "crc.h"
 #include "Crc16.h"
+#include "Comm.h"
 
 #ifdef UNIT_TEST_ON_TARGET
 #include "TestRunner.h"
@@ -131,6 +132,7 @@ void StartDefaultTask(void *argument);
 void CommTask(void *argument);
 void TestExecTask(void *argument);
 
+extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
@@ -197,6 +199,8 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
   for(;;)
@@ -220,9 +224,13 @@ void CommTask(void *argument)
   /* Infinite loop */
 	DebugLog_SendTerminal("[TASK -> COMM] Inicio da Task\n");
 
+	commReturn_t ret = Comm_Init();
+
+	DebugLog_SendTerminal("[TASK -> COMM] Comm = %d\n", ret);
+
   for(;;)
   {
-
+	  Comm_Handle();
   }
   /* USER CODE END CommTask */
 }
