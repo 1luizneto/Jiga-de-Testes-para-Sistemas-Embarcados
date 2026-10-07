@@ -25,6 +25,7 @@
  **********************************************************************************************************************/
 
 #include "Usb.h"
+#include <stddef.h>
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -42,8 +43,8 @@ static struct usb
     /// @brief Estrutura com os ponteiros de funções necessárias para a lib
     struct func
     {
-        void (*write)(uint8_t* buffer, uint16_t bufferSize);
-        void (*read)(uint8_t* buffer, uint32_t bufferSize);
+        usbWriteFunc_t write;
+        usbReadFunc_t  read;
     } func;
 
 } usb;
@@ -63,9 +64,12 @@ static struct usb
  * FUNCOES PUBLICAS
  **********************************************************************************************************************/
 
-usbReturn_t Usb_Init(void (*writeFunc)(uint8_t* buffer, uint16_t bufferSize),
-					 void (*readFunc)(uint8_t* buffer, uint32_t bufferSize))
+usbReturn_t Usb_Init(usbWriteFunc_t writeFunc, usbReadFunc_t readFunc)
 {
+	if ((writeFunc == NULL) || (readFunc == NULL))
+	{
+		return eUSB_RETURN_INVALID_ARGUMENT;
+	}
 
 	usb.func.write = writeFunc;
 	usb.func.read  = readFunc;
@@ -75,18 +79,22 @@ usbReturn_t Usb_Init(void (*writeFunc)(uint8_t* buffer, uint16_t bufferSize),
 
 usbReturn_t Usb_Write(uint8_t* buffer, uint16_t bufferSize)
 {
+	if ((usb.func.write == NULL) || (buffer == NULL))
+	{
+		return eUSB_RETURN_INVALID_ARGUMENT;
+	}
 
-	usb.func.write(buffer, bufferSize);
-
-	return eUSB_RETURN_OK;
+	return usb.func.write(buffer, bufferSize);
 }
 
-usbReturn_t Usb_Read(uint8_t* buffer, uint32_t bufferSize)
+usbReturn_t Usb_Read(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize)
 {
+	if ((usb.func.read == NULL) || (buffer == NULL) || (readSize == NULL))
+	{
+		return eUSB_RETURN_INVALID_ARGUMENT;
+	}
 
-	usb.func.read(buffer, bufferSize);
-
-	return eUSB_RETURN_OK;
+	return usb.func.read(buffer, bufferSize, readSize);
 }
 
 /***********************************************************************************************************************

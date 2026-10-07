@@ -47,16 +47,13 @@
  * VARIAVEIS LOCAIS
  **********************************************************************************************************************/
 
-extern uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
-extern uint8_t recvDone;
-extern uint32_t recvSize;
 
 /***********************************************************************************************************************
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
 
-bspUsbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize);
-bspUsbReturn_t BspUsb_Received(uint8_t* buffer, uint16_t bufferSize);
+static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize);
+static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize);
 
 
 /***********************************************************************************************************************
@@ -65,8 +62,10 @@ bspUsbReturn_t BspUsb_Received(uint8_t* buffer, uint16_t bufferSize);
 
 bspUsbReturn_t BspUsb_Init(void)
 {
-
-	Usb_Init((void *)BspUsb_Transmit,(void *)BspUsb_Received);
+	if (Usb_Init(BspUsb_Transmit, BspUsb_Received) != eUSB_RETURN_OK)
+	{
+		return eBSP_USB_RETURN_ERROR;
+	}
 
 	return eBSP_USB_RETURN_OK;
 }
@@ -75,29 +74,32 @@ bspUsbReturn_t BspUsb_Init(void)
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
-bspUsbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize)
+static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize)
 {
-	uint8_t ret = 0;
+	uint8_t ret = CDC_Transmit_FS(buffer, bufferSize);
 
-	ret = CDC_Transmit_FS(buffer, bufferSize);
-
-	if (ret == 0)
+	if (ret == USBD_OK)
 	{
-		return eBSP_USB_RETURN_OK;
+		return eUSB_RETURN_OK;
 	}
-	return eBSP_USB_RETURN_ERROR;
+	if (ret == USBD_BUSY)
+	{
+		return eUSB_RETURN_BUSY;
+	}
+
+	return eUSB_RETURN_ERROR;
 }
 
-bspUsbReturn_t BspUsb_Received(uint8_t* buffer, uint16_t bufferSize)
+static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize)
 {
+	*readSize = CDC_Read_FS(buffer, bufferSize);
 
-	if (recvDone == 1)
+	if (*readSize == 0)
 	{
-		buffer = UserRxBufferFS;
-		bufferSize = recvSize;
+		return eUSB_RETURN_EMPTY;
 	}
 
-	return eBSP_USB_RETURN_OK;
+	return eUSB_RETURN_OK;
 }
 
 

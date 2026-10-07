@@ -1,3 +1,3 @@
-../App/Hal_Wrapper/Bsp_Usb.c:66:16:BspUsb_Init	1
-../App/Hal_Wrapper/Bsp_Usb.c:78:16:BspUsb_Transmit	2
-../App/Hal_Wrapper/Bsp_Usb.c:91:16:BspUsb_Received	2
+../App/Hal_Wrapper/Bsp_Usb.c:63:16:BspUsb_Init	2
+../App/Hal_Wrapper/Bsp_Usb.c:77:20:BspUsb_Transmit	3
+../App/Hal_Wrapper/Bsp_Usb.c:93:20:BspUsb_Received	2

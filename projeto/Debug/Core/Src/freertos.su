@@ -1,4 +1,4 @@
 ../Core/Src/freertos.c:144:6:MX_FREERTOS_Init	8	static
 ../Core/Src/freertos.c:201:6:StartDefaultTask	16	static
 ../Core/Src/freertos.c:222:6:CommTask	24	static
-../Core/Src/freertos.c:251:6:TestExecTask	16	static
+../Core/Src/freertos.c:265:6:TestExecTask	16	static

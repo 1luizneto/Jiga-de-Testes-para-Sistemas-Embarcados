@@ -23,6 +23,7 @@ typedef enum bspUsbReturn
     eBSP_USB_RETURN_OK,
     eBSP_USB_RETURN_INVALID_ARGUMENT,
     eBSP_USB_RETURN_ERROR,
+    eBSP_USB_RETURN_BUSY,
 
     eBSP_USB_RETURN_END_ENUM
 } bspUsbReturn_t;

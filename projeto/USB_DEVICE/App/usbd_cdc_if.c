@@ -22,7 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include <string.h>
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -95,8 +95,9 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 
-uint8_t recvDone  = 0;
-uint32_t recvSize = 0;
+/// Escritas na ISR do OTG_FS e lidas pela task: precisam ser volatile
+static volatile uint8_t  recvDone = 0;
+static volatile uint32_t recvSize = 0;
 
 /* USER CODE END PRIVATE_VARIABLES */
 
@@ -158,6 +159,10 @@ static int8_t CDC_Init_FS(void)
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+
+  // Nova enumeracao: descarta qualquer pacote pendente da conexao anterior
+  recvDone = 0;
+  recvSize = 0;
   return (USBD_OK);
   /* USER CODE END 3 */
 }
@@ -264,11 +269,9 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
-  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
 
-  recvDone = 1;
   recvSize = *Len;
+  recvDone = 1;
 
   return (USBD_OK);
   /* USER CODE END 6 */
@@ -290,6 +293,10 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 7 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+  // pClassData so existe depois que o host enumera a placa
+  if (hcdc == NULL){
+    return USBD_FAIL;
+  }
   if (hcdc->TxState != 0){
     return USBD_BUSY;
   }
@@ -323,6 +330,35 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
+
+/**
+  * @brief  Copia o ultimo pacote recebido para Buf e rearma a recepcao
+  * @param  Buf: Buffer de destino
+  * @param  MaxLen: Capacidade de Buf (bytes alem disso sao descartados)
+  * @retval Numero de bytes copiados (0 se nao ha pacote pendente)
+  */
+uint32_t CDC_Read_FS(uint8_t* Buf, uint32_t MaxLen)
+{
+
+  if (recvDone == 0)
+  {
+    return 0;
+  }
+
+  uint32_t len = recvSize;
+  if (len > MaxLen)
+  {
+    len = MaxLen;
+  }
+  memcpy(Buf, UserRxBufferFS, len);
+
+  // Libera o buffer para o proximo pacote so depois da copia
+  recvDone = 0;
+  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+
+  return len;
+
+}
 
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
