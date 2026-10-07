@@ -8,7 +8,19 @@ Primeira versão: um terminal para visualizar o que o STM32 envia pelo USB-CDC.
 pip install -r requirements.txt
 ```
 
-## Uso
+## Terminal gráfico (estilo Termite)
+
+```
+python terminal_gui.py
+```
+
+- Seleciona sozinho a porta do STM32 (USB-CDC); a lista se atualiza ao ligar/desligar a placa.
+- Recebidos em verde, enviados em azul; exibição em texto ou hex + ASCII, com horário opcional.
+- Linha de envio com histórico (setas ↑/↓), final de linha configurável e envio em hex (ex.: `7E 01 02 0A`).
+- Reconecta sozinho se a placa reiniciar; "Salvar..." grava o registro em .txt; Ctrl+L limpa.
+- O baud só importa para a UART do ST-Link (DebugLog); o USB-CDC o ignora.
+
+## Terminal de linha de comando
 
 ```
 python terminal_usb.py                 # detecta o STM32 (VID 0483 / PID 5740)
