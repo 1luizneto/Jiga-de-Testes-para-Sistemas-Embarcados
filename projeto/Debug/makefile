@@ -21,8 +21,8 @@ RM := rm -rf
 -include Core/Startup/subdir.mk
 -include Core/Src/subdir.mk
 -include App/System/subdir.mk
--include App/Hal_Wrapper/Src/subdir.mk
--include App/Comm/Src/subdir.mk
+-include App/Hal_Wrapper/subdir.mk
+-include App/Comm/subdir.mk
 -include objects.mk
 
 ifneq ($(MAKECMDGOALS),clean)

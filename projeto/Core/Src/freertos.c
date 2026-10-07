@@ -29,6 +29,7 @@
 #include "crc.h"
 #include "Crc16.h"
 #include "Comm.h"
+#include "Usb.h"
 
 #ifdef UNIT_TEST_ON_TARGET
 #include "TestRunner.h"
@@ -224,13 +225,18 @@ void CommTask(void *argument)
   /* Infinite loop */
 	DebugLog_SendTerminal("[TASK -> COMM] Inicio da Task\n");
 
-	commReturn_t ret = Comm_Init();
+	commReturn_t retComm = Comm_Init();
 
-	DebugLog_SendTerminal("[TASK -> COMM] Comm = %d\n", ret);
+	DebugLog_SendTerminal("[TASK -> COMM] Comm = %d\n", retComm);
+
+
+
 
   for(;;)
   {
-	  Comm_Handle();
+	  //Comm_Handle();
+	  Usb_Write((uint8_t *)"oi\n", 3);
+	  vTaskDelay(500);
   }
   /* USER CODE END CommTask */
 }

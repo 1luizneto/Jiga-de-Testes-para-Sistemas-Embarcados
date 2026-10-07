@@ -22,8 +22,8 @@ C_DEPS :=
 
 # Every subdirectory with source files must be described here
 SUBDIRS := \
-App/Comm/Src \
-App/Hal_Wrapper/Src \
+App/Comm \
+App/Hal_Wrapper \
 App/System \
 Core/Src \
 Core/Startup \

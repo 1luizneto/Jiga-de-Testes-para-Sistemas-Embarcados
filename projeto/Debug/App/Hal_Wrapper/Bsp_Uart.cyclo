@@ -1,0 +1,3 @@
+../App/Hal_Wrapper/Bsp_Uart.c:63:17:BspUart_Init	1
+../App/Hal_Wrapper/Bsp_Uart.c:74:17:BspUart_Send	2
+../App/Hal_Wrapper/Bsp_Uart.c:87:17:BspUart_Received	1
