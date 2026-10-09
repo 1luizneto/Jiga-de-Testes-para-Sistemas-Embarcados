@@ -30,18 +30,34 @@
 #include "usbd_cdc_if.h"
 #include "DebugLog.h"
 #include "cmsis_os.h"
+#include "FreeRTOS.h"
+#include "stream_buffer.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
  **********************************************************************************************************************/
 
-// Timeout em ms
-#define dTIMEOUT_UART (10U)
+/// Capacidade do stream buffer de recepcao: 2 quadros maximos (2 x 246 B)
+#define dRX_STREAM_SIZE (512U)
+
+#define dRX_STREAM_TRIGGER (1U)
 
 /***********************************************************************************************************************
  * TIPOS LOCAIS
  **********************************************************************************************************************/
 
+static struct bspUSb
+{
+
+	uint8_t rxStreamStorage[dRX_STREAM_SIZE + 1U];
+
+	StaticStreamBuffer_t rxStreamControl;
+
+	StreamBufferHandle_t rxStream;
+
+	volatile uint32_t rxDroppedBytes;
+
+} bspUsb;
 
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
@@ -53,7 +69,8 @@
  **********************************************************************************************************************/
 
 static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize);
-static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize);
+static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize, uint32_t timeoutMs);
+static void BspUsb_RxFromIsr(uint8_t *buffer, uint32_t bufferSize);
 
 
 /***********************************************************************************************************************
@@ -62,6 +79,20 @@ static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_
 
 bspUsbReturn_t BspUsb_Init(void)
 {
+
+	bspUsb.rxStream = xStreamBufferCreateStatic(dRX_STREAM_SIZE,
+												dRX_STREAM_TRIGGER,
+												bspUsb.rxStreamStorage,
+												&bspUsb.rxStreamControl);
+	bspUsb.rxDroppedBytes = 0;
+
+	if (bspUsb.rxStream == NULL)
+	{
+		return eBSP_USB_RETURN_ERROR;
+	}
+
+	CDC_RegisterRxCallback(BspUsb_RxFromIsr);
+
 	if (Usb_Init(BspUsb_Transmit, BspUsb_Received) != eUSB_RETURN_OK)
 	{
 		return eBSP_USB_RETURN_ERROR;
@@ -90,9 +121,9 @@ static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize)
 	return eUSB_RETURN_ERROR;
 }
 
-static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize)
+static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize, uint32_t timeoutMs)
 {
-	*readSize = CDC_Read_FS(buffer, bufferSize);
+	*readSize = xStreamBufferReceive(bspUsb.rxStream, buffer, bufferSize, pdMS_TO_TICKS(timeoutMs));
 
 	if (*readSize == 0)
 	{
@@ -100,6 +131,20 @@ static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_
 	}
 
 	return eUSB_RETURN_OK;
+}
+
+static void BspUsb_RxFromIsr(uint8_t *buffer, uint32_t bufferSize)
+{
+	BaseType_t higherPriorityTaskWoken = pdFALSE;
+
+	size_t written = xStreamBufferSendFromISR(bspUsb.rxStream, buffer, bufferSize, &higherPriorityTaskWoken);
+
+	if (written < bufferSize)
+	{
+		bspUsb.rxDroppedBytes += (bufferSize - written);
+	}
+
+	portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 

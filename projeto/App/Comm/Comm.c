@@ -28,13 +28,12 @@
 #include "Comm.h"
 #include "usb_device.h"
 #include "usbd_cdc.h"
+#include "DebugLog.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
  **********************************************************************************************************************/
 
-// Tamanho máximo do payload
-#define dPAYLOAD_MAX_SIZE (240U)
 
 /***********************************************************************************************************************
  * TIPOS LOCAIS
@@ -59,17 +58,7 @@ static struct comm
 
 }comm;
 
-typedef struct commFrame
-{
 
-	uint8_t begin; //1 Byte
-	uint8_t size;  //1 Byte (0 a 240)
-	uint8_t seq;   //1 Byte
-	uint8_t cmd;   //1 Byte Código do comando
-	uint8_t payload[dPAYLOAD_MAX_SIZE];
-	uint16_t crc16;
-
-} commFrame_t;
 
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS

@@ -45,6 +45,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define dCOMM_RX_TIMEOUT_MS (100U)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -229,25 +231,18 @@ void CommTask(void *argument)
 
 	DebugLog_SendTerminal("[TASK -> COMM] Comm = %d\n", retComm);
 
-
-	// Teste de eco: devolve ao PC cada pacote recebido pelo CN13.
-	// static: o CDC_Transmit_FS e assincrono, o buffer precisa continuar valido apos o retorno
-	static uint8_t echoBuffer[64]; // 64 = tamanho maximo de um pacote CDC full-speed
+	static uint8_t echoBuffer[64];
 	uint32_t echoSize = 0;
 
   for(;;)
   {
-	  if (Usb_Read(echoBuffer, sizeof(echoBuffer), &echoSize) == eUSB_RETURN_OK)
+	  if (Usb_Read(echoBuffer, sizeof(echoBuffer), &echoSize, dCOMM_RX_TIMEOUT_MS) == eUSB_RETURN_OK)
 	  {
-		  // Tenta de novo enquanto a transmissao anterior nao terminou
+
 		  while (Usb_Write(echoBuffer, (uint16_t)echoSize) == eUSB_RETURN_BUSY)
 		  {
 			  vTaskDelay(1);
 		  }
-	  }
-	  else
-	  {
-		  vTaskDelay(1);
 	  }
 
 	  //Comm_Handle();

@@ -87,14 +87,14 @@ usbReturn_t Usb_Write(uint8_t* buffer, uint16_t bufferSize)
 	return usb.func.write(buffer, bufferSize);
 }
 
-usbReturn_t Usb_Read(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize)
+usbReturn_t Usb_Read(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize, uint32_t timeoutMs)
 {
 	if ((usb.func.read == NULL) || (buffer == NULL) || (readSize == NULL))
 	{
 		return eUSB_RETURN_INVALID_ARGUMENT;
 	}
 
-	return usb.func.read(buffer, bufferSize, readSize);
+	return usb.func.read(buffer, bufferSize, readSize, timeoutMs);
 }
 
 /***********************************************************************************************************************

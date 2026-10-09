@@ -66,6 +66,8 @@
 
 /* USER CODE BEGIN EXPORTED_TYPES */
 
+typedef void (*cdcReceiveFsFunc_t)(uint8_t* pbuffer, uint32_t bufferSize);
+
 /* USER CODE END EXPORTED_TYPES */
 
 /**
@@ -109,7 +111,9 @@ extern USBD_CDC_ItfTypeDef USBD_Interface_fops_FS;
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
-uint32_t CDC_Read_FS(uint8_t* Buf, uint32_t MaxLen);
+
+void CDC_RegisterRxCallback(cdcReceiveFsFunc_t cb);
+
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 
