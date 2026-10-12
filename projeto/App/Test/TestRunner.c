@@ -27,6 +27,17 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Crc16_HardwareCalculosSeguidos);
 		RUN_TEST(Test_Crc16_HardwareBUfferMaximoComm);
 
+		RUN_TEST(Test_Comm_PingValido);
+		RUN_TEST(Test_Comm_PayloadCom7E);
+		RUN_TEST(Test_Comm_PayloadMaximo);
+		RUN_TEST(Test_Comm_CrcInvalido);
+		RUN_TEST(Test_Comm_LenInvalido);
+		RUN_TEST(Test_Comm_LixoAntesDoSof);
+		RUN_TEST(Test_Comm_DoisQuadrosSeguidos);
+		RUN_TEST(Test_Comm_TimeoutDescartaQuadroParcial);
+		RUN_TEST(Test_Comm_QuadroParcialSemTimeout);
+		RUN_TEST(Test_Comm_FrameNulo);
+
 	UNITY_END();
 
 	for (;;)

@@ -35,6 +35,7 @@
 
 #include "Bsp.h"
 #include "DebugLog.h"
+#include "Version.h"
 
 /* USER CODE END Includes */
 
@@ -122,7 +123,7 @@ int main(void)
   Bsp_Init();
 
   HAL_Delay(1000);
-  DebugLog_SendTerminal("\n\n\n[SYSTEM] Iniciando o sistema\n\n\n");
+  DebugLog_SendTerminal("\n\n\n[SYSTEM] Iniciando o sistema - firmware v%s\n\n\n", dFW_VERSION_STRING);
 
   /* USER CODE END 2 */
 

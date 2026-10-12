@@ -226,27 +226,61 @@ void CommTask(void *argument)
   /* USER CODE BEGIN CommTask */
   /* Infinite loop */
 	DebugLog_SendTerminal("[TASK -> COMM] Inicio da Task\n");
-
 	commReturn_t retComm = Comm_Init();
-
 	DebugLog_SendTerminal("[TASK -> COMM] Comm = %d\n", retComm);
 
-	static uint8_t echoBuffer[64];
-	uint32_t echoSize = 0;
+#ifdef UNIT_TEST_ON_TARGET
+	// Na build Test o parser e exercitado pelo TestRunner: a CommTask nao pode mexer no estado dele
+	for(;;)
+	{
+		osDelay(1000);
+	}
+#else
+	// static: fora da stack de 1 KB da task, que ainda precisa caber o vsnprintf do DebugLog
+	static uint8_t rxBuffer[64];
+	static commFrame_t frame;
+	uint32_t rxSize = 0;
+	usbReturn_t retUsb;
 
   for(;;)
   {
-	  if (Usb_Read(echoBuffer, sizeof(echoBuffer), &echoSize, dCOMM_RX_TIMEOUT_MS) == eUSB_RETURN_OK)
-	  {
+	  retUsb = Usb_Read(rxBuffer, sizeof(rxBuffer), &rxSize, dCOMM_RX_TIMEOUT_MS);
 
-		  while (Usb_Write(echoBuffer, (uint16_t)echoSize) == eUSB_RETURN_BUSY)
+	  if (retUsb == eUSB_RETURN_OK)
+	  {
+		  // Um bloco do USB pode ter pedaco de quadro ou varios quadros: o parser consome byte a byte
+		  for (uint32_t i = 0; i < rxSize; i++)
 		  {
-			  vTaskDelay(1);
+			  // O quadro e tratado assim que fica pronto, antes que o proximo sobrescreva o frame
+			  switch (Comm_ProcessByte(rxBuffer[i], &frame))
+			  {
+				  case eCOMM_RETURN_FRAME_OK:
+					  DebugLog_SendTerminal("[COMM] Quadro OK: LEN=%u SEQ=%u CMD=0x%02X\n", frame.size, frame.seq, frame.cmd);
+				  break;
+
+				  case eCOMM_RETURN_CRC_ERROR:
+					  DebugLog_SendTerminal("[COMM] Erro de CRC: quadro descartado\n");
+				  break;
+
+				  case eCOMM_RETURN_LEN_ERROR:
+					  DebugLog_SendTerminal("[COMM] LEN maior que %u: quadro descartado\n", dCOMM_PAYLOAD_MAX_SIZE);
+				  break;
+
+				  default:
+				  break;
+			  }
 		  }
 	  }
-
-	  //Comm_Handle();
+	  else if (retUsb == eUSB_RETURN_EMPTY)
+	  {
+		  // Timeout de pacote: dCOMM_RX_TIMEOUT_MS sem bytes descarta um quadro pela metade
+		  if (Comm_Timeout() == eCOMM_RETURN_TIMEOUT)
+		  {
+			  DebugLog_SendTerminal("[COMM] Timeout: quadro incompleto descartado\n");
+		  }
+	  }
   }
+#endif
   /* USER CODE END CommTask */
 }
 
