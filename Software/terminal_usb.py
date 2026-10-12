@@ -11,10 +11,15 @@ Uso:
     python terminal_usb.py --modo texto    # mostra como texto em vez de hex
     python terminal_usb.py --log saida.txt # tambem grava o que for exibido
     python terminal_usb.py --listar        # lista as portas e sai
+    python terminal_usb.py --versao        # mostra a versao e sai
 
 Comandos digitados durante a execucao:
     texto qualquer   envia o texto (sem quebra de linha)
     /hex 7E 01 02    envia os bytes em hexadecimal
+    /quadro 01       envia um quadro do protocolo (CMD em hex; SEQ automatico)
+    /quadro 10 AA BB quadro com payload em hex
+    /teste           lista os casos de teste do protocolo
+    /teste 3         envia o caso 3 (/teste todos envia todos)
     /modo            alterna entre hex e texto
     /ajuda           mostra os comandos
     /sair            encerra (Ctrl+C tambem)
@@ -29,6 +34,9 @@ from datetime import datetime
 import serial
 from serial.tools import list_ports
 
+from protocolo import CASOS_TESTE, LOG_FIRMWARE, montar_quadro
+from versao import __version__
+
 # VID/PID padrao do USB-CDC da STMicroelectronics (Virtual COM Port)
 STM32_VID = 0x0483
 STM32_CDC_PID = 0x5740
@@ -37,6 +45,9 @@ BYTES_POR_LINHA = 16
 
 # Tempo sem receber bytes que marca o fim de uma rajada (s)
 SILENCIO_FIM_RAJADA = 0.005
+
+# Pausa entre casos de teste, para o log de um nao se misturar com o do outro (s)
+PAUSA_ENTRE_CASOS = 0.3
 
 
 def listar_portas():
@@ -78,6 +89,7 @@ class Terminal:
         self.serial = None
         self.rodando = True
         self.trava_saida = threading.Lock()
+        self.seq = 0
 
     # --- saida ------------------------------------------------------------
 
@@ -168,6 +180,43 @@ class Terminal:
         if self.modo == "hex":
             self.exibir(f"TX {len(dados)} B\n{formatar_hex(dados)}")
 
+    def enviar_quadro(self, argumentos):
+        """'/quadro CMD [payload]': monta o quadro com SEQ automatico."""
+        try:
+            campos = interpretar_hex(argumentos)
+            if not campos:
+                raise ValueError
+            quadro = montar_quadro(self.seq, campos[0], campos[1:])
+        except ValueError:
+            self.exibir("*** uso: /quadro CMD [payload], em hex; ex.: /quadro 01 ***")
+            return
+        self.exibir(f"*** quadro SEQ={self.seq} CMD=0x{campos[0]:02X} LEN={len(campos) - 1} ***")
+        self.seq = (self.seq + 1) & 0xFF
+        self.enviar(quadro)
+
+    def executar_casos(self, argumento):
+        """'/teste': lista os casos; '/teste N' ou '/teste todos' envia."""
+        if not argumento:
+            for i, caso in enumerate(CASOS_TESTE, 1):
+                self.exibir(f"  {i:2d}. {caso.nome:22s} {caso.descricao}")
+            return
+        if argumento == "todos":
+            casos = CASOS_TESTE
+        elif argumento.isdigit() and 1 <= int(argumento) <= len(CASOS_TESTE):
+            casos = [CASOS_TESTE[int(argumento) - 1]]
+        else:
+            self.exibir(f"*** caso invalido; use 1 a {len(CASOS_TESTE)} ou 'todos' ***")
+            return
+        for caso in casos:
+            esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
+            self.exibir(f"*** caso '{caso.nome}' | esperado no DebugLog: {esperado} ***")
+            for tipo, valor in caso.passos:
+                if tipo == "enviar":
+                    self.enviar(valor)
+                else:
+                    time.sleep(valor)
+            time.sleep(PAUSA_ENTRE_CASOS)
+
     def tratar_linha(self, linha):
         if linha in ("/sair", "/q"):
             self.rodando = False
@@ -176,6 +225,10 @@ class Terminal:
         elif linha == "/modo":
             self.modo = "texto" if self.modo == "hex" else "hex"
             self.exibir(f"*** modo: {self.modo} ***")
+        elif linha.startswith("/quadro"):
+            self.enviar_quadro(linha[7:])
+        elif linha.startswith("/teste"):
+            self.executar_casos(linha[6:].strip())
         elif linha.startswith("/hex"):
             try:
                 self.enviar(interpretar_hex(linha[4:]))
@@ -187,7 +240,7 @@ class Terminal:
     def executar(self):
         receptor = threading.Thread(target=self.laco_recepcao, daemon=True)
         receptor.start()
-        self.exibir("Terminal USB-CDC da jiga. Digite /ajuda para os comandos.")
+        self.exibir(f"Terminal USB-CDC da jiga v{__version__}. Digite /ajuda para os comandos.")
         try:
             while self.rodando:
                 self.tratar_linha(input().strip())
@@ -206,6 +259,7 @@ def main():
                         help="forma de exibir os dados recebidos (padrao: hex)")
     parser.add_argument("--log", help="arquivo onde gravar o que for exibido")
     parser.add_argument("--listar", action="store_true", help="lista as portas seriais e sai")
+    parser.add_argument("--versao", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args()
 
     if args.listar:
