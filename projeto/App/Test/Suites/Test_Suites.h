@@ -15,5 +15,17 @@ void Test_Crc16_HardwareDataEmpty(void);
 void Test_Crc16_HardwareCalculosSeguidos(void);
 void Test_Crc16_HardwareBUfferMaximoComm(void);
 
+// Testes do parser de quadros (Comm)
+void Test_Comm_PingValido(void);
+void Test_Comm_PayloadCom7E(void);
+void Test_Comm_PayloadMaximo(void);
+void Test_Comm_CrcInvalido(void);
+void Test_Comm_LenInvalido(void);
+void Test_Comm_LixoAntesDoSof(void);
+void Test_Comm_DoisQuadrosSeguidos(void);
+void Test_Comm_TimeoutDescartaQuadroParcial(void);
+void Test_Comm_QuadroParcialSemTimeout(void);
+void Test_Comm_FrameNulo(void);
+
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

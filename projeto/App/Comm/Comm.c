@@ -8,10 +8,11 @@
  *   - Generic.
  *
  *   \n <b>Dependencias:</b>
- *   - None.
+ *   - Crc16.
  *
  *   \n <b>Observacoes:</b>
- *   - None.
+ *   - Quadro: SOF(0x7E) | LEN | SEQ | CMD | PAYLOAD(0 a 240) | CRC16 (little-endian).
+ *   - CRC calculado sobre LEN + SEQ + CMD + PAYLOAD.
  *
  *   Changelog
  *   @version      <b>1.0.0 - 01/10/2026</b> \n Luiz Neto \n Primeira versao
@@ -26,19 +27,31 @@
  **********************************************************************************************************************/
 
 #include "Comm.h"
-#include "usb_device.h"
-#include "usbd_cdc.h"
-#include "DebugLog.h"
+#include "Crc16.h"
+#include <stddef.h>
+#include <string.h>
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
  **********************************************************************************************************************/
 
+/// Byte de inicio de quadro
+#define dCOMM_SOF (0x7EU)
+
+/// Tamanho do cabecalho: LEN + SEQ + CMD
+#define dCOMM_HEADER_SIZE (3U)
+
+/// Tamanho do buffer bruto: cabecalho + payload maximo (sem SOF e sem CRC)
+#define dCOMM_RAW_MAX_SIZE (dCOMM_HEADER_SIZE + dCOMM_PAYLOAD_MAX_SIZE)
+
+/// Posicoes dos campos do cabecalho dentro do buffer bruto
+#define dCOMM_IDX_LEN (0U)
+#define dCOMM_IDX_SEQ (1U)
+#define dCOMM_IDX_CMD (2U)
 
 /***********************************************************************************************************************
  * TIPOS LOCAIS
  **********************************************************************************************************************/
-
 
 typedef enum commState
 {
@@ -50,15 +63,20 @@ typedef enum commState
 	eCOMM_STATE_END_ENUM
 } commState_t;
 
-
 static struct comm
 {
-
 	commState_t commState;
 
-}comm;
+	/// LEN, SEQ, CMD e PAYLOAD recebidos, na ordem em que chegam
+	uint8_t raw[dCOMM_RAW_MAX_SIZE];
 
+	/// Quantidade de bytes ja recebidos no estado atual
+	uint16_t count;
 
+	/// CRC recebido no quadro (little-endian)
+	uint16_t crcReceived;
+
+} comm;
 
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
@@ -68,62 +86,158 @@ static struct comm
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
 
+static commReturn_t Comm_ValidaQuadro(commFrame_t *frame);
+
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
  **********************************************************************************************************************/
 
 commReturn_t Comm_Init(void)
 {
-
-	comm.commState = eCOMM_STATE_AGUARDA_SOF;
-
-	return eCOMM_RETURN_OK;
+	return Comm_Reset();
 }
 
-commReturn_t Comm_Handle(void)
+commReturn_t Comm_Reset(void)
 {
-
-	switch (comm.commState)
-	{
-
-		case eCOMM_STATE_AGUARDA_SOF:
-
-			//DebugLog_SendTerminal("");
-			comm.commState = eCOMM_STATE_LE_CABECALHO;
-
-		break;
-
-		case eCOMM_STATE_LE_CABECALHO:
-
-			comm.commState = eCOMM_STATE_LE_PAYLOAD;
-
-		break;
-
-		case eCOMM_STATE_LE_PAYLOAD:
-
-			comm.commState = eCOMM_STATE_VALIDA_CRC;
-
-		break;
-
-		case eCOMM_STATE_VALIDA_CRC:
-
-			comm.commState = eCOMM_STATE_AGUARDA_SOF;
-
-		break;
-
-		default:
-
-			comm.commState = eCOMM_STATE_END_ENUM;
-
-		break;
-
-	}
+	comm.commState   = eCOMM_STATE_AGUARDA_SOF;
+	comm.count       = 0;
+	comm.crcReceived = 0;
 
 	return eCOMM_RETURN_OK;
 }
 
 /***********************************************************************************************************************
+ * @brief      Avisa o parser que a linha ficou em silencio (timeout de pacote).
+ * @details    Descarta um quadro recebido pela metade. Quem mede o tempo e a CommTask, assim o parser nao depende
+ *             do FreeRTOS e continua testavel.
+ * @return     eCOMM_RETURN_TIMEOUT se havia um quadro em andamento, eCOMM_RETURN_OK se o parser ja estava ocioso
+ **********************************************************************************************************************/
+commReturn_t Comm_Timeout(void)
+{
+	if (comm.commState == eCOMM_STATE_AGUARDA_SOF)
+	{
+		return eCOMM_RETURN_OK;
+	}
+
+	Comm_Reset();
+
+	return eCOMM_RETURN_TIMEOUT;
+}
+
+commReturn_t Comm_ProcessByte(uint8_t byte, commFrame_t *frame)
+{
+	if (frame == NULL)
+	{
+		return eCOMM_RETURN_INVALID_ARGUMENT;
+	}
+
+	switch (comm.commState)
+	{
+		case eCOMM_STATE_AGUARDA_SOF:
+
+			// Qualquer byte diferente do SOF e descartado
+			if (byte == dCOMM_SOF)
+			{
+				comm.count     = 0;
+				comm.commState = eCOMM_STATE_LE_CABECALHO;
+			}
+
+		break;
+
+		case eCOMM_STATE_LE_CABECALHO:
+
+			// LEN invalido: descarta o quadro assim que ele chega
+			if ((comm.count == dCOMM_IDX_LEN) && (byte > dCOMM_PAYLOAD_MAX_SIZE))
+			{
+				Comm_Reset();
+				return eCOMM_RETURN_LEN_ERROR;
+			}
+
+			comm.raw[comm.count] = byte;
+			comm.count++;
+
+			if (comm.count == dCOMM_HEADER_SIZE)
+			{
+				comm.count     = 0;
+				comm.commState = (comm.raw[dCOMM_IDX_LEN] == 0U) ? eCOMM_STATE_VALIDA_CRC : eCOMM_STATE_LE_PAYLOAD;
+			}
+
+		break;
+
+		case eCOMM_STATE_LE_PAYLOAD:
+
+			comm.raw[dCOMM_HEADER_SIZE + comm.count] = byte;
+			comm.count++;
+
+			if (comm.count == comm.raw[dCOMM_IDX_LEN])
+			{
+				comm.count     = 0;
+				comm.commState = eCOMM_STATE_VALIDA_CRC;
+			}
+
+		break;
+
+		case eCOMM_STATE_VALIDA_CRC:
+
+			// 1o byte: parte baixa do CRC
+			if (comm.count == 0U)
+			{
+				comm.crcReceived = byte;
+				comm.count++;
+				break;
+			}
+
+			// 2o byte: parte alta do CRC, quadro completo
+			comm.crcReceived |= (uint16_t)((uint16_t)byte << 8);
+
+			return Comm_ValidaQuadro(frame);
+
+		default:
+
+			Comm_Reset();
+			return eCOMM_RETURN_ERROR;
+	}
+
+	return eCOMM_RETURN_READING;
+}
+
+/***********************************************************************************************************************
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
+
+/***********************************************************************************************************************
+ * @brief      Calcula o CRC do quadro recebido e, se valido, copia os campos para o frame.
+ * @param[out] frame  Quadro de saida (so e escrito quando o CRC confere)
+ * @return     eCOMM_RETURN_FRAME_OK, eCOMM_RETURN_CRC_ERROR ou eCOMM_RETURN_ERROR
+ **********************************************************************************************************************/
+static commReturn_t Comm_ValidaQuadro(commFrame_t *frame)
+{
+	uint8_t  len = comm.raw[dCOMM_IDX_LEN];
+	uint16_t crcCalculated;
+	commReturn_t ret;
+
+	if (Crc16_Calcule(comm.raw, (uint16_t)(dCOMM_HEADER_SIZE + len), &crcCalculated, dCRC_INITIAL_VALUE) != eCRC16_RETURN_OK)
+	{
+		ret = eCOMM_RETURN_ERROR;
+	}
+	else if (crcCalculated != comm.crcReceived)
+	{
+		ret = eCOMM_RETURN_CRC_ERROR;
+	}
+	else
+	{
+		frame->size  = len;
+		frame->seq   = comm.raw[dCOMM_IDX_SEQ];
+		frame->cmd   = comm.raw[dCOMM_IDX_CMD];
+		frame->crc16 = comm.crcReceived;
+		memcpy(frame->payload, &comm.raw[dCOMM_HEADER_SIZE], len);
+
+		ret = eCOMM_RETURN_FRAME_OK;
+	}
+
+	Comm_Reset();
+
+	return ret;
+}
 
 /** @} DOXYGEN GROUP TAG END OF FILE */

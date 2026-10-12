@@ -2,7 +2,8 @@
 Terminal serial grafico da jiga de testes (no estilo do Termite).
 
 Mostra o que chega pela porta serial do STM32 (USB-CDC ou a UART do ST-Link)
-e permite enviar texto ou bytes em hexadecimal.
+e permite enviar texto, bytes em hexadecimal ou quadros do protocolo, alem de
+disparar os casos de teste do parser.
 
 Uso:
     python terminal_gui.py
@@ -19,11 +20,15 @@ from serial.tools import list_ports
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from terminal_usb import SILENCIO_FIM_RAJADA, detectar_porta, formatar_hex, interpretar_hex
+from protocolo import CASOS_TESTE, LOG_FIRMWARE, PAYLOAD_MAX, montar_quadro
+from terminal_usb import (
+    PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, detectar_porta, formatar_hex, interpretar_hex,
+)
+from versao import __version__
 
 TAXAS_BAUD = ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"]
 FINAIS_DE_LINHA = {"Nenhum": b"", "LF (\\n)": b"\n", "CR (\\r)": b"\r", "CR+LF": b"\r\n"}
@@ -137,11 +142,12 @@ class CampoEnvio(QLineEdit):
 class JanelaTerminal(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Terminal da Jiga")
+        self.setWindowTitle(f"Terminal da Jiga v{__version__}")
         self.resize(900, 600)
         self.leitor = None
         self.inicio_linha = True
         self.decodificador = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.fila_teste = []
         self.config = QSettings("TCC-Jiga", "TerminalSerial")
         self._montar_interface()
         self._carregar_config()
@@ -224,8 +230,61 @@ class JanelaTerminal(QMainWindow):
         linha3.addWidget(bt_enviar)
         layout.addLayout(linha3)
 
+        layout.addWidget(self._montar_protocolo())
+
         self.setCentralWidget(central)
         QShortcut(QKeySequence("Ctrl+L"), self, activated=self.limpar)
+
+    def _montar_protocolo(self):
+        grupo = QGroupBox("Protocolo (quadros e casos de teste do parser)")
+        layout = QVBoxLayout(grupo)
+
+        # Quadro montado a mao: SOF, LEN e CRC sao calculados
+        linha_quadro = QHBoxLayout()
+        self.spin_seq = QSpinBox(minimum=0, maximum=255)
+        self.ck_seq_auto = QCheckBox("auto", checked=True)
+        self.ck_seq_auto.setToolTip("Incrementa o SEQ a cada quadro enviado")
+        self.campo_cmd = QLineEdit("01", maximumWidth=50)
+        self.campo_cmd.setFont(QFont("Consolas", 10))
+        self.campo_payload = QLineEdit()
+        self.campo_payload.setFont(QFont("Consolas", 10))
+        self.campo_payload.setPlaceholderText(f"Payload em hex (0 a {PAYLOAD_MAX} B), ex.: AA BB 7E")
+        self.campo_payload.returnPressed.connect(self.enviar_quadro)
+        bt_quadro = QPushButton("Enviar quadro", clicked=self.enviar_quadro)
+        linha_quadro.addWidget(QLabel("SEQ:"))
+        linha_quadro.addWidget(self.spin_seq)
+        linha_quadro.addWidget(self.ck_seq_auto)
+        linha_quadro.addSpacing(8)
+        linha_quadro.addWidget(QLabel("CMD:"))
+        linha_quadro.addWidget(self.campo_cmd)
+        linha_quadro.addWidget(QLabel("Payload:"))
+        linha_quadro.addWidget(self.campo_payload, 1)
+        linha_quadro.addWidget(bt_quadro)
+        layout.addLayout(linha_quadro)
+
+        # Casos de teste prontos
+        linha_teste = QHBoxLayout()
+        self.combo_caso = QComboBox()
+        for i, caso in enumerate(CASOS_TESTE, 1):
+            self.combo_caso.addItem(f"{i}. {caso.nome}", caso)
+        self.combo_caso.currentIndexChanged.connect(self._mudou_caso)
+        self.lb_caso = QLabel()
+        self.lb_caso.setStyleSheet("color: #555")
+        self.bt_caso = QPushButton("Executar caso", clicked=lambda: self.executar_casos([self.combo_caso.currentData()]))
+        self.bt_todos = QPushButton("Executar todos", clicked=lambda: self.executar_casos(CASOS_TESTE))
+        linha_teste.addWidget(QLabel("Caso de teste:"))
+        linha_teste.addWidget(self.combo_caso)
+        linha_teste.addWidget(self.lb_caso, 1)
+        linha_teste.addWidget(self.bt_caso)
+        linha_teste.addWidget(self.bt_todos)
+        layout.addLayout(linha_teste)
+
+        dica = QLabel("O resultado aparece no DebugLog: abra outra janela do terminal na porta do ST-Link (1000000 baud).")
+        dica.setStyleSheet("color: #8a8a8a")
+        layout.addWidget(dica)
+
+        self._mudou_caso()
+        return grupo
 
     def _carregar_config(self):
         self.combo_baud.setCurrentText(self.config.value("baud", "115200"))
@@ -359,6 +418,74 @@ class JanelaTerminal(QMainWindow):
 
     # --- envio ------------------------------------------------------------
 
+    def _transmitir(self, dados):
+        """Escreve na porta; retorna False (e avisa na tela) se nao deu."""
+        if self.leitor is None:
+            self._escrever_info("Não conectado; nada enviado")
+            return False
+        try:
+            self.leitor.escrever(dados)
+        except (serial.SerialException, OSError) as e:
+            self._escrever_info(f"Erro ao enviar: {e}")
+            return False
+        return True
+
+    def _enviar_bytes(self, dados, rotulo="TX"):
+        """Envia bytes binarios e mostra em hex (quadros do protocolo)."""
+        if self._transmitir(dados) and self.ck_eco.isChecked():
+            self._escrever_hex(dados, COR_TX, rotulo)
+
+    def enviar_quadro(self):
+        try:
+            cmd = interpretar_hex(self.campo_cmd.text())
+            if len(cmd) != 1:
+                raise ValueError("CMD precisa ser 1 byte, ex.: 01")
+            quadro = montar_quadro(self.spin_seq.value(), cmd[0], interpretar_hex(self.campo_payload.text()))
+        except ValueError as e:
+            self._escrever_info(f"Quadro inválido: {e}")
+            return
+        if self.leitor is None:
+            self._escrever_info("Não conectado; nada enviado")
+            return
+        self._enviar_bytes(quadro, f"TX quadro SEQ={self.spin_seq.value()} CMD=0x{cmd[0]:02X}")
+        if self.ck_seq_auto.isChecked():
+            self.spin_seq.setValue((self.spin_seq.value() + 1) % 256)
+
+    def _mudou_caso(self, *_):
+        caso = self.combo_caso.currentData()
+        esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
+        self.lb_caso.setText(f"{caso.descricao}  →  {esperado}")
+
+    def executar_casos(self, casos):
+        """Enfileira os passos dos casos; as esperas usam QTimer para nao travar a janela."""
+        # Botao desabilitado = execucao em andamento (inclusive na ultima espera, com a fila ja vazia)
+        if not self.bt_todos.isEnabled():
+            return
+        if self.leitor is None:
+            self._escrever_info("Não conectado; nada enviado")
+            return
+        for caso in casos:
+            esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
+            self.fila_teste.append(("info", f"Caso '{caso.nome}' | esperado no DebugLog: {esperado}"))
+            self.fila_teste += list(caso.passos)
+            self.fila_teste.append(("esperar", PAUSA_ENTRE_CASOS))
+        self.bt_caso.setEnabled(False)
+        self.bt_todos.setEnabled(False)
+        self._proximo_passo()
+
+    def _proximo_passo(self):
+        while self.fila_teste:
+            tipo, valor = self.fila_teste.pop(0)
+            if tipo == "esperar":
+                QTimer.singleShot(int(valor * 1000), self._proximo_passo)
+                return
+            if tipo == "info":
+                self._escrever_info(valor)
+            else:
+                self._enviar_bytes(valor)
+        self.bt_caso.setEnabled(True)
+        self.bt_todos.setEnabled(True)
+
     def enviar(self):
         texto = self.campo.text()
         if self.leitor is None:
@@ -372,12 +499,7 @@ class JanelaTerminal(QMainWindow):
         except ValueError:
             self._escrever_info("Hexadecimal inválido; ex.: 7E 01 02 0A")
             return
-        if not dados:
-            return
-        try:
-            self.leitor.escrever(dados)
-        except (serial.SerialException, OSError) as e:
-            self._escrever_info(f"Erro ao enviar: {e}")
+        if not dados or not self._transmitir(dados):
             return
         self.campo.guardar(texto)
         self.campo.clear()

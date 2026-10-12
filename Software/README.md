@@ -1,6 +1,15 @@
 # Software (aplicação desktop)
 
-Primeira versão: um terminal para visualizar o que o STM32 envia pelo USB-CDC.
+Terminal para conversar com o STM32 pelo USB-CDC e ferramentas para testar o protocolo.
+A versão está em `versao.py` (ver [Versionamento](../README.md#versionamento)).
+
+| Arquivo | Papel |
+|---|---|
+| `terminal_gui.py` | Terminal gráfico (PySide6) |
+| `terminal_usb.py` | Terminal de linha de comando |
+| `protocolo.py` | Quadro, CRC-16/CCITT-FALSE, receptor (espelho do firmware) e casos de teste |
+| `teste_protocolo.py` | Teste automático com a placa |
+| `tests/` | Testes do software (pytest) |
 
 ## Instalação
 
@@ -18,7 +27,10 @@ python terminal_gui.py
 - Recebidos em verde, enviados em azul; exibição em texto ou hex + ASCII, com horário opcional.
 - Linha de envio com histórico (setas ↑/↓), final de linha configurável e envio em hex (ex.: `7E 01 02 0A`).
 - Reconecta sozinho se a placa reiniciar; "Salvar..." grava o registro em .txt; Ctrl+L limpa.
-- O baud só importa para a UART do ST-Link (DebugLog); o USB-CDC o ignora.
+- O baud só importa para a UART do ST-Link (DebugLog, 1000000 baud); o USB-CDC o ignora.
+- Painel **Protocolo**: monta um quadro (SEQ automático, CMD e payload em hex; SOF, LEN e CRC são
+  calculados) e executa os casos de teste do parser, um ou todos. Cada caso mostra o que a placa
+  deve logar; para ver o resultado, abra uma segunda janela na porta do ST-Link.
 
 ## Terminal de linha de comando
 
@@ -28,6 +40,7 @@ python terminal_usb.py --porta COM14   # porta específica
 python terminal_usb.py --modo texto    # exibe como texto em vez de hex + ASCII
 python terminal_usb.py --log saida.txt # grava o que for exibido
 python terminal_usb.py --listar        # lista as portas seriais
+python terminal_usb.py --versao        # mostra a versão
 ```
 
 Durante a execução:
@@ -36,8 +49,37 @@ Durante a execução:
 |------------------|----------------------------------------|
 | `texto qualquer` | envia o texto (sem quebra de linha)    |
 | `/hex 7E 01 02`  | envia os bytes em hexadecimal          |
+| `/quadro 01`     | envia um quadro (CMD em hex, SEQ automático) |
+| `/quadro 10 AA BB` | quadro com payload                   |
+| `/teste`         | lista os casos de teste do protocolo   |
+| `/teste 3`, `/teste todos` | envia um caso / todos        |
 | `/modo`          | alterna entre hex e texto              |
 | `/ajuda`         | mostra os comandos                     |
 | `/sair`, Ctrl+C  | encerra                                |
 
 Se a placa for reiniciada, a porta USB some; o terminal espera e reconecta sozinho.
+
+## Teste automático com a placa
+
+Com os **dois** cabos ligados (CN13 = USB-CDC e CN1 = ST-Link), o script envia cada caso de teste
+pelo USB-CDC e confere, no DebugLog, se a CommTask logou o resultado esperado:
+
+```
+python teste_protocolo.py            # detecta as duas portas
+python teste_protocolo.py --listar   # lista os casos
+python teste_protocolo.py --caso 8   # só um caso
+python teste_protocolo.py --porta COM14 --porta-log COM8
+```
+
+Não deixe outro terminal aberto nessas portas enquanto o script roda.
+
+## Testes do software
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cobrem o CRC (com os mesmos vetores dos testes Unity do firmware), a montagem de quadros, o receptor,
+a coerência dos casos de teste e se firmware, software e CHANGELOG estão na mesma versão.
+Rodam também no GitHub Actions a cada push.
