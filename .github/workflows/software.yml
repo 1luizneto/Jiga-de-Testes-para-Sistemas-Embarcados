@@ -1,0 +1,32 @@
+name: Testes do software
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "Software/**"
+      - "projeto/App/System/Inc/Version.h"
+      - "CHANGELOG.md"
+      - ".github/workflows/software.yml"
+  pull_request:
+    paths:
+      - "Software/**"
+      - "projeto/App/System/Inc/Version.h"
+      - "CHANGELOG.md"
+      - ".github/workflows/software.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Software
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # PySide6 fica de fora: os testes nao abrem a interface grafica
+      - run: pip install "pyserial>=3.5" "pytest>=8"
+      - run: pytest -v
