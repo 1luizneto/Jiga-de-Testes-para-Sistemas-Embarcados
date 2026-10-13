@@ -15,6 +15,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 07/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 13/10/2026</b> \n Luiz Neto \n Deteccao de sessao nova pelo DTR (porta aberta no
+ *                 PC), informada pelo Usb_NewSession
  *
  *   @copyright
  *   @{
@@ -57,6 +59,12 @@ static struct bspUSb
 
 	volatile uint32_t rxDroppedBytes;
 
+	/// Ultimo DTR informado pelo PC (1 = porta aberta). Escrito so na ISR do OTG_FS
+	volatile uint8_t dtr;
+
+	/// 1 quando o DTR foi de 0 para 1 (sessao nova) e a task ainda nao consultou. Escrito na ISR, limpo na task
+	volatile uint8_t newSession;
+
 } bspUsb;
 
 /***********************************************************************************************************************
@@ -71,6 +79,8 @@ static struct bspUSb
 static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize);
 static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize, uint32_t timeoutMs);
 static void BspUsb_RxFromIsr(uint8_t *buffer, uint32_t bufferSize);
+static void BspUsb_LineStateFromIsr(uint8_t dtr);
+static uint8_t BspUsb_NewSession(void);
 
 
 /***********************************************************************************************************************
@@ -85,6 +95,8 @@ bspUsbReturn_t BspUsb_Init(void)
 												bspUsb.rxStreamStorage,
 												&bspUsb.rxStreamControl);
 	bspUsb.rxDroppedBytes = 0;
+	bspUsb.dtr            = 0U;
+	bspUsb.newSession     = 0U;
 
 	if (bspUsb.rxStream == NULL)
 	{
@@ -92,8 +104,9 @@ bspUsbReturn_t BspUsb_Init(void)
 	}
 
 	CDC_RegisterRxCallback(BspUsb_RxFromIsr);
+	CDC_RegisterLineStateCallback(BspUsb_LineStateFromIsr);
 
-	if (Usb_Init(BspUsb_Transmit, BspUsb_Received) != eUSB_RETURN_OK)
+	if (Usb_Init(BspUsb_Transmit, BspUsb_Received, BspUsb_NewSession) != eUSB_RETURN_OK)
 	{
 		return eBSP_USB_RETURN_ERROR;
 	}
@@ -145,6 +158,38 @@ static void BspUsb_RxFromIsr(uint8_t *buffer, uint32_t bufferSize)
 	}
 
 	portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+
+/**
+ * @brief  Callback do SET_CONTROL_LINE_STATE e da enumeracao. Roda na ISR do OTG_FS.
+ *         So a borda de subida do DTR (porta fechada -> aberta) conta como sessao nova: o PC pode repetir a
+ *         requisicao com o DTR ainda ligado (ex.: mudando so o RTS)
+ */
+static void BspUsb_LineStateFromIsr(uint8_t dtr)
+{
+	if ((dtr != 0U) && (bspUsb.dtr == 0U))
+	{
+		bspUsb.newSession = 1U;
+	}
+
+	bspUsb.dtr = dtr;
+}
+
+/**
+ * @brief  Le e limpa o aviso de sessao nova (Usb_NewSession). Roda na task.
+ */
+static uint8_t BspUsb_NewSession(void)
+{
+	uint8_t novaSessao;
+
+	// Leitura e limpeza juntas: a secao critica mascara a ISR do OTG_FS (prioridade 5), entao uma abertura
+	// de porta que chegue no meio nao e apagada sem ter sido vista
+	taskENTER_CRITICAL();
+	novaSessao        = bspUsb.newSession;
+	bspUsb.newSession = 0U;
+	taskEXIT_CRITICAL();
+
+	return novaSessao;
 }
 
 

@@ -68,6 +68,9 @@
 
 typedef void (*cdcReceiveFsFunc_t)(uint8_t* pbuffer, uint32_t bufferSize);
 
+/// @brief Callback chamado na ISR do OTG_FS quando o PC muda o DTR (1 = um programa abriu a porta)
+typedef void (*cdcLineStateFunc_t)(uint8_t dtr);
+
 /* USER CODE END EXPORTED_TYPES */
 
 /**
@@ -113,6 +116,7 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
 
 void CDC_RegisterRxCallback(cdcReceiveFsFunc_t cb);
+void CDC_RegisterLineStateCallback(cdcLineStateFunc_t cb);
 
 
 /* USER CODE END EXPORTED_FUNCTIONS */
