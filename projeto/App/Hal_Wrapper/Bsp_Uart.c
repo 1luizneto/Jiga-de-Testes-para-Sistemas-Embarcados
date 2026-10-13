@@ -85,18 +85,22 @@ bspUartReturn_t BspUart_Init(void)
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
-/**
- * @brief  Envia pela USART3. Quem chama (DebugLog) ja esta com o lock.
- */
+/***********************************************************************************************************************
+ * @brief      Envia pela USART3 (VCP do ST-LINK).
+ * @details    Quem chama (DebugLog) ja esta com o lock.
+ * @param[in]  txBuffer    Bytes a enviar
+ * @param[in]  bufferSize  Quantidade de bytes
+ **********************************************************************************************************************/
 static void BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize)
 {
 	(void)HAL_UART_Transmit(&huart3, txBuffer, bufferSize, dTIMEOUT_UART);
 }
 
-/**
- * @brief  Reserva a UART de debug para uma mensagem.
- * @return 1 se conseguiu, 0 se outra task nao liberou em dTIMEOUT_MUTEX
- */
+/***********************************************************************************************************************
+ * @brief      Reserva a UART de debug para uma mensagem.
+ * @details    Antes do scheduler (ex.: log do main) so existe um contexto, entao nao ha disputa e o mutex e dispensado.
+ * @return     1 se conseguiu, 0 se outra task nao liberou em dTIMEOUT_MUTEX
+ **********************************************************************************************************************/
 static uint8_t BspUart_Lock(void)
 {
 	// Antes do scheduler
@@ -108,9 +112,9 @@ static uint8_t BspUart_Lock(void)
 	return (osMutexAcquire(uartDebugMutexHandle, dTIMEOUT_MUTEX) == osOK) ? 1U : 0U;
 }
 
-/**
- * @brief  Libera a UART de debug reservada pelo BspUart_Lock.
- */
+/***********************************************************************************************************************
+ * @brief      Libera a UART de debug reservada pelo BspUart_Lock.
+ **********************************************************************************************************************/
 static void BspUart_Unlock(void)
 {
 	if (osKernelGetState() == osKernelRunning)

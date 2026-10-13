@@ -20,6 +20,9 @@
  *                 estados, validacao por CRC, descarte de LEN > 240 e timeout de pacote (Comm_Timeout)
  *   @version      <b>1.2.0 - 13/10/2026</b> \n Luiz Neto \n Respostas ao host: Comm_BuildFrame monta o quadro e
  *                 Comm_ProcessFrame decide ACK/NACK, com reenvio da ultima resposta quando o SEQ se repete
+ *   @version      <b>1.3.0 - 13/10/2026</b> \n Luiz Neto \n Comandos alem do PING sao repassados (FORWARD) e
+ *                 respondidos pelo Comm_BuildResult; um comando pendente por vez (retransmissao ignorada,
+ *                 outro comando recebe NACK OCUPADO)
  *
  *   @copyright
  *   @{
@@ -89,6 +92,9 @@ static struct comm
 	uint16_t lastResponseSize;
 	uint8_t  lastSeq;
 	uint8_t  hasLastResponse;
+	/// Comando repassado para execucao e ainda sem resultado (um por vez)
+	uint8_t  pendingSeq;
+	uint8_t  hasPending;
 
 } comm;
 
@@ -104,6 +110,7 @@ static commReturn_t Comm_ValidaQuadro(commFrame_t *frame);
 static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
 static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error,
 									uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
+static void Comm_GuardaResposta(uint8_t seq, const uint8_t *response, uint16_t responseLen);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -114,6 +121,8 @@ commReturn_t Comm_Init(void)
 	comm.hasLastResponse  = 0U;
 	comm.lastResponseSize = 0U;
 	comm.lastSeq          = 0U;
+	comm.hasPending       = 0U;
+	comm.pendingSeq       = 0U;
 
 	return Comm_Reset();
 }
@@ -272,30 +281,38 @@ commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, u
 }
 
 /***********************************************************************************************************************
- * @brief      Decide a resposta (ACK ou NACK) para um quadro valido e a monta no buffer. Nao envia nada.
- *
- * @details    Se o SEQ for igual ao do ultimo quadro atendido, o PC esta retransmitindo: a resposta guardada e
- *             devolvida sem executar o comando de novo (Apendice A, Sequenciamento e Retransmissao).
+ * @brief      Decide o que fazer com um quadro valido: responder na hora (PING, retransmissao, OCUPADO) ou
+ *             repassar para execucao (FORWARD).
+ * @details    Um comando pendente por vez (Apendice A). Enquanto ha um pendente:
+ *             - mesmo SEQ do pendente: retransmissao, nada a responder (a resposta sai no Comm_BuildResult);
+ *             - PING: atendido normalmente;
+ *             - outro comando: NACK OCUPADO, sem guardar no cache (um novo envio desse SEQ sera executado).
  * @param[in]  frame         Quadro recebido e validado pelo Comm_ProcessByte
- * @param[out] response      Onde a resposta e montada
+ * @param[out] response      Onde a resposta e montada (quando houver)
  * @param[in]  responseSize  Capacidade do buffer de resposta
- * @param[out] responseLen   Tamanho da resposta montada
- *
- * @return     eCOMM_RETURN_OK (resposta nova), eCOMM_RETURN_RESENT (resposta guardada),
- *             eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR
+ * @param[out] responseLen   Tamanho da resposta montada (0 em FORWARD e IGNORED)
+ * @return     eCOMM_RETURN_OK (resposta nova), eCOMM_RETURN_RESENT (resposta guardada), eCOMM_RETURN_FORWARD,
+ *             eCOMM_RETURN_IGNORED, eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR
  **********************************************************************************************************************/
-commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize,
+                               uint16_t *responseLen)
 {
-
-	commReturn_t ret = eCOMM_RETURN_OK;
-
+	commReturn_t ret;
 
 	if ((frame == NULL) || (response == NULL) || (responseLen == NULL))
 	{
 		return eCOMM_RETURN_INVALID_ARGUMENT;
 	}
 
-	// Retransmissao
+	*responseLen = 0U;
+
+	// Retransmissao do comando que ainda esta executando: a resposta vai sair quando o resultado chegar
+	if ((comm.hasPending != 0U) && (frame->seq == comm.pendingSeq))
+	{
+		return eCOMM_RETURN_IGNORED;
+	}
+
+	// Retransmissao de um comando ja respondido: reenvia sem executar
 	if ((comm.hasLastResponse != 0U) && (frame->seq == comm.lastSeq))
 	{
 		if (responseSize < comm.lastResponseSize)
@@ -309,28 +326,74 @@ commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint
 		return eCOMM_RETURN_RESENT;
 	}
 
-	switch (frame->cmd)
+	// PING e respondido aqui mesmo, inclusive com um comando pendente
+	if (frame->cmd == dCOMM_CMD_PING)
 	{
-		case dCOMM_CMD_PING:
+		ret = Comm_RespondePing(frame->seq, response, responseSize, responseLen);
 
-			ret = Comm_RespondePing(frame->seq, response, responseSize, responseLen);
+		if (ret == eCOMM_RETURN_OK)
+		{
+			Comm_GuardaResposta(frame->seq, response, *responseLen);
+		}
 
-		break;
-
-		default:
-
-			ret = Comm_RespondeNack(frame->seq, frame->cmd, eCOMM_ERROR_CMD_DESCONHECIDO, response, responseSize, responseLen);
-
-		break;
+		return ret;
 	}
 
-	// Guarda a resposta para o caso de retransmissao
+	// Outro comando enquanto um esta executando: recusa, sem guardar no cache
+	if (comm.hasPending != 0U)
+	{
+		return Comm_RespondeNack(frame->seq, frame->cmd, eCOMM_ERROR_OCUPADO, response, responseSize, responseLen);
+	}
+
+	// Demais comandos: quem executa e o Exec; a resposta e montada no Comm_BuildResult
+	comm.pendingSeq = frame->seq;
+	comm.hasPending = 1U;
+
+	return eCOMM_RETURN_FORWARD;
+}
+
+/***********************************************************************************************************************
+ * @brief      Monta a resposta de um comando repassado, a partir do resultado da execucao.
+ * @details    erro 0 -> ACK (CMD | 0x80) com os dados; senao NACK [cmd, erro]. Guarda a resposta no cache de SEQ
+ *             e libera o pendente. Resultado que nao e do comando pendente (ex.: chegou depois de uma sessao nova)
+ *             e descartado.
+ * @param[in]  seq, cmd   SEQ e CMD do comando executado
+ * @param[in]  erro       0 = sucesso; senao codigo commError_t
+ * @param[in]  dados      Payload do ACK (pode ser NULL se dadosSize for 0)
+ * @param[in]  dadosSize  Tamanho do payload do ACK
+ * @param[out] response, responseSize, responseLen  Como no Comm_ProcessFrame
+ * @return     eCOMM_RETURN_OK, eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR (sem pendente com esse SEQ)
+ **********************************************************************************************************************/
+commReturn_t Comm_BuildResult(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados, uint8_t dadosSize,
+                              uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+{
+	commReturn_t ret;
+
+	if ((response == NULL) || (responseLen == NULL) || ((dados == NULL) && (dadosSize > 0U)))
+	{
+		return eCOMM_RETURN_INVALID_ARGUMENT;
+	}
+
+	*responseLen = 0U;
+
+	if ((comm.hasPending == 0U) || (seq != comm.pendingSeq))
+	{
+		return eCOMM_RETURN_ERROR;
+	}
+
+	if (erro == 0U)
+	{
+		ret = Comm_BuildFrame(seq, (uint8_t)(cmd | dCOMM_ACK_FLAG), dados, dadosSize, response, responseSize, responseLen);
+	}
+	else
+	{
+		ret = Comm_RespondeNack(seq, cmd, (commError_t)erro, response, responseSize, responseLen);
+	}
+
 	if (ret == eCOMM_RETURN_OK)
 	{
-		memcpy(comm.lastResponse, response, *responseLen);
-		comm.lastResponseSize = *responseLen;
-		comm.lastSeq          = frame->seq;
-		comm.hasLastResponse  = 1U;
+		Comm_GuardaResposta(seq, response, *responseLen);
+		comm.hasPending = 0U;
 	}
 
 	return ret;
@@ -395,6 +458,17 @@ static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t erro
 	const uint8_t payload[] = {cmd, (uint8_t)error};
 
 	return Comm_BuildFrame(seq, dCOMM_CMD_NACK, payload, sizeof(payload), response, responseSize, responseLen);
+}
+
+/***********************************************************************************************************************
+ * @brief      Guarda a ultima resposta enviada e o SEQ dela, para reenviar se o PC retransmitir.
+ **********************************************************************************************************************/
+static void Comm_GuardaResposta(uint8_t seq, const uint8_t *response, uint16_t responseLen)
+{
+	memcpy(comm.lastResponse, response, responseLen);
+	comm.lastResponseSize = responseLen;
+	comm.lastSeq          = seq;
+	comm.hasLastResponse  = 1U;
 }
 
 /** @} DOXYGEN GROUP TAG END OF FILE */

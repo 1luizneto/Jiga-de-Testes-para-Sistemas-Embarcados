@@ -37,7 +37,7 @@ void Test_Comm_BuildBufferPequeno(void);
 
 // Testes da decisao de resposta (Comm_ProcessFrame)
 void Test_Comm_ProcessPing(void);
-void Test_Comm_ProcessCmdDesconhecido(void);
+void Test_Comm_ProcessRepassaComando(void);
 void Test_Comm_ProcessSeqRepetido(void);
 void Test_Comm_ProcessSeqNovo(void);
 void Test_Comm_ProcessInitLimpaCache(void);
@@ -54,5 +54,15 @@ void Test_Exec_ResetAllComPayload(void);
 void Test_Exec_CmdDesconhecido(void);
 void Test_Exec_DacSetFalhaPeriferico(void);
 void Test_Exec_ArgumentosInvalidos(void);
+
+// Testes do repasse e do resultado (Comm_BuildResult)
+void Test_Comm_ResultAck(void);
+void Test_Comm_ResultNack(void);
+void Test_Comm_ResultComDados(void);
+void Test_Comm_PendenteRetransmissaoIgnorada(void);
+void Test_Comm_PendenteOcupado(void);
+void Test_Comm_PendentePingAtendido(void);
+void Test_Comm_ResultInesperado(void);
+void Test_Comm_ResultArgumentosInvalidos(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

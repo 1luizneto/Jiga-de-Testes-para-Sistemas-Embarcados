@@ -13,6 +13,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: módulo `Exec` (despachante dos comandos diretos): `RESET_ALL` (estado seguro) e `DAC_SET`
   (canal 1–2, valor 0–4095); tamanho ou faixa inválidos → NACK PARAMETRO_INVALIDO sem acionar a saída;
   comando desconhecido → CMD_DESCONHECIDO. 10 testes Unity com DAC falso.
+- Firmware: a CommTask repassa os comandos (exceto PING) para o `Exec` e responde com o resultado
+  (`Comm_BuildResult`); um comando pendente por vez: retransmissão do pendente é ignorada e outro
+  comando recebe NACK OCUPADO. `DAC_SET` e `RESET_ALL` funcionam pelo USB. 8 testes Unity novos.
 
 ### Corrigido
 - Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas

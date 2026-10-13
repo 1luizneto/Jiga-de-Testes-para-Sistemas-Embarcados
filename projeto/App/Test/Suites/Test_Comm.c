@@ -321,22 +321,17 @@ void Test_Comm_ProcessPing(void)
 }
 
 // 18. Comando desconhecido: NACK [cmd, CMD_DESCONHECIDO]
-void Test_Comm_ProcessCmdDesconhecido(void)
+// 18. Comando que nao e PING: repassado para execucao, sem resposta ainda
+void Test_Comm_ProcessRepassaComando(void)
 {
-	const uint8_t payload[] = {0x55, eCOMM_ERROR_CMD_DESCONHECIDO};
-	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
 	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
-	uint16_t tamEsperado = 0, tamResposta = 0;
+	uint16_t tamResposta = 99;
 	commFrame_t frame;
 	IniciaTeste(&frame);
 	MontaRequisicao(&frame, 0x02, 0x55);
 
-	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildFrame(0x02, dCOMM_CMD_NACK, payload, sizeof(payload),
-	                                                   esperado, sizeof(esperado), &tamEsperado));
-
-	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
-	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
-	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_UINT16(0, tamResposta);
 }
 
 // 19. SEQ repetido: reenvia a resposta guardada sem executar o novo comando
@@ -404,4 +399,159 @@ void Test_Comm_ProcessArgumentosInvalidos(void)
 
 	// ACK do PING tem 10 bytes: com 9 nao cabe
 	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT, Comm_ProcessFrame(&frame, resposta, 9U, &tamResposta));
+}
+
+// Monta a resposta que o Comm deve gerar, para comparar byte a byte
+static uint16_t RespostaEsperada(uint8_t *buffer, uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t size)
+{
+	uint16_t tamanho = 0;
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildFrame(seq, cmd, payload, size, buffer, dCOMM_FRAME_MAX_SIZE, &tamanho));
+	return tamanho;
+}
+
+// 23. Resultado sem erro: ACK (CMD | 0x80) e a resposta fica no cache
+void Test_Comm_ResultAck(void)
+{
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x03, dCOMM_CMD_DAC_SET);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildResult(0x03, dCOMM_CMD_DAC_SET, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta));
+
+	tamEsperado = RespostaEsperada(esperado, 0x03, dCOMM_CMD_DAC_SET | dCOMM_ACK_FLAG, NULL, 0);
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+
+	// Retransmissao depois do resultado: reenvia a resposta guardada
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_RESENT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+}
+
+// 24. Resultado com erro: NACK [cmd, erro]
+void Test_Comm_ResultNack(void)
+{
+	const uint8_t payload[] = {dCOMM_CMD_DAC_SET, eCOMM_ERROR_PARAMETRO_INVALIDO};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x04, dCOMM_CMD_DAC_SET);
+
+	Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildResult(0x04, dCOMM_CMD_DAC_SET, eCOMM_ERROR_PARAMETRO_INVALIDO,
+	                                                    NULL, 0, resposta, sizeof(resposta), &tamResposta));
+
+	tamEsperado = RespostaEsperada(esperado, 0x04, dCOMM_CMD_NACK, payload, sizeof(payload));
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+}
+
+// 25. Resultado com dados (ex.: leitura do ADC na v0.5.0): os dados vao no payload do ACK
+void Test_Comm_ResultComDados(void)
+{
+	const uint8_t dados[] = {0x00, 0xFF, 0x07};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x05, 0x40);
+
+	Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildResult(0x05, 0x40, 0, dados, sizeof(dados), resposta, sizeof(resposta), &tamResposta));
+
+	tamEsperado = RespostaEsperada(esperado, 0x05, 0x40 | dCOMM_ACK_FLAG, dados, sizeof(dados));
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+}
+
+// 26. Retransmissao do comando pendente: ignorada (a resposta sai quando o resultado chegar)
+void Test_Comm_PendenteRetransmissaoIgnorada(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 99;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x06, dCOMM_CMD_DAC_SET);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_IGNORED, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_UINT16(0, tamResposta);
+}
+
+// 27. Outro comando com um pendente: NACK OCUPADO, sem cache (depois do pendente, o mesmo SEQ e executado)
+void Test_Comm_PendenteOcupado(void)
+{
+	const uint8_t payload[] = {dCOMM_CMD_RESET_ALL, eCOMM_ERROR_OCUPADO};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t pendente, outro;
+	IniciaTeste(&pendente);
+	MontaRequisicao(&pendente, 0x07, dCOMM_CMD_DAC_SET);
+	MontaRequisicao(&outro, 0x08, dCOMM_CMD_RESET_ALL);
+
+	Comm_ProcessFrame(&pendente, resposta, sizeof(resposta), &tamResposta);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&outro, resposta, sizeof(resposta), &tamResposta));
+	tamEsperado = RespostaEsperada(esperado, 0x08, dCOMM_CMD_NACK, payload, sizeof(payload));
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+
+	// Termina o pendente; o mesmo SEQ 0x08 agora e repassado (o OCUPADO nao ficou no cache)
+	Comm_BuildResult(0x07, dCOMM_CMD_DAC_SET, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&outro, resposta, sizeof(resposta), &tamResposta));
+}
+
+// 28. PING com um comando pendente: atendido normalmente
+void Test_Comm_PendentePingAtendido(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t pendente, ping;
+	IniciaTeste(&pendente);
+	MontaRequisicao(&pendente, 0x09, dCOMM_CMD_DAC_SET);
+	MontaRequisicao(&ping, 0x0A, dCOMM_CMD_PING);
+
+	Comm_ProcessFrame(&pendente, resposta, sizeof(resposta), &tamResposta);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&ping, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_HEX8(dCOMM_CMD_PING | dCOMM_ACK_FLAG, resposta[3]);
+}
+
+// 29. Resultado sem pendente (ou depois de uma sessao nova): descartado
+void Test_Comm_ResultInesperado(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_ERROR,
+	                  Comm_BuildResult(0x0B, dCOMM_CMD_DAC_SET, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta));
+
+	MontaRequisicao(&frame, 0x0B, dCOMM_CMD_DAC_SET);
+	Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta);
+	Comm_Init();   // sessao nova: esquece o pendente
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_ERROR,
+	                  Comm_BuildResult(0x0B, dCOMM_CMD_DAC_SET, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta));
+}
+
+// 30. Argumentos invalidos no Comm_BuildResult
+void Test_Comm_ResultArgumentosInvalidos(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT,
+	                  Comm_BuildResult(1, 0x10, 0, NULL, 0, NULL, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT,
+	                  Comm_BuildResult(1, 0x10, 0, NULL, 0, resposta, sizeof(resposta), NULL));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT,
+	                  Comm_BuildResult(1, 0x10, 0, NULL, 3, resposta, sizeof(resposta), &tamResposta));
 }

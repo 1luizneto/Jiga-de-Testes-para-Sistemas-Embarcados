@@ -58,6 +58,8 @@ typedef enum commReturn
     eCOMM_RETURN_LEN_ERROR,
     eCOMM_RETURN_TIMEOUT,
 	eCOMM_RETURN_RESENT,
+	eCOMM_RETURN_FORWARD,
+	eCOMM_RETURN_IGNORED,
 
     eCOMM_RETURN_END_ENUM
 } commReturn_t;
@@ -100,5 +102,7 @@ commReturn_t Comm_ProcessByte(uint8_t byte, commFrame_t *frame);
 commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t payloadSize,
                              uint8_t *buffer, uint16_t bufferSize, uint16_t *frameSize);
 commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
+commReturn_t Comm_BuildResult(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados, uint8_t dadosSize,
+                              uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
 
 #endif /* COMM_INC_COMM_H_ */
