@@ -61,11 +61,14 @@ bspDacReturn_t BspDac_Init(void)
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
-/**
- * @brief  Escreve o valor (12 bits, alinhado a direita) e habilita o canal.
- *         O valor e escrito antes de habilitar: na primeira vez, a saida ja liga no valor certo.
- *         Sem trigger, o valor passa para a saida logo apos a escrita.
- */
+/***********************************************************************************************************************
+ * @brief      Escreve o valor (12 bits, alinhado a direita) e habilita o canal.
+ * @details    O valor e escrito antes de habilitar: na primeira vez, a saida ja liga no valor certo. Sem trigger, o
+ *             valor passa para a saida logo apos a escrita. Canal e valor ja foram validados pelo AnalogOut_Set.
+ * @param[in]  canal  1 (DAC1, PA4) ou 2 (DAC2, PA5)
+ * @param[in]  valor  0 a 4095
+ * @return     eANALOGOUT_RETURN_OK ou eANALOGOUT_RETURN_ERROR (falha do HAL)
+ **********************************************************************************************************************/
 static analogOutReturn_t BspDac_Set(uint8_t canal, uint16_t valor)
 {
 	uint32_t canalHal = (canal == 1U) ? DAC_CHANNEL_1 : DAC_CHANNEL_2;

@@ -111,10 +111,12 @@ execReturn_t Exec_SafeState(void)
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
-/**
- * @brief  RESET_ALL (sem payload): estado seguro.
- * @return 0 (ACK) ou codigo commError_t (NACK)
- */
+/***********************************************************************************************************************
+ * @brief      RESET_ALL (sem payload): leva todas as saidas ao estado seguro.
+ * @details    Payload nao vazio e recusado antes de mexer nas saidas.
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
 static uint8_t Exec_ResetAll(const commFrame_t *frame)
 {
 	if (frame->size != 0U)
@@ -130,10 +132,13 @@ static uint8_t Exec_ResetAll(const commFrame_t *frame)
 	return 0U;
 }
 
-/**
- * @brief  DAC_SET: payload [canal (u8, 1-2)][valor (u16 LE, 0-4095)].
- * @return 0 (ACK) ou codigo commError_t (NACK)
- */
+/***********************************************************************************************************************
+ * @brief      DAC_SET: payload [canal (u8, 1-2)][valor (u16 little-endian, 0-4095)].
+ * @details    Aqui so o tamanho do payload e conferido; a faixa de canal e valor e conferida pelo AnalogOut_Set,
+ *             que recusa sem acionar o DAC.
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
 static uint8_t Exec_DacSet(const commFrame_t *frame)
 {
 	if (frame->size != dEXEC_DAC_SET_SIZE)

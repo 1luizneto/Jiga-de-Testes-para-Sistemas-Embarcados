@@ -30,6 +30,7 @@
 #include "Crc16.h"
 #include "Comm.h"
 #include "Usb.h"
+#include "Exec.h"
 
 #ifdef UNIT_TEST_ON_TARGET
 #include "TestRunner.h"
@@ -335,6 +336,7 @@ void TestExecTask(void *argument)
 /***********************************************************************************************************************
  * @brief      Monta a resposta do quadro (Comm_ProcessFrame) e envia pelo USB-CDC.
  * @details    Quadro com CRC errado ou LEN invalido nao chega aqui: nao tem resposta, o PC retransmite por timeout.
+ *             Comando repassado (FORWARD) e executado pelo Exec e respondido com o Comm_BuildResult.
  **********************************************************************************************************************/
 static void CommTask_Responde(const commFrame_t *frame)
 {
@@ -346,6 +348,26 @@ static void CommTask_Responde(const commFrame_t *frame)
 	usbReturn_t retUsb;
 
 	commReturn_t ret = Comm_ProcessFrame(frame, txBuffer, sizeof(txBuffer), &txSize);
+
+	// Retransmissao do comando que ainda esta executando: a resposta sai quando o resultado chegar
+	if (ret == eCOMM_RETURN_IGNORED)
+	{
+		DebugLog_SendTerminal("[TASK -> COMM] Retransmissao do comando pendente: ignorada\n");
+		return;
+	}
+
+	if (ret == eCOMM_RETURN_FORWARD)
+	{
+		// PROVISORIO (passo 4 da v0.4.0): executa aqui mesmo, dentro da CommTask.
+		// No passo 5 o comando vai pela fila para a TestExecTask, e o resultado volta por outra fila.
+		// static: o resultado tem ~245 bytes e a stack da CommTask e de 1 KB
+		static execResult_t result;
+
+		Exec_Process(frame, &result);
+		ret = Comm_BuildResult(result.seq, result.cmd, result.erro, result.dados, result.size,
+		                       txBuffer, sizeof(txBuffer), &txSize);
+	}
+
 	if ((ret != eCOMM_RETURN_OK) && (ret != eCOMM_RETURN_RESENT))
 	{
 		DebugLog_SendTerminal("[TASK -> COMM] Erro ao montar a resposta (%d)\n", ret);
