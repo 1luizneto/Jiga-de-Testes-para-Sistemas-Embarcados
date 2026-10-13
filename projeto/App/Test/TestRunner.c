@@ -52,6 +52,17 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_ProcessInitLimpaCache);
 		RUN_TEST(Test_Comm_ProcessArgumentosInvalidos);
 
+		RUN_TEST(Test_Exec_DacSetValido);
+		RUN_TEST(Test_Exec_DacSetLimites);
+		RUN_TEST(Test_Exec_DacSetCanalInvalido);
+		RUN_TEST(Test_Exec_DacSetValorInvalido);
+		RUN_TEST(Test_Exec_DacSetTamanhoErrado);
+		RUN_TEST(Test_Exec_ResetAll);
+		RUN_TEST(Test_Exec_ResetAllComPayload);
+		RUN_TEST(Test_Exec_CmdDesconhecido);
+		RUN_TEST(Test_Exec_DacSetFalhaPeriferico);
+		RUN_TEST(Test_Exec_ArgumentosInvalidos);
+
 	UNITY_END();
 
 	for (;;)
