@@ -255,15 +255,15 @@ void CommTask(void *argument)
 			  switch (Comm_ProcessByte(rxBuffer[i], &frame))
 			  {
 				  case eCOMM_RETURN_FRAME_OK:
-					  DebugLog_SendTerminal("[COMM] Quadro OK: LEN=%u SEQ=%u CMD=0x%02X\n", frame.size, frame.seq, frame.cmd);
+					  DebugLog_SendTerminal("[TASK -> COMM] Quadro OK: LEN=%u SEQ=%u CMD=0x%02X\n", frame.size, frame.seq, frame.cmd);
 				  break;
 
 				  case eCOMM_RETURN_CRC_ERROR:
-					  DebugLog_SendTerminal("[COMM] Erro de CRC: quadro descartado\n");
+					  DebugLog_SendTerminal("[TASK -> COMM] Erro de CRC: quadro descartado\n");
 				  break;
 
 				  case eCOMM_RETURN_LEN_ERROR:
-					  DebugLog_SendTerminal("[COMM] LEN maior que %u: quadro descartado\n", dCOMM_PAYLOAD_MAX_SIZE);
+					  DebugLog_SendTerminal("[TASK -> COMM] LEN maior que %u: quadro descartado\n", dCOMM_PAYLOAD_MAX_SIZE);
 				  break;
 
 				  default:
@@ -276,7 +276,7 @@ void CommTask(void *argument)
 		  // Timeout de pacote: dCOMM_RX_TIMEOUT_MS sem bytes descarta um quadro pela metade
 		  if (Comm_Timeout() == eCOMM_RETURN_TIMEOUT)
 		  {
-			  DebugLog_SendTerminal("[COMM] Timeout: quadro incompleto descartado\n");
+			  DebugLog_SendTerminal("[TASK -> COMM] Timeout: quadro incompleto descartado\n");
 		  }
 	  }
   }

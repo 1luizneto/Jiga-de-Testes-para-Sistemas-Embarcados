@@ -1,0 +1,5 @@
+../App/Comm/Comm.c:95:14:Comm_Init	1
+../App/Comm/Comm.c:100:14:Comm_Reset	1
+../App/Comm/Comm.c:115:14:Comm_Timeout	2
+../App/Comm/Comm.c:127:14:Comm_ProcessByte	13
+../App/Comm/Comm.c:213:21:Comm_ValidaQuadro	3
