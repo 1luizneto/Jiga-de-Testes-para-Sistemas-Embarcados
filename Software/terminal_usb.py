@@ -49,6 +49,10 @@ BYTES_POR_LINHA = 16
 # Tempo sem receber bytes que marca o fim de uma rajada (s)
 SILENCIO_FIM_RAJADA = 0.005
 
+# Tempo maximo de uma rajada (s): com fluxo continuo (logs a cada poucos ms) o silencio nunca
+# chega, e sem esse limite nada seria exibido ate a porta fechar
+TEMPO_MAX_RAJADA = 0.05
+
 # Pausa entre casos de teste, para o log de um nao se misturar com o do outro (s)
 PAUSA_ENTRE_CASOS = 0.3
 
@@ -155,10 +159,12 @@ class Terminal:
         """Espera o primeiro byte e junta os seguintes ate a linha ficar em silencio.
 
         Assim uma mensagem enviada de uma vez pelo STM32 aparece num bloco so,
-        em vez de picada conforme os bytes chegam.
+        em vez de picada conforme os bytes chegam. A rajada dura no maximo
+        TEMPO_MAX_RAJADA, para um fluxo continuo continuar aparecendo.
         """
         dados = bytearray(self.serial.read(1))
-        while dados:
+        inicio = time.monotonic()
+        while dados and time.monotonic() - inicio < TEMPO_MAX_RAJADA:
             time.sleep(SILENCIO_FIM_RAJADA)
             pendentes = self.serial.in_waiting
             if not pendentes:

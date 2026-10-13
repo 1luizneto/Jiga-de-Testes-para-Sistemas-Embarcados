@@ -46,11 +46,31 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_BuildBufferPequeno);
 
 		RUN_TEST(Test_Comm_ProcessPing);
-		RUN_TEST(Test_Comm_ProcessCmdDesconhecido);
+		RUN_TEST(Test_Comm_ProcessRepassaComando);
 		RUN_TEST(Test_Comm_ProcessSeqRepetido);
 		RUN_TEST(Test_Comm_ProcessSeqNovo);
 		RUN_TEST(Test_Comm_ProcessInitLimpaCache);
 		RUN_TEST(Test_Comm_ProcessArgumentosInvalidos);
+
+		RUN_TEST(Test_Exec_DacSetValido);
+		RUN_TEST(Test_Exec_DacSetLimites);
+		RUN_TEST(Test_Exec_DacSetCanalInvalido);
+		RUN_TEST(Test_Exec_DacSetValorInvalido);
+		RUN_TEST(Test_Exec_DacSetTamanhoErrado);
+		RUN_TEST(Test_Exec_ResetAll);
+		RUN_TEST(Test_Exec_ResetAllComPayload);
+		RUN_TEST(Test_Exec_CmdDesconhecido);
+		RUN_TEST(Test_Exec_DacSetFalhaPeriferico);
+		RUN_TEST(Test_Exec_ArgumentosInvalidos);
+
+		RUN_TEST(Test_Comm_ResultAck);
+		RUN_TEST(Test_Comm_ResultNack);
+		RUN_TEST(Test_Comm_ResultComDados);
+		RUN_TEST(Test_Comm_PendenteRetransmissaoIgnorada);
+		RUN_TEST(Test_Comm_PendenteOcupado);
+		RUN_TEST(Test_Comm_PendentePingAtendido);
+		RUN_TEST(Test_Comm_ResultInesperado);
+		RUN_TEST(Test_Comm_ResultArgumentosInvalidos);
 
 	UNITY_END();
 

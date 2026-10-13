@@ -118,6 +118,13 @@ bspUsbReturn_t BspUsb_Init(void)
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
+/***********************************************************************************************************************
+ * @brief      Envia os bytes pelo USB-CDC (Usb_Write).
+ * @details    O CDC_Transmit_FS copia os dados para o buffer da USB: o buffer de quem chama fica livre ao retornar.
+ * @param[in]  buffer      Bytes a enviar
+ * @param[in]  bufferSize  Quantidade de bytes
+ * @return     eUSB_RETURN_OK, eUSB_RETURN_BUSY (envio anterior em andamento) ou eUSB_RETURN_ERROR (nao enumerada)
+ **********************************************************************************************************************/
 static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize)
 {
 	uint8_t ret = CDC_Transmit_FS(buffer, bufferSize);
@@ -134,6 +141,14 @@ static usbReturn_t BspUsb_Transmit(uint8_t* buffer, uint16_t bufferSize)
 	return eUSB_RETURN_ERROR;
 }
 
+/***********************************************************************************************************************
+ * @brief      Le os bytes recebidos pelo USB-CDC (Usb_Read), bloqueando a task ate chegar algo ou dar timeout.
+ * @param[out] buffer      Onde os bytes sao copiados
+ * @param[in]  bufferSize  Capacidade do buffer
+ * @param[out] readSize    Quantidade de bytes lidos (0 no timeout)
+ * @param[in]  timeoutMs   Tempo maximo de espera, em ms
+ * @return     eUSB_RETURN_OK ou eUSB_RETURN_EMPTY (timeout sem bytes)
+ **********************************************************************************************************************/
 static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_t* readSize, uint32_t timeoutMs)
 {
 	*readSize = xStreamBufferReceive(bspUsb.rxStream, buffer, bufferSize, pdMS_TO_TICKS(timeoutMs));
@@ -146,6 +161,13 @@ static usbReturn_t BspUsb_Received(uint8_t* buffer, uint32_t bufferSize, uint32_
 	return eUSB_RETURN_OK;
 }
 
+/***********************************************************************************************************************
+ * @brief      Callback do CDC_Receive_FS: coloca o pacote recebido no stream buffer. Roda na ISR do OTG_FS.
+ * @details    So funcoes FromISR (nada de DebugLog, que usa mutex). O que nao cabe no stream buffer e descartado e
+ *             contado em rxDroppedBytes, porque a ISR nao pode esperar.
+ * @param[in]  buffer      Pacote recebido
+ * @param[in]  bufferSize  Tamanho do pacote
+ **********************************************************************************************************************/
 static void BspUsb_RxFromIsr(uint8_t *buffer, uint32_t bufferSize)
 {
 	BaseType_t higherPriorityTaskWoken = pdFALSE;
@@ -160,11 +182,12 @@ static void BspUsb_RxFromIsr(uint8_t *buffer, uint32_t bufferSize)
 	portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
-/**
- * @brief  Callback do SET_CONTROL_LINE_STATE e da enumeracao. Roda na ISR do OTG_FS.
- *         So a borda de subida do DTR (porta fechada -> aberta) conta como sessao nova: o PC pode repetir a
- *         requisicao com o DTR ainda ligado (ex.: mudando so o RTS)
- */
+/***********************************************************************************************************************
+ * @brief      Callback do SET_CONTROL_LINE_STATE e da enumeracao. Roda na ISR do OTG_FS.
+ * @details    So a borda de subida do DTR (porta fechada -> aberta) conta como sessao nova: o PC pode repetir a
+ *             requisicao com o DTR ainda ligado (ex.: mudando so o RTS).
+ * @param[in]  dtr  1 = porta aberta no PC, 0 = fechada (ou nova enumeracao)
+ **********************************************************************************************************************/
 static void BspUsb_LineStateFromIsr(uint8_t dtr)
 {
 	if ((dtr != 0U) && (bspUsb.dtr == 0U))
@@ -175,9 +198,10 @@ static void BspUsb_LineStateFromIsr(uint8_t dtr)
 	bspUsb.dtr = dtr;
 }
 
-/**
- * @brief  Le e limpa o aviso de sessao nova (Usb_NewSession). Roda na task.
- */
+/***********************************************************************************************************************
+ * @brief      Le e limpa o aviso de sessao nova (Usb_NewSession). Roda na task.
+ * @return     1 se um programa abriu a porta desde a ultima consulta, 0 caso contrario
+ **********************************************************************************************************************/
 static uint8_t BspUsb_NewSession(void)
 {
 	uint8_t novaSessao;

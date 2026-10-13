@@ -1,0 +1,3 @@
+../App/System/AnalogOut.c:46:19:AnalogOut_Init	16	static
+../App/System/AnalogOut.c:66:19:AnalogOut_Set	16	static
+../App/System/AnalogOut.c:85:19:AnalogOut_SafeState	16	static
