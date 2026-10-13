@@ -253,6 +253,15 @@ void CommTask(void *argument)
   {
 	  retUsb = Usb_Read(rxBuffer, sizeof(rxBuffer), &rxSize, dCOMM_RX_TIMEOUT_MS);
 
+	  // Um programa abriu a porta no PC: ele recomeca a contagem de SEQ, entao a resposta guardada da sessao
+	  // anterior nao vale mais. Consultado antes de processar os bytes lidos, que ja sao da sessao nova
+	  // (o PC liga o DTR ao abrir a porta, antes de enviar qualquer dado)
+	  if (Usb_NewSession() != 0U)
+	  {
+		  Comm_Init();
+		  DebugLog_SendTerminal("[TASK -> COMM] Sessao nova (porta aberta no PC): cache de SEQ limpo\n");
+	  }
+
 	  if (retUsb == eUSB_RETURN_OK)
 	  {
 		  // Um bloco do USB pode ter pedaco de quadro ou varios quadros: o parser consome byte a byte

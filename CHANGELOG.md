@@ -13,6 +13,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   protocolo e do firmware, NACK CMD_DESCONHECIDO e reenvio da última resposta quando o SEQ se repete.
 - Firmware: a CommTask responde cada quadro válido pelo USB-CDC (ACK/NACK do `Comm_ProcessFrame`);
   quadro com CRC errado ou LEN inválido não tem resposta e o PC retransmite por timeout.
+- Firmware: detecção de sessão nova pelo DTR (`SET_CONTROL_LINE_STATE`): quando um programa abre a
+  porta no PC, a CommTask limpa o cache de SEQ, e o primeiro comando da sessão não recebe a resposta
+  guardada da sessão anterior.
 
 ### Alterado
 - Firmware: timeout entre bytes de 100 ms para 20 ms, conforme o Apêndice A da monografia.
