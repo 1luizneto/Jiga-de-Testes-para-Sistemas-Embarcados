@@ -16,11 +16,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: detecção de sessão nova pelo DTR (`SET_CONTROL_LINE_STATE`): quando um programa abre a
   porta no PC, a CommTask limpa o cache de SEQ, e o primeiro comando da sessão não recebe a resposta
   guardada da sessão anterior.
+- Software: `protocolo.py` interpreta as respostas da jiga (`interpretar_resposta`, ACK/NACK e as
+  versões no ACK do PING) e tem uma `JigaSimulada`, espelho do `Comm_ProcessFrame`.
+- Software: os casos de teste conferem também a resposta que volta pelo USB, além do DebugLog, no
+  `teste_protocolo.py` e na GUI (colunas com log e USB, bytes recebidos no tooltip).
+- Software: casos de teste "Comando desconhecido" e "SEQ repetido" (10 casos no total).
+- Software: GUI e terminal de linha de comando mostram cada resposta recebida já decodificada.
+- Software: 14 testes pytest das respostas e da jiga simulada, com os exemplos do Apêndice A.
 
 ### Alterado
 - Firmware: timeout entre bytes de 100 ms para 20 ms, conforme o Apêndice A da monografia.
 - Firmware: `CDC_Transmit_FS` copia os dados para o buffer da USB, então quem chama pode reutilizar
   o próprio buffer assim que a função retorna.
+- Software: os casos "Payload com 0x7E" e "Payload maximo" usam o CMD 0x55 (inexistente) em vez de
+  0x10, para a resposta esperada (NACK) não mudar quando o DAC_SET for implementado.
 
 ## [0.2.0] - 2026-10-13
 
