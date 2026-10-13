@@ -45,6 +45,13 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_BuildArgumentosInvalidos);
 		RUN_TEST(Test_Comm_BuildBufferPequeno);
 
+		RUN_TEST(Test_Comm_ProcessPing);
+		RUN_TEST(Test_Comm_ProcessCmdDesconhecido);
+		RUN_TEST(Test_Comm_ProcessSeqRepetido);
+		RUN_TEST(Test_Comm_ProcessSeqNovo);
+		RUN_TEST(Test_Comm_ProcessInitLimpaCache);
+		RUN_TEST(Test_Comm_ProcessArgumentosInvalidos);
+
 	UNITY_END();
 
 	for (;;)

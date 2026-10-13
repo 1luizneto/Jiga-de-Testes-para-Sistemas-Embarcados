@@ -1,6 +1,9 @@
-../App/Comm/Comm.c:98:14:Comm_Init	1
-../App/Comm/Comm.c:103:14:Comm_Reset	1
-../App/Comm/Comm.c:118:14:Comm_Timeout	2
-../App/Comm/Comm.c:130:14:Comm_ProcessByte	13
-../App/Comm/Comm.c:220:14:Comm_BuildFrame	9
-../App/Comm/Comm.c:268:21:Comm_ValidaQuadro	3
+../App/Comm/Comm.c:109:14:Comm_Init	1
+../App/Comm/Comm.c:118:14:Comm_Reset	1
+../App/Comm/Comm.c:133:14:Comm_Timeout	2
+../App/Comm/Comm.c:145:14:Comm_ProcessByte	13
+../App/Comm/Comm.c:235:14:Comm_BuildFrame	9
+../App/Comm/Comm.c:284:14:Comm_ProcessFrame	9
+../App/Comm/Comm.c:345:21:Comm_ValidaQuadro	3
+../App/Comm/Comm.c:378:21:Comm_RespondePing	1
+../App/Comm/Comm.c:389:21:Comm_RespondeNack	1
