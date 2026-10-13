@@ -3,7 +3,9 @@ Terminal serial grafico da jiga de testes (no estilo do Termite).
 
 Mostra o que chega pela porta serial do STM32 (USB-CDC ou a UART do ST-Link)
 e permite enviar texto, bytes em hexadecimal ou quadros do protocolo, alem de
-disparar os casos de teste do parser.
+executar os casos de teste do parser com a placa (hardware-in-the-loop): os
+quadros saem pelo USB-CDC (CN13) e o veredito vem do DebugLog lido na porta do
+ST-Link, como no teste_protocolo.py.
 
 Uso:
     python terminal_gui.py
@@ -20,14 +22,16 @@ from serial.tools import list_ports
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from protocolo import CASOS_TESTE, LOG_FIRMWARE, PAYLOAD_MAX, montar_quadro
+from protocolo import CASOS_TESTE, LOG_FIRMWARE, PAYLOAD_MAX, montar_quadro, resultado_do_log
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, detectar_porta, formatar_hex, interpretar_hex,
 )
+from teste_protocolo import BAUD_LOG, ESPERA_LOG, detectar_porta_log
 from versao import __version__
 
 TAXAS_BAUD = ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"]
@@ -38,6 +42,9 @@ COR_RX = QColor("#1a7f37")
 COR_TX = QColor("#0b4fd6")
 COR_INFO = QColor("#8a8a8a")
 COR_ERRO = QColor("#c62828")
+COR_LOG = QColor("#7a3e9d")
+COR_PASS = QColor("#d7f5dd")
+COR_FALHA = QColor("#fbd5d5")
 
 
 class LeitorSerial(QThread):
@@ -143,11 +150,19 @@ class JanelaTerminal(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Terminal da Jiga v{__version__}")
-        self.resize(900, 600)
+        self.resize(1000, 800)
         self.leitor = None
         self.inicio_linha = True
         self.decodificador = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.fila_teste = []
+        self.executando = False
+        # DebugLog (UART do ST-Link): segunda porta, usada para o veredito dos casos
+        self.leitor_log = None
+        self.decodificador_log = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.resto_log = ""        # linha do log ainda sem '\n'
+        self.linhas_caso = None    # linhas do log capturadas durante o caso atual
+        self.aprovados = 0
+        self.avaliados = 0
         self.config = QSettings("TCC-Jiga", "TerminalSerial")
         self._montar_interface()
         self._carregar_config()
@@ -279,9 +294,38 @@ class JanelaTerminal(QMainWindow):
         linha_teste.addWidget(self.bt_todos)
         layout.addLayout(linha_teste)
 
-        dica = QLabel("O resultado aparece no DebugLog: abra outra janela do terminal na porta do ST-Link (1000000 baud).")
-        dica.setStyleSheet("color: #8a8a8a")
-        layout.addWidget(dica)
+        # Porta do DebugLog: e dela que sai o veredito de cada caso
+        linha_log = QHBoxLayout()
+        self.combo_log = QComboBox(minimumWidth=320)
+        self.combo_log.setToolTip(f"Porta do ST-Link (USART3, {BAUD_LOG} baud)")
+        self.bt_log = QPushButton("Conectar log", checkable=True, minimumWidth=110)
+        self.bt_log.toggled.connect(self.alternar_log)
+        self.ck_log_tela = QCheckBox("Mostrar log na tela", checked=True)
+        self.lb_log = QLabel("Desconectado")
+        linha_log.addWidget(QLabel("DebugLog:"))
+        linha_log.addWidget(self.combo_log)
+        linha_log.addWidget(self.bt_log)
+        linha_log.addWidget(self.ck_log_tela)
+        linha_log.addWidget(self.lb_log, 1)
+        layout.addLayout(linha_log)
+
+        # Resultado dos casos executados
+        self.tabela = QTableWidget(0, 4)
+        self.tabela.setHorizontalHeaderLabels(["Caso", "Esperado no DebugLog", "Obtido", "Resultado"])
+        self.tabela.verticalHeader().setVisible(False)
+        self.tabela.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tabela.setSelectionBehavior(QAbstractItemView.SelectRows)
+        cabecalho = self.tabela.horizontalHeader()
+        cabecalho.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        cabecalho.setSectionResizeMode(1, QHeaderView.Stretch)
+        cabecalho.setSectionResizeMode(2, QHeaderView.Stretch)
+        cabecalho.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tabela.setMaximumHeight(280)  # cabe os 8 casos sem rolagem
+        layout.addWidget(self.tabela)
+
+        self.lb_resumo = QLabel("Conecte o USB-CDC (acima) e o DebugLog para ter o veredito de cada caso.")
+        self.lb_resumo.setStyleSheet("color: #8a8a8a")
+        layout.addWidget(self.lb_resumo)
 
         self._mudou_caso()
         return grupo
@@ -292,9 +336,12 @@ class JanelaTerminal(QMainWindow):
         self.combo_fim.setCurrentText(self.config.value("fim", "LF (\\n)"))
         self.ck_hex.setChecked(self.config.value("enviar_hex", False, type=bool))
         self.ck_horario.setChecked(self.config.value("horario", True, type=bool))
+        self.ck_log_tela.setChecked(self.config.value("mostrar_log", True, type=bool))
 
     def _salvar_config(self):
         self.config.setValue("porta", self.porta_selecionada() or "")
+        self.config.setValue("porta_log", self.combo_log.currentData() or "")
+        self.config.setValue("mostrar_log", self.ck_log_tela.isChecked())
         self.config.setValue("baud", self.combo_baud.currentText())
         self.config.setValue("modo", self.combo_modo.currentText())
         self.config.setValue("fim", self.combo_fim.currentText())
@@ -306,26 +353,40 @@ class JanelaTerminal(QMainWindow):
     def porta_selecionada(self):
         return self.combo_porta.currentData()
 
-    def atualizar_portas(self):
-        anterior = self.porta_selecionada() or self.config.value("porta", "")
-        portas = list_ports.comports()
-        self.combo_porta.blockSignals(True)
-        self.combo_porta.clear()
+    @staticmethod
+    def _preencher_portas(combo, portas, alvos):
+        """Lista as portas no combo e seleciona o primeiro alvo encontrado."""
+        combo.blockSignals(True)
+        combo.clear()
         for p in portas:
-            self.combo_porta.addItem(f"{p.device} - {p.description}", p.device)
-        self.combo_porta.blockSignals(False)
-        # Prioridade: a porta que estava escolhida; senao, o USB-CDC do STM32
-        for alvo in (anterior, detectar_porta()):
-            indice = self.combo_porta.findData(alvo) if alvo else -1
+            combo.addItem(f"{p.device} - {p.description}", p.device)
+        combo.blockSignals(False)
+        for alvo in alvos:
+            indice = combo.findData(alvo) if alvo else -1
             if indice >= 0:
-                self.combo_porta.setCurrentIndex(indice)
+                combo.setCurrentIndex(indice)
                 break
 
+    def atualizar_portas(self):
+        portas = list_ports.comports()
+        # Prioridade: a porta que estava escolhida; senao, a detectada pelo VID/PID.
+        # Combo de porta conectada nao e mexido.
+        if self.leitor is None:
+            anterior = self.porta_selecionada() or self.config.value("porta", "")
+            self._preencher_portas(self.combo_porta, portas, (anterior, detectar_porta()))
+        if self.leitor_log is None:
+            anterior = self.combo_log.currentData() or self.config.value("porta_log", "")
+            self._preencher_portas(self.combo_log, portas, (anterior, detectar_porta_log()))
+
     def _atualizar_portas_auto(self):
-        if self.leitor is None and not self.combo_porta.view().isVisible():
-            atuais = [self.combo_porta.itemData(i) for i in range(self.combo_porta.count())]
-            if atuais != [p.device for p in list_ports.comports()]:
-                self.atualizar_portas()
+        if self.leitor is not None and self.leitor_log is not None:
+            return
+        if self.combo_porta.view().isVisible() or self.combo_log.view().isVisible():
+            return
+        combo = self.combo_porta if self.leitor is None else self.combo_log
+        atuais = [combo.itemData(i) for i in range(combo.count())]
+        if atuais != [p.device for p in list_ports.comports()]:
+            self.atualizar_portas()
 
     # --- conexao ----------------------------------------------------------
 
@@ -363,6 +424,50 @@ class JanelaTerminal(QMainWindow):
         self.lb_estado.setText(f"<span style='color:{cor}'>● {mensagem}</span>")
         if self.leitor:
             self._escrever_info(mensagem)
+
+    def alternar_log(self, conectar):
+        if conectar:
+            porta = self.combo_log.currentData()
+            if not porta:
+                QMessageBox.warning(self, "Terminal", "Escolha a porta do ST-Link para o DebugLog.")
+                self.bt_log.setChecked(False)
+                return
+            if self.leitor is not None and porta == self.leitor.porta:
+                QMessageBox.warning(self, "Terminal",
+                                    "A porta do DebugLog é a mesma da conexão principal.\n"
+                                    "Use o USB-CDC (CN13) acima e o ST-Link aqui.")
+                self.bt_log.setChecked(False)
+                return
+            self.resto_log = ""
+            self.decodificador_log.reset()
+            self.leitor_log = LeitorSerial(porta, BAUD_LOG)
+            self.leitor_log.recebido.connect(self.receber_log)
+            self.leitor_log.estado.connect(self.mostrar_estado_log)
+            self.leitor_log.start()
+            self.bt_log.setText("Desconectar log")
+            self.combo_log.setEnabled(False)
+        else:
+            if self.leitor_log:
+                self.leitor_log.parar()
+                self.leitor_log = None
+            self.bt_log.setText("Conectar log")
+            self.combo_log.setEnabled(True)
+            self.mostrar_estado_log("Desconectado", False)
+
+    def mostrar_estado_log(self, mensagem, conectado):
+        cor = "#1a7f37" if conectado else ("#c62828" if self.leitor_log else "#555")
+        self.lb_log.setText(f"<span style='color:{cor}'>● {mensagem}</span>")
+
+    def receber_log(self, dados):
+        """Monta as linhas do DebugLog: guarda para o caso em execucao e mostra na tela."""
+        self.resto_log += self.decodificador_log.decode(dados)
+        *linhas, self.resto_log = self.resto_log.replace("\r", "").split("\n")
+        for linha in linhas:
+            if self.linhas_caso is not None:
+                self.linhas_caso.append(linha)
+            if self.ck_log_tela.isChecked():
+                self._quebrar_linha()
+                self._escrever_texto(linha + "\n", COR_LOG, "LOG")
 
     # --- exibicao ---------------------------------------------------------
 
@@ -457,21 +562,36 @@ class JanelaTerminal(QMainWindow):
         self.lb_caso.setText(f"{caso.descricao}  →  {esperado}")
 
     def executar_casos(self, casos):
-        """Enfileira os passos dos casos; as esperas usam QTimer para nao travar a janela."""
-        # Botao desabilitado = execucao em andamento (inclusive na ultima espera, com a fila ja vazia)
-        if not self.bt_todos.isEnabled():
+        """Enfileira os passos dos casos; as esperas usam QTimer para nao travar a janela.
+
+        Para cada caso: comeca a capturar o DebugLog, envia os passos, espera a CommTask
+        logar (ESPERA_LOG) e compara as linhas do parser com o esperado.
+        """
+        if self.executando:
             return
         if self.leitor is None:
             self._escrever_info("Não conectado; nada enviado")
             return
+        if self.leitor_log is None:
+            self._escrever_info("DebugLog não conectado: os casos serão enviados sem veredito")
         for caso in casos:
-            esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
-            self.fila_teste.append(("info", f"Caso '{caso.nome}' | esperado no DebugLog: {esperado}"))
+            self.fila_teste.append(("caso", caso))
             self.fila_teste += list(caso.passos)
+            self.fila_teste.append(("esperar", ESPERA_LOG))
+            self.fila_teste.append(("avaliar", caso))
             self.fila_teste.append(("esperar", PAUSA_ENTRE_CASOS))
-        self.bt_caso.setEnabled(False)
-        self.bt_todos.setEnabled(False)
+        self.tabela.setRowCount(0)
+        self.aprovados = self.avaliados = 0
+        self.lb_resumo.setText(f"Executando {len(casos)} caso(s)...")
+        self._marcar_execucao(True)
         self._proximo_passo()
+
+    def _marcar_execucao(self, executando):
+        self.executando = executando
+        self.bt_caso.setEnabled(not executando)
+        self.bt_todos.setEnabled(not executando)
+        self.bt_conectar.setEnabled(not executando)
+        self.bt_log.setEnabled(not executando)
 
     def _proximo_passo(self):
         while self.fila_teste:
@@ -479,12 +599,58 @@ class JanelaTerminal(QMainWindow):
             if tipo == "esperar":
                 QTimer.singleShot(int(valor * 1000), self._proximo_passo)
                 return
-            if tipo == "info":
-                self._escrever_info(valor)
+            if tipo == "caso":
+                esperado = ", ".join(LOG_FIRMWARE[r] for r in valor.esperado)
+                self._escrever_info(f"Caso '{valor.nome}' | esperado no DebugLog: {esperado}")
+                self.linhas_caso = []
+            elif tipo == "avaliar":
+                self._avaliar(valor)
             else:
                 self._enviar_bytes(valor)
-        self.bt_caso.setEnabled(True)
-        self.bt_todos.setEnabled(True)
+        self.linhas_caso = None
+        self._marcar_execucao(False)
+        self._mostrar_resumo()
+
+    def _avaliar(self, caso):
+        """Compara o que a CommTask logou durante o caso com o esperado e poe na tabela."""
+        linhas = self.linhas_caso or []
+        self.linhas_caso = None
+        esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
+        if self.leitor_log is None:
+            self._adicionar_linha(caso.nome, esperado, "—", "SEM LOG", None, "DebugLog não conectado")
+            return
+        do_parser = [linha for linha in linhas if resultado_do_log(linha)]
+        obtido = [resultado_do_log(linha) for linha in do_parser]
+        aprovado = obtido == caso.esperado
+        self.avaliados += 1
+        self.aprovados += aprovado
+        texto_obtido = ", ".join(LOG_FIRMWARE[r] for r in obtido) or "(nada)"
+        detalhe = "\n".join(linhas) or "(nenhuma linha no DebugLog durante o caso)"
+        self._adicionar_linha(caso.nome, esperado, texto_obtido,
+                              "PASS" if aprovado else "FALHA", COR_PASS if aprovado else COR_FALHA, detalhe)
+        self._escrever_info(f"[{'PASS' if aprovado else 'FALHA'}] {caso.nome}")
+
+    def _adicionar_linha(self, nome, esperado, obtido, resultado, cor, detalhe):
+        linha = self.tabela.rowCount()
+        self.tabela.insertRow(linha)
+        for coluna, texto in enumerate((nome, esperado, obtido, resultado)):
+            item = QTableWidgetItem(texto)
+            item.setToolTip(f"Linhas do DebugLog durante o caso:\n{detalhe}")
+            if cor is not None:
+                item.setBackground(cor)
+            self.tabela.setItem(linha, coluna, item)
+        self.tabela.scrollToBottom()
+
+    def _mostrar_resumo(self):
+        if not self.avaliados:
+            self.lb_resumo.setText("Casos enviados sem veredito (conecte o DebugLog para avaliar).")
+            self.lb_resumo.setStyleSheet("color: #8a8a8a")
+            return
+        tudo_ok = self.aprovados == self.avaliados
+        self.lb_resumo.setText(f"{self.aprovados}/{self.avaliados} casos passaram"
+                               "  (passe o mouse numa linha para ver o log do caso)")
+        self.lb_resumo.setStyleSheet(f"color: {'#1a7f37' if tudo_ok else '#c62828'}; font-weight: bold")
+        self._escrever_info(f"{self.aprovados}/{self.avaliados} casos passaram")
 
     def enviar(self):
         texto = self.campo.text()
@@ -527,8 +693,9 @@ class JanelaTerminal(QMainWindow):
 
     def closeEvent(self, evento):
         self._salvar_config()
-        if self.leitor:
-            self.leitor.parar()
+        for leitor in (self.leitor, self.leitor_log):
+            if leitor:
+                leitor.parar()
         super().closeEvent(evento)
 
 
