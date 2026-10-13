@@ -10,3 +10,9 @@
 ../App/Test/Suites/Test_Comm.c:147:6:Test_Comm_TimeoutDescartaQuadroParcial	1
 ../App/Test/Suites/Test_Comm.c:164:6:Test_Comm_QuadroParcialSemTimeout	1
 ../App/Test/Suites/Test_Comm.c:181:6:Test_Comm_FrameNulo	1
+../App/Test/Suites/Test_Comm.c:189:6:Test_Comm_BuildAckPing	1
+../App/Test/Suites/Test_Comm.c:204:6:Test_Comm_BuildAckSemPayload	1
+../App/Test/Suites/Test_Comm.c:218:6:Test_Comm_BuildNack	1
+../App/Test/Suites/Test_Comm.c:233:6:Test_Comm_BuildIdaEVolta	2
+../App/Test/Suites/Test_Comm.c:259:6:Test_Comm_BuildArgumentosInvalidos	1
+../App/Test/Suites/Test_Comm.c:277:6:Test_Comm_BuildBufferPequeno	1

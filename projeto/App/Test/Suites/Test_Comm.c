@@ -184,3 +184,110 @@ void Test_Comm_FrameNulo(void)
 
 	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT, Comm_ProcessByte(0x7E, NULL));
 }
+
+// 11. ACK do PING do Apendice A (protocolo 1, firmware 0.1.0)
+void Test_Comm_BuildAckPing(void)
+{
+	const uint8_t payload[]  = {0x01, 0x00, 0x01, 0x00};
+	const uint8_t esperado[] = {0x7E, 0x04, 0x01, 0x81, 0x01, 0x00, 0x01, 0x00, 0xAC, 0xB8};
+	uint8_t buffer[dCOMM_FRAME_MAX_SIZE];
+	uint16_t frameSize = 0;
+	BspCrc_Init();
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildFrame(0x01, 0x81, payload, sizeof(payload), buffer, sizeof(buffer), &frameSize));
+	TEST_ASSERT_EQUAL_UINT16(sizeof(esperado), frameSize);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, buffer, sizeof(esperado));
+}
+
+// 12. ACK sem payload (ACK do DAC_SET do Apendice A): payload NULL com tamanho 0 e aceito
+void Test_Comm_BuildAckSemPayload(void)
+{
+	const uint8_t esperado[] = {0x7E, 0x00, 0x02, 0x90, 0x47, 0x29};
+	uint8_t buffer[dCOMM_FRAME_MAX_SIZE];
+	uint16_t frameSize = 0;
+	BspCrc_Init();
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildFrame(0x02, 0x90, NULL, 0, buffer, sizeof(buffer), &frameSize));
+	TEST_ASSERT_EQUAL_UINT16(sizeof(esperado), frameSize);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, buffer, sizeof(esperado));
+}
+
+// 13. NACK do Apendice A: comando 0x10 recusado com PARAMETRO_INVALIDO (0x02)
+void Test_Comm_BuildNack(void)
+{
+	const uint8_t payload[]  = {0x10, 0x02};
+	const uint8_t esperado[] = {0x7E, 0x02, 0x02, 0xFF, 0x10, 0x02, 0xB5, 0x54};
+	uint8_t buffer[dCOMM_FRAME_MAX_SIZE];
+	uint16_t frameSize = 0;
+	BspCrc_Init();
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildFrame(0x02, 0xFF, payload, sizeof(payload), buffer, sizeof(buffer), &frameSize));
+	TEST_ASSERT_EQUAL_UINT16(sizeof(esperado), frameSize);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, buffer, sizeof(esperado));
+}
+
+// 14. Ida e volta: o quadro montado pelo BuildFrame passa pelo parser e volta igual
+void Test_Comm_BuildIdaEVolta(void)
+{
+	static uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
+	static uint8_t buffer[dCOMM_FRAME_MAX_SIZE];
+	commFrame_t frame;
+	uint16_t frameSize = 0;
+
+	for (uint16_t i = 0; i < sizeof(payload); i++)
+	{
+		payload[i] = (uint8_t)i;
+	}
+	IniciaTeste(&frame);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildFrame(0x03, 0x10, payload, (uint8_t)sizeof(payload), buffer, sizeof(buffer), &frameSize));
+	TEST_ASSERT_EQUAL_UINT16(dCOMM_FRAME_MAX_SIZE, frameSize);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FRAME_OK, EnviaQuadro(buffer, frameSize, &frame));
+	TEST_ASSERT_EQUAL_UINT8(dCOMM_PAYLOAD_MAX_SIZE, frame.size);
+	TEST_ASSERT_EQUAL_UINT8(0x03, frame.seq);
+	TEST_ASSERT_EQUAL_HEX8(0x10, frame.cmd);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(payload, frame.payload, sizeof(payload));
+	TEST_ASSERT_EQUAL_HEX16(dCRC_QUADRO_MAXIMO, frame.crc16);
+}
+
+// 15. Argumentos invalidos sao recusados
+void Test_Comm_BuildArgumentosInvalidos(void)
+{
+	const uint8_t payload[] = {0x10, 0x02};
+	uint8_t buffer[dCOMM_FRAME_MAX_SIZE];
+	uint16_t frameSize = 0;
+	BspCrc_Init();
+
+	TEST_ASSERT_EQUAL_MESSAGE(eCOMM_RETURN_INVALID_ARGUMENT,
+	    Comm_BuildFrame(0x01, 0xFF, payload, sizeof(payload), NULL, sizeof(buffer), &frameSize), "buffer NULL");
+	TEST_ASSERT_EQUAL_MESSAGE(eCOMM_RETURN_INVALID_ARGUMENT,
+	    Comm_BuildFrame(0x01, 0xFF, payload, sizeof(payload), buffer, sizeof(buffer), NULL), "frameSize NULL");
+	TEST_ASSERT_EQUAL_MESSAGE(eCOMM_RETURN_INVALID_ARGUMENT,
+	    Comm_BuildFrame(0x01, 0xFF, NULL, sizeof(payload), buffer, sizeof(buffer), &frameSize), "payload NULL com tamanho");
+	TEST_ASSERT_EQUAL_MESSAGE(eCOMM_RETURN_INVALID_ARGUMENT,
+	    Comm_BuildFrame(0x01, 0xFF, payload, dCOMM_PAYLOAD_MAX_SIZE + 1U, buffer, sizeof(buffer), &frameSize), "payload > 240");
+}
+
+// 16. Quadro que nao cabe no buffer: recusado sem escrever nada
+void Test_Comm_BuildBufferPequeno(void)
+{
+	const uint8_t payload[] = {0x10, 0x02};
+	uint8_t buffer[dCOMM_FRAME_OVERHEAD + sizeof(payload)];
+	uint8_t intacto[sizeof(buffer)];
+	uint16_t frameSize = 0;
+	BspCrc_Init();
+
+	memset(buffer, dFRAME_SENTINELA, sizeof(buffer));
+	memset(intacto, dFRAME_SENTINELA, sizeof(intacto));
+
+	// Capacidade um byte menor que o necessario
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT,
+	                  Comm_BuildFrame(0x02, 0xFF, payload, sizeof(payload), buffer, sizeof(buffer) - 1U, &frameSize));
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(intacto, buffer, sizeof(buffer));
+	TEST_ASSERT_EQUAL_UINT16(0, frameSize);
+}

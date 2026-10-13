@@ -7,6 +7,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Firmware: `Comm_BuildFrame` monta quadros de resposta, com 6 testes Unity usando os exemplos do Apêndice A.
+
 ### Alterado
 - Firmware: timeout entre bytes de 100 ms para 20 ms, conforme o Apêndice A da monografia.
 

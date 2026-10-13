@@ -21,6 +21,12 @@
 // Tamanho máximo do payload
 #define dCOMM_PAYLOAD_MAX_SIZE (240U)
 
+// Bytes fixos de todo quadro: SOF + LEN + SEQ + CMD + CRC16
+#define dCOMM_FRAME_OVERHEAD (6U)
+
+// Tamanho maximo de um quadro completo
+#define dCOMM_FRAME_MAX_SIZE (dCOMM_FRAME_OVERHEAD + dCOMM_PAYLOAD_MAX_SIZE)
+
 /***********************************************************************************************************************
  * TIPOS DE DADOS PUBLICOS
  **********************************************************************************************************************/
@@ -59,5 +65,7 @@ commReturn_t Comm_Init(void);
 commReturn_t Comm_Reset(void);
 commReturn_t Comm_Timeout(void);
 commReturn_t Comm_ProcessByte(uint8_t byte, commFrame_t *frame);
+commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t payloadSize,
+                             uint8_t *buffer, uint16_t bufferSize, uint16_t *frameSize);
 
 #endif /* COMM_INC_COMM_H_ */
