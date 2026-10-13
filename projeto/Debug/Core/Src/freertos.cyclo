@@ -2,4 +2,4 @@
 ../Core/Src/freertos.c:210:6:StartDefaultTask	1
 ../Core/Src/freertos.c:231:6:CommTask	10
 ../Core/Src/freertos.c:317:6:TestExecTask	1
-../Core/Src/freertos.c:336:13:CommTask_Responde	7
+../Core/Src/freertos.c:340:13:CommTask_Responde	7

@@ -317,10 +317,14 @@ void CommTask(void *argument)
 void TestExecTask(void *argument)
 {
   /* USER CODE BEGIN TestExecTask */
+
+	DebugLog_SendTerminal("[TASK -> EXEC] Inicio da Task\n");
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	  //DebugLog_SendTerminal("[TASK -> EXEC] teste de concorrencia do DebugLog %lu\n", osKernelGetTickCount());
+	  osDelay(5);
   }
   /* USER CODE END TestExecTask */
 }

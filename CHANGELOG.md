@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas
+  tasks logando, uma podia enviar o texto da outra. Agora o lock cobre a formatação e o envio.
+- Firmware: `BspUart_Init` sem o cast `(void *)`: a função de envio tem a mesma assinatura do DebugLog.
+- Software: com logs chegando sem pausa (ex.: a cada 5 ms), a GUI e o terminal não exibiam nada até a
+  porta fechar; a junção de bytes em rajadas agora tem tempo máximo (50 ms).
+
 ## [0.3.0] - 2026-10-13
 
 ### Adicionado

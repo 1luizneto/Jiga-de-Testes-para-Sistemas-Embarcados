@@ -41,11 +41,21 @@ typedef enum debuglogReturn
     eDEBUGLOG_RETURN_END_ENUM
 } debuglogReturn_t;
 
+/// @brief Envia os bytes ja formatados para o terminal
+typedef void (*debugLogSendFunc_t)(uint8_t *txBuffer, uint16_t txBufferSize);
+
+/// @brief Reserva o terminal para uma mensagem; retorna 1 se conseguiu, 0 se outra task nao liberou a tempo
+typedef uint8_t (*debugLogLockFunc_t)(void);
+
+/// @brief Libera o terminal reservado pelo lock
+typedef void (*debugLogUnlockFunc_t)(void);
+
 /***********************************************************************************************************************
  * PROTOTIPOS PUBLICOS
  **********************************************************************************************************************/
 
-debuglogReturn_t DebugLog_Init(void (*uartSendFunc)(uint8_t *txBuffer, uint16_t txBufferSize));
+debuglogReturn_t DebugLog_Init(debugLogSendFunc_t sendFunc, debugLogLockFunc_t lockFunc,
+                               debugLogUnlockFunc_t unlockFunc);
 
 debuglogReturn_t DebugLog_SendTerminal(const char *string, ...);
 
