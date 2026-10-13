@@ -27,7 +27,10 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from protocolo import CASOS_TESTE, LOG_FIRMWARE, PAYLOAD_MAX, montar_quadro, resultado_do_log
+from protocolo import (
+    CASOS_TESTE, PAYLOAD_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, descrever_log,
+    descrever_resposta, interpretar_resposta, montar_quadro,
+)
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, detectar_porta, formatar_hex, interpretar_hex,
 )
@@ -161,6 +164,8 @@ class JanelaTerminal(QMainWindow):
         self.decodificador_log = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.resto_log = ""        # linha do log ainda sem '\n'
         self.linhas_caso = None    # linhas do log capturadas durante o caso atual
+        self.rx_caso = None        # bytes recebidos pelo USB durante o caso atual
+        self.receptor_rx = ReceptorQuadros()  # interpreta as respostas da jiga na tela
         self.aprovados = 0
         self.avaliados = 0
         self.config = QSettings("TCC-Jiga", "TerminalSerial")
@@ -207,6 +212,8 @@ class JanelaTerminal(QMainWindow):
         self.ck_horario = QCheckBox("Horário", checked=True)
         self.ck_eco = QCheckBox("Mostrar enviados", checked=True)
         self.ck_rolagem = QCheckBox("Rolagem automática", checked=True)
+        self.ck_interpretar = QCheckBox("Interpretar respostas", checked=True)
+        self.ck_interpretar.setToolTip("Mostra cada quadro recebido da jiga já decodificado (ACK/NACK)")
         bt_limpar = QPushButton("Limpar", clicked=self.limpar)
         bt_salvar = QPushButton("Salvar...", clicked=self.salvar)
         linha2.addWidget(QLabel("Exibição:"))
@@ -214,6 +221,7 @@ class JanelaTerminal(QMainWindow):
         linha2.addWidget(self.ck_horario)
         linha2.addWidget(self.ck_eco)
         linha2.addWidget(self.ck_rolagem)
+        linha2.addWidget(self.ck_interpretar)
         linha2.addStretch(1)
         linha2.addWidget(bt_limpar)
         linha2.addWidget(bt_salvar)
@@ -311,7 +319,7 @@ class JanelaTerminal(QMainWindow):
 
         # Resultado dos casos executados
         self.tabela = QTableWidget(0, 4)
-        self.tabela.setHorizontalHeaderLabels(["Caso", "Esperado no DebugLog", "Obtido", "Resultado"])
+        self.tabela.setHorizontalHeaderLabels(["Caso", "Esperado (DebugLog e USB)", "Obtido", "Resultado"])
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tabela.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -320,10 +328,11 @@ class JanelaTerminal(QMainWindow):
         cabecalho.setSectionResizeMode(1, QHeaderView.Stretch)
         cabecalho.setSectionResizeMode(2, QHeaderView.Stretch)
         cabecalho.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tabela.setMaximumHeight(280)  # cabe os 8 casos sem rolagem
+        self.tabela.setWordWrap(True)
+        self.tabela.setMaximumHeight(360)
         layout.addWidget(self.tabela)
 
-        self.lb_resumo = QLabel("Conecte o USB-CDC (acima) e o DebugLog para ter o veredito de cada caso.")
+        self.lb_resumo = QLabel("Conecte o USB-CDC (acima) e o DebugLog: o veredito confere o log e a resposta do USB.")
         self.lb_resumo.setStyleSheet("color: #8a8a8a")
         layout.addWidget(self.lb_resumo)
 
@@ -337,11 +346,13 @@ class JanelaTerminal(QMainWindow):
         self.ck_hex.setChecked(self.config.value("enviar_hex", False, type=bool))
         self.ck_horario.setChecked(self.config.value("horario", True, type=bool))
         self.ck_log_tela.setChecked(self.config.value("mostrar_log", True, type=bool))
+        self.ck_interpretar.setChecked(self.config.value("interpretar", True, type=bool))
 
     def _salvar_config(self):
         self.config.setValue("porta", self.porta_selecionada() or "")
         self.config.setValue("porta_log", self.combo_log.currentData() or "")
         self.config.setValue("mostrar_log", self.ck_log_tela.isChecked())
+        self.config.setValue("interpretar", self.ck_interpretar.isChecked())
         self.config.setValue("baud", self.combo_baud.currentText())
         self.config.setValue("modo", self.combo_modo.currentText())
         self.config.setValue("fim", self.combo_fim.currentText())
@@ -401,6 +412,7 @@ class JanelaTerminal(QMainWindow):
                 QMessageBox.warning(self, "Terminal", "Escolha uma porta e uma taxa de baud válidas.")
                 self.bt_conectar.setChecked(False)
                 return
+            self.receptor_rx.reiniciar()
             self.leitor = LeitorSerial(porta, baud)
             self.leitor.recebido.connect(self.mostrar_recebido)
             self.leitor.estado.connect(self.mostrar_estado)
@@ -512,10 +524,28 @@ class JanelaTerminal(QMainWindow):
         self._inserir(formatar_hex(dados) + "\n", cor)
 
     def mostrar_recebido(self, dados):
+        if self.rx_caso is not None:
+            self.rx_caso += dados
         if self.combo_modo.currentText() == "Hex":
             self._escrever_hex(dados, COR_RX, "RX")
         else:
             self._escrever_texto(self.decodificador.decode(dados), COR_RX, "RX")
+        self._interpretar_recebido(dados)
+
+    def _interpretar_recebido(self, dados):
+        """Mostra cada quadro completo vindo da jiga ja decodificado (o quadro pode vir picado)."""
+        for resultado, quadro in self.receptor_rx.processar(dados):
+            if not self.ck_interpretar.isChecked():
+                continue
+            if resultado != QUADRO_OK:
+                texto = f"quadro inválido ({resultado})"
+            else:
+                try:
+                    texto = interpretar_resposta(quadro).descrever()
+                except ValueError as e:
+                    texto = f"resposta inválida: {e}"
+            self._quebrar_linha()
+            self._inserir(f"  => {texto}\n", COR_RX)
 
     def _mudou_modo(self, _):
         self.decodificador.reset()
@@ -558,14 +588,14 @@ class JanelaTerminal(QMainWindow):
 
     def _mudou_caso(self, *_):
         caso = self.combo_caso.currentData()
-        esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
-        self.lb_caso.setText(f"{caso.descricao}  →  {esperado}")
+        self.lb_caso.setText(f"{caso.descricao}  →  USB: {descrever_resposta(caso.resposta_esperada())}")
+        self.lb_caso.setToolTip(f"DebugLog: {descrever_log(caso.esperado)}")
 
     def executar_casos(self, casos):
         """Enfileira os passos dos casos; as esperas usam QTimer para nao travar a janela.
 
-        Para cada caso: comeca a capturar o DebugLog, envia os passos, espera a CommTask
-        logar (ESPERA_LOG) e compara as linhas do parser com o esperado.
+        Para cada caso: comeca a capturar o DebugLog e o RX do USB, envia os passos, espera a
+        CommTask logar e responder (ESPERA_LOG) e compara os dois com o esperado.
         """
         if self.executando:
             return
@@ -573,7 +603,7 @@ class JanelaTerminal(QMainWindow):
             self._escrever_info("Não conectado; nada enviado")
             return
         if self.leitor_log is None:
-            self._escrever_info("DebugLog não conectado: os casos serão enviados sem veredito")
+            self._escrever_info("DebugLog não conectado: só a resposta do USB será avaliada")
         for caso in casos:
             self.fila_teste.append(("caso", caso))
             self.fila_teste += list(caso.passos)
@@ -600,33 +630,40 @@ class JanelaTerminal(QMainWindow):
                 QTimer.singleShot(int(valor * 1000), self._proximo_passo)
                 return
             if tipo == "caso":
-                esperado = ", ".join(LOG_FIRMWARE[r] for r in valor.esperado)
-                self._escrever_info(f"Caso '{valor.nome}' | esperado no DebugLog: {esperado}")
+                self._escrever_info(f"Caso '{valor.nome}' | esperado: log {descrever_log(valor.esperado)}"
+                                    f" | USB {descrever_resposta(valor.resposta_esperada())}")
                 self.linhas_caso = []
+                self.rx_caso = bytearray()
             elif tipo == "avaliar":
                 self._avaliar(valor)
             else:
                 self._enviar_bytes(valor)
         self.linhas_caso = None
+        self.rx_caso = None
         self._marcar_execucao(False)
         self._mostrar_resumo()
 
     def _avaliar(self, caso):
-        """Compara o que a CommTask logou durante o caso com o esperado e poe na tabela."""
+        """Compara o DebugLog e a resposta do USB do caso com o esperado e poe na tabela."""
         linhas = self.linhas_caso or []
+        resposta = bytes(self.rx_caso or b"")
         self.linhas_caso = None
-        esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
-        if self.leitor_log is None:
-            self._adicionar_linha(caso.nome, esperado, "—", "SEM LOG", None, "DebugLog não conectado")
-            return
-        do_parser = [linha for linha in linhas if resultado_do_log(linha)]
-        obtido = [resultado_do_log(linha) for linha in do_parser]
-        aprovado = obtido == caso.esperado
+        self.rx_caso = None
+        avaliacao = avaliar_caso(caso, linhas, resposta)
+        # Sem o DebugLog conectado, so a resposta do USB entra no veredito
+        com_log = self.leitor_log is not None
+        aprovado = avaliacao.aprovado if com_log else avaliacao.resposta_ok
         self.avaliados += 1
         self.aprovados += aprovado
-        texto_obtido = ", ".join(LOG_FIRMWARE[r] for r in obtido) or "(nada)"
-        detalhe = "\n".join(linhas) or "(nenhuma linha no DebugLog durante o caso)"
-        self._adicionar_linha(caso.nome, esperado, texto_obtido,
+
+        esperado = (f"log: {descrever_log(caso.esperado)}\n"
+                    f"USB: {descrever_resposta(caso.resposta_esperada())}")
+        log_obtido = descrever_log(avaliacao.log_obtido) if com_log else "(DebugLog não conectado)"
+        obtido = f"log: {log_obtido}\nUSB: {descrever_resposta(resposta)}"
+        detalhe = ("Linhas do DebugLog durante o caso:\n"
+                   + ("\n".join(linhas) or "(nenhuma)")
+                   + f"\n\nBytes recebidos pelo USB:\n{resposta.hex(' ').upper() or '(nenhum)'}")
+        self._adicionar_linha(caso.nome, esperado, obtido,
                               "PASS" if aprovado else "FALHA", COR_PASS if aprovado else COR_FALHA, detalhe)
         self._escrever_info(f"[{'PASS' if aprovado else 'FALHA'}] {caso.nome}")
 
@@ -635,20 +672,21 @@ class JanelaTerminal(QMainWindow):
         self.tabela.insertRow(linha)
         for coluna, texto in enumerate((nome, esperado, obtido, resultado)):
             item = QTableWidgetItem(texto)
-            item.setToolTip(f"Linhas do DebugLog durante o caso:\n{detalhe}")
+            item.setToolTip(detalhe)
             if cor is not None:
                 item.setBackground(cor)
             self.tabela.setItem(linha, coluna, item)
+        self.tabela.resizeRowToContents(linha)
         self.tabela.scrollToBottom()
 
     def _mostrar_resumo(self):
         if not self.avaliados:
-            self.lb_resumo.setText("Casos enviados sem veredito (conecte o DebugLog para avaliar).")
+            self.lb_resumo.setText("Nenhum caso avaliado.")
             self.lb_resumo.setStyleSheet("color: #8a8a8a")
             return
         tudo_ok = self.aprovados == self.avaliados
         self.lb_resumo.setText(f"{self.aprovados}/{self.avaliados} casos passaram"
-                               "  (passe o mouse numa linha para ver o log do caso)")
+                               "  (passe o mouse numa linha para ver o log e os bytes do caso)")
         self.lb_resumo.setStyleSheet(f"color: {'#1a7f37' if tudo_ok else '#c62828'}; font-weight: bold")
         self._escrever_info(f"{self.aprovados}/{self.avaliados} casos passaram")
 

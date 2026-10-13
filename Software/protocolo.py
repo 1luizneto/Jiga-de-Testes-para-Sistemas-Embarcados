@@ -8,12 +8,19 @@ Quadro: SOF(0x7E) | LEN | SEQ | CMD | PAYLOAD(0 a 240) | CRC-16 (little-endian)
 - O 0x7E so marca inicio de quadro quando o receptor esta procurando o SOF;
   dentro do quadro ele e um byte comum (enquadramento por comprimento).
 
-O ReceptorQuadros espelha o parser do firmware (projeto/App/Comm/Comm.c):
-os testes do software e os casos de teste enviados para a placa usam ele
-para saber o resultado esperado.
+O ReceptorQuadros espelha o parser do firmware (projeto/App/Comm/Comm.c) e a
+JigaSimulada espelha a decisao da resposta (Comm_ProcessFrame): os testes do
+software e os casos de teste enviados para a placa usam os dois para saber o
+resultado esperado no DebugLog e a resposta esperada no USB.
+
+Respostas da jiga (Apendice A): ACK = mesmo SEQ, CMD | 0x80, payload com os
+dados; NACK = mesmo SEQ, CMD 0xFF, payload [comando recusado, codigo do erro].
+Quadro com CRC errado ou LEN invalido nao tem resposta.
 """
 
 from dataclasses import dataclass, field
+
+from versao import __version__
 
 SOF = 0x7E
 TAMANHO_CABECALHO = 3            # LEN + SEQ + CMD
@@ -22,10 +29,33 @@ TAMANHO_QUADRO_MAX = 1 + TAMANHO_CABECALHO + PAYLOAD_MAX + 2
 CRC_INICIAL = 0xFFFF
 CRC_POLINOMIO = 0x1021
 
-# Comandos ja definidos na monografia (os demais entram com o Apendice A)
+# Comandos ja implementados no firmware (os demais entram com o Apendice A)
 CMD_PING = 0x01
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
+
+# Codigo que nenhum comando do Apendice A usa: a jiga sempre responde NACK CMD_DESCONHECIDO.
+# Os casos de teste usam ele para nao mudar de resposta quando os comandos forem implementados.
+CMD_INEXISTENTE = 0x55
+
+NOMES_COMANDO = {CMD_PING: "PING"}
+
+# Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
+VERSAO_PROTOCOLO = 1
+
+# Codigos de erro do NACK (Apendice A, commError_t no firmware)
+ERRO_CMD_DESCONHECIDO = 0x01
+CODIGOS_ERRO = {
+    0x01: "CMD_DESCONHECIDO",
+    0x02: "PARAMETRO_INVALIDO",
+    0x03: "NAO_CONFIGURADO",
+    0x04: "CRC_INVALIDO",
+    0x05: "TAMANHO_EXCEDIDO",
+    0x06: "ERRO_PERIFERICO",
+    0x07: "OCUPADO",
+    0x08: "ROTINA_INVALIDA",
+    0x09: "SEM_RESULTADO",
+}
 
 # Resultados do receptor (mesmos nomes dos retornos eCOMM_RETURN_* do firmware)
 LENDO = "READING"
@@ -136,12 +166,137 @@ class ReceptorQuadros:
         return eventos
 
 
+# --- respostas da jiga -------------------------------------------------------
+
+
+def versao_em_bytes(versao=__version__):
+    """'0.2.0' -> (0, 2, 0): como a versao do firmware vai no ACK do PING."""
+    return tuple(int(parte) for parte in versao.split("."))
+
+
+def montar_ack(seq, cmd, dados=b""):
+    return montar_quadro(seq, cmd | FLAG_ACK, dados)
+
+
+def montar_nack(seq, cmd, erro):
+    return montar_quadro(seq, CMD_NACK, bytes([cmd, erro]))
+
+
+def montar_ack_ping(seq, versao=__version__):
+    """ACK do PING: versao do protocolo e versao do firmware (maior, menor, correcao).
+
+    O firmware e o software tem a mesma versao (tests/test_versao.py), entao o ACK esperado usa a
+    versao do software: se a placa estiver com um firmware antigo gravado, o caso de teste falha.
+    """
+    return montar_ack(seq, CMD_PING, bytes([VERSAO_PROTOCOLO, *versao_em_bytes(versao)]))
+
+
+def nome_comando(cmd):
+    return NOMES_COMANDO.get(cmd, f"0x{cmd:02X}")
+
+
+@dataclass
+class Resposta:
+    """Resposta da jiga (ACK ou NACK) ja interpretada."""
+
+    seq: int
+    ack: bool
+    cmd: int            # comando ao qual a jiga respondeu
+    dados: bytes = b""  # payload do ACK
+    erro: int = 0       # codigo do erro, no NACK
+
+    def descrever(self):
+        if not self.ack:
+            nome = CODIGOS_ERRO.get(self.erro, f"0x{self.erro:02X}")
+            return f"NACK {nome_comando(self.cmd)} SEQ={self.seq}: {nome}"
+        texto = f"ACK {nome_comando(self.cmd)} SEQ={self.seq}"
+        if self.cmd == CMD_PING and len(self.dados) == 4:
+            protocolo, maior, menor, correcao = self.dados
+            texto += f" (protocolo {protocolo}, firmware {maior}.{menor}.{correcao})"
+        elif self.dados:
+            texto += f" dados={self.dados.hex(' ').upper()}"
+        return texto
+
+
+def interpretar_resposta(quadro):
+    """Converte um Quadro vindo da jiga em Resposta; ValueError se nao for ACK nem NACK valido."""
+    if quadro.cmd == CMD_NACK:
+        if len(quadro.payload) != 2:
+            raise ValueError(f"NACK com {len(quadro.payload)} B de payload; esperado [cmd, erro]")
+        return Resposta(seq=quadro.seq, ack=False, cmd=quadro.payload[0], erro=quadro.payload[1])
+    if quadro.cmd & FLAG_ACK:
+        return Resposta(seq=quadro.seq, ack=True, cmd=quadro.cmd & ~FLAG_ACK, dados=quadro.payload)
+    raise ValueError(f"CMD 0x{quadro.cmd:02X} nao e ACK nem NACK")
+
+
+def descrever_respostas(dados):
+    """Descreve cada quadro de um fluxo vindo da jiga, para exibir. Bytes fora de quadro sao ignorados."""
+    receptor = ReceptorQuadros()
+    descricoes = []
+    for resultado, quadro in receptor.processar(dados):
+        if resultado != QUADRO_OK:
+            descricoes.append(f"quadro invalido ({resultado})")
+            continue
+        try:
+            descricoes.append(interpretar_resposta(quadro).descrever())
+        except ValueError as e:
+            descricoes.append(f"resposta invalida: {e}")
+    if receptor.estado != "AGUARDA_SOF":
+        descricoes.append("quadro incompleto")
+    return descricoes
+
+
+@dataclass
+class JigaSimulada:
+    """Espelho do firmware: parser (Comm_ProcessByte) + resposta (Comm_ProcessFrame).
+
+    PING -> ACK com as versoes; qualquer outro comando -> NACK CMD_DESCONHECIDO. Se o SEQ for o
+    mesmo do ultimo quadro atendido, devolve a resposta guardada sem executar (retransmissao).
+    """
+
+    receptor: ReceptorQuadros = field(default_factory=ReceptorQuadros)
+    ultimo_seq: int = None
+    ultima_resposta: bytes = b""
+
+    def nova_sessao(self):
+        """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta."""
+        self.receptor.reiniciar()
+        self.ultimo_seq = None
+        self.ultima_resposta = b""
+
+    def _responder(self, quadro):
+        if quadro.seq == self.ultimo_seq:
+            return self.ultima_resposta
+        if quadro.cmd == CMD_PING:
+            resposta = montar_ack_ping(quadro.seq)
+        else:
+            resposta = montar_nack(quadro.seq, quadro.cmd, ERRO_CMD_DESCONHECIDO)
+        self.ultimo_seq, self.ultima_resposta = quadro.seq, resposta
+        return resposta
+
+    def processar(self, dados):
+        """Retorna (resultados do parser diferentes de LENDO, bytes que a jiga responde)."""
+        resultados, respostas = [], b""
+        for resultado, quadro in self.receptor.processar(dados):
+            resultados.append(resultado)
+            if resultado == QUADRO_OK:
+                respostas += self._responder(quadro)
+        return resultados, respostas
+
+    def timeout(self):
+        return self.receptor.timeout()
+
+
 # --- casos de teste para enviar a placa --------------------------------------
 #
 # Cada passo e ("enviar", bytes) ou ("esperar", segundos). "esperado" e a lista de
 # resultados que o parser da placa deve produzir, na ordem; a CommTask loga cada um
-# na UART de debug (ST-Link). Esperar mais que dCOMM_RX_TIMEOUT_MS (20 ms) dispara
-# o timeout de pacote.
+# na UART de debug (ST-Link). "respostas" sao os quadros que a jiga deve devolver pelo
+# USB, na ordem (lista vazia = nenhuma resposta). Esperar mais que dCOMM_RX_TIMEOUT_MS
+# (20 ms) dispara o timeout de pacote.
+#
+# Cada caso usa SEQs proprios: como a jiga reenvia a resposta guardada quando o SEQ se
+# repete, dois casos com o mesmo SEQ interfeririam um no outro.
 
 ESPERA_TIMEOUT = 0.25
 TIMEOUT_PACOTE_MS = 20
@@ -161,29 +316,42 @@ class CasoTeste:
     descricao: str
     passos: list
     esperado: list
+    respostas: list
 
     def bytes_enviados(self):
         return b"".join(dados for tipo, dados in self.passos if tipo == "enviar")
 
+    def resposta_esperada(self):
+        return b"".join(self.respostas)
+
 
 CASOS_TESTE = [
-    CasoTeste("PING valido", "PING sem payload",
-              [("enviar", _ping(1))], [QUADRO_OK]),
+    CasoTeste("PING valido", "PING sem payload: ACK com as versoes",
+              [("enviar", _ping(1))], [QUADRO_OK], [montar_ack_ping(1)]),
     CasoTeste("Payload com 0x7E", "LEN=4 com 0x7E no meio do payload (enquadramento por LEN)",
-              [("enviar", montar_quadro(2, 0x10, bytes([0x11, 0x7E, 0x22, 0x7E])))], [QUADRO_OK]),
+              [("enviar", montar_quadro(2, CMD_INEXISTENTE, bytes([0x11, 0x7E, 0x22, 0x7E])))],
+              [QUADRO_OK], [montar_nack(2, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)]),
     CasoTeste("Payload maximo", "LEN=240",
-              [("enviar", montar_quadro(3, 0x10, bytes(range(PAYLOAD_MAX))))], [QUADRO_OK]),
-    CasoTeste("CRC errado", "PING com o ultimo byte do CRC invertido",
-              [("enviar", _crc_trocado(_ping(4)))], [ERRO_CRC]),
-    CasoTeste("LEN invalido", "LEN=0xF1 (> 240): descartado logo no 2o byte",
-              [("enviar", bytes([SOF, 0xF1, 0x05, 0x01]))], [ERRO_LEN]),
+              [("enviar", montar_quadro(3, CMD_INEXISTENTE, bytes(range(PAYLOAD_MAX))))],
+              [QUADRO_OK], [montar_nack(3, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)]),
+    CasoTeste("CRC errado", "PING com o ultimo byte do CRC invertido: sem resposta",
+              [("enviar", _crc_trocado(_ping(4)))], [ERRO_CRC], []),
+    CasoTeste("LEN invalido", "LEN=0xF1 (> 240): descartado logo no 2o byte, sem resposta",
+              [("enviar", bytes([SOF, 0xF1, 0x05, 0x01]))], [ERRO_LEN], []),
     CasoTeste("Lixo antes do SOF", "bytes soltos e depois um PING",
-              [("enviar", bytes([0xAA, 0xBB, 0x00]) + _ping(6))], [QUADRO_OK]),
-    CasoTeste("Dois quadros juntos", "dois PINGs no mesmo envio",
-              [("enviar", _ping(7) + _ping(8))], [QUADRO_OK, QUADRO_OK]),
+              [("enviar", bytes([0xAA, 0xBB, 0x00]) + _ping(6))], [QUADRO_OK], [montar_ack_ping(6)]),
+    CasoTeste("Dois quadros juntos", "dois PINGs no mesmo envio: duas respostas",
+              [("enviar", _ping(7) + _ping(8))], [QUADRO_OK, QUADRO_OK],
+              [montar_ack_ping(7), montar_ack_ping(8)]),
     CasoTeste("Quadro pela metade", "meio quadro, silencio > 20 ms, depois um PING",
               [("enviar", _ping(9)[:3]), ("esperar", ESPERA_TIMEOUT), ("enviar", _ping(10))],
-              [TIMEOUT, QUADRO_OK]),
+              [TIMEOUT, QUADRO_OK], [montar_ack_ping(10)]),
+    CasoTeste("Comando desconhecido", "CMD 0x55 nao existe: NACK CMD_DESCONHECIDO",
+              [("enviar", montar_quadro(11, CMD_INEXISTENTE))],
+              [QUADRO_OK], [montar_nack(11, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)]),
+    CasoTeste("SEQ repetido", "PING e depois outro CMD com o mesmo SEQ: reenvia o ACK, sem executar",
+              [("enviar", _ping(12)), ("esperar", 0.1), ("enviar", montar_quadro(12, CMD_INEXISTENTE))],
+              [QUADRO_OK, QUADRO_OK], [montar_ack_ping(12), montar_ack_ping(12)]),
 ]
 
 
@@ -204,15 +372,53 @@ def resultado_do_log(linha):
     return None
 
 
-def simular_caso(caso, receptor=None):
-    """Roda o caso no receptor do PC e devolve os resultados (deve bater com 'esperado')."""
-    receptor = receptor or ReceptorQuadros()
-    resultados = []
+def simular(caso, jiga=None):
+    """Roda o caso na jiga simulada; retorna (resultados do parser, bytes respondidos)."""
+    jiga = jiga or JigaSimulada()
+    resultados, respostas = [], b""
     for tipo, valor in caso.passos:
         if tipo == "enviar":
-            resultados += [r for r, _ in receptor.processar(valor)]
+            novos, resposta = jiga.processar(valor)
+            resultados += novos
+            respostas += resposta
         elif valor * 1000 > TIMEOUT_PACOTE_MS:
-            resultado = receptor.timeout()
-            if resultado == TIMEOUT:
+            if jiga.timeout() == TIMEOUT:
                 resultados.append(TIMEOUT)
-    return resultados
+    return resultados, respostas
+
+
+def simular_caso(caso, receptor=None):
+    """Resultados do parser para o caso (deve bater com 'esperado')."""
+    return simular(caso, JigaSimulada(receptor) if receptor else None)[0]
+
+
+@dataclass
+class Avaliacao:
+    """Veredito de um caso executado na placa."""
+
+    log_obtido: list        # resultados do parser lidos no DebugLog
+    linhas_log: list        # linhas do DebugLog que geraram esses resultados
+    resposta_obtida: bytes  # bytes recebidos pelo USB durante o caso
+    log_ok: bool
+    resposta_ok: bool
+
+    @property
+    def aprovado(self):
+        return self.log_ok and self.resposta_ok
+
+
+def avaliar_caso(caso, linhas_log, resposta_usb):
+    """Compara o DebugLog e a resposta do USB com o esperado do caso."""
+    do_parser = [linha for linha in linhas_log if resultado_do_log(linha)]
+    obtido = [resultado_do_log(linha) for linha in do_parser]
+    return Avaliacao(log_obtido=obtido, linhas_log=do_parser, resposta_obtida=bytes(resposta_usb),
+                     log_ok=obtido == caso.esperado,
+                     resposta_ok=bytes(resposta_usb) == caso.resposta_esperada())
+
+
+def descrever_log(resultados):
+    return ", ".join(LOG_FIRMWARE[r] for r in resultados) or "(nada)"
+
+
+def descrever_resposta(dados):
+    return "; ".join(descrever_respostas(dados)) or "(nenhuma)"

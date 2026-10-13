@@ -1,8 +1,9 @@
 """
 Teste automatico do protocolo com a placa (hardware-in-the-loop).
 
-Envia os casos de teste (protocolo.CASOS_TESTE) pelo USB-CDC (CN13) e confere,
-na UART de debug do ST-Link, se a CommTask logou o resultado esperado.
+Envia os casos de teste (protocolo.CASOS_TESTE) pelo USB-CDC (CN13) e confere duas
+coisas: na UART de debug do ST-Link, se a CommTask logou o resultado esperado do
+parser; e no proprio USB-CDC, se a jiga devolveu a resposta (ACK/NACK) esperada.
 
 Precisa das duas portas: o CN13 (USB-CDC) e o USB do ST-Link (CN1).
 
@@ -20,7 +21,7 @@ import time
 import serial
 from serial.tools import list_ports
 
-from protocolo import CASOS_TESTE, LOG_FIRMWARE, resultado_do_log
+from protocolo import CASOS_TESTE, avaliar_caso, descrever_log, descrever_resposta
 from terminal_usb import detectar_porta
 from versao import __version__
 
@@ -29,7 +30,7 @@ STLINK_VID = 0x0483
 STLINK_PIDS = {0x374B, 0x374E, 0x374F, 0x3752, 0x3753}
 
 BAUD_LOG = 1_000_000   # huart3 (DebugLog)
-ESPERA_LOG = 0.3       # tempo para a CommTask logar depois do ultimo passo (s)
+ESPERA_LOG = 0.3       # tempo para a CommTask logar e responder depois do ultimo passo (s)
 
 
 def detectar_porta_log():
@@ -45,8 +46,9 @@ def ler_linhas(porta_log):
 
 
 def executar_caso(caso, porta_usb, porta_log):
-    """Envia o caso e devolve (resultados lidos do log, linhas do parser)."""
+    """Envia o caso e devolve a avaliacao (DebugLog + resposta do USB)."""
     porta_log.reset_input_buffer()
+    porta_usb.reset_input_buffer()
     for tipo, valor in caso.passos:
         if tipo == "enviar":
             porta_usb.write(valor)
@@ -55,8 +57,8 @@ def executar_caso(caso, porta_usb, porta_log):
             time.sleep(valor)
     time.sleep(ESPERA_LOG)
 
-    linhas = [linha for linha in ler_linhas(porta_log) if resultado_do_log(linha)]
-    return [resultado_do_log(linha) for linha in linhas], linhas
+    resposta = porta_usb.read(porta_usb.in_waiting)
+    return avaliar_caso(caso, ler_linhas(porta_log), resposta)
 
 
 def main():
@@ -91,13 +93,16 @@ def main():
     with serial.Serial(nome_usb, timeout=0.1) as porta_usb, \
             serial.Serial(nome_log, BAUD_LOG, timeout=0.1) as porta_log:
         for caso in casos:
-            obtido, linhas = executar_caso(caso, porta_usb, porta_log)
-            ok = obtido == caso.esperado
-            falhas += not ok
-            print(f"[{'PASS' if ok else 'FALHA'}] {caso.nome}")
-            if not ok:
-                print(f"        esperado: {[LOG_FIRMWARE[r] for r in caso.esperado]}")
-                print(f"        log:      {linhas or '(nada)'}")
+            avaliacao = executar_caso(caso, porta_usb, porta_log)
+            falhas += not avaliacao.aprovado
+            print(f"[{'PASS' if avaliacao.aprovado else 'FALHA'}] {caso.nome}")
+            if not avaliacao.log_ok:
+                print(f"        log esperado:      {descrever_log(caso.esperado)}")
+                print(f"        log obtido:        {avaliacao.linhas_log or '(nada)'}")
+            if not avaliacao.resposta_ok:
+                print(f"        resposta esperada: {descrever_resposta(caso.resposta_esperada())}")
+                print(f"        resposta obtida:   {descrever_resposta(avaliacao.resposta_obtida)}")
+                print(f"                           {avaliacao.resposta_obtida.hex(' ').upper() or '(sem bytes)'}")
 
     print(f"\n{len(casos) - falhas}/{len(casos)} casos passaram")
     return 1 if falhas else 0

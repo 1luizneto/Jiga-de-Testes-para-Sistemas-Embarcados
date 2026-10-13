@@ -1,4 +1,4 @@
-"""Testes do protocolo do lado do PC (CRC, montagem de quadro e receptor)."""
+"""Testes do protocolo do lado do PC (CRC, quadros, receptor, respostas e casos de teste)."""
 
 import binascii
 import random
@@ -6,10 +6,12 @@ import random
 import pytest
 
 from protocolo import (
-    CASOS_TESTE, CMD_PING, ERRO_CRC, ERRO_LEN, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX,
-    QUADRO_OK, SOF, TAMANHO_QUADRO_MAX, TIMEOUT, ReceptorQuadros, crc16_ccitt, montar_quadro,
-    resultado_do_log, simular_caso,
+    CASOS_TESTE, CMD_INEXISTENTE, CMD_PING, ERRO_CMD_DESCONHECIDO, ERRO_CRC, ERRO_LEN, LENDO,
+    LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX, QUADRO_OK, SOF, TAMANHO_QUADRO_MAX, TIMEOUT, JigaSimulada,
+    Quadro, ReceptorQuadros, avaliar_caso, crc16_ccitt, descrever_respostas, interpretar_resposta,
+    montar_ack_ping, montar_nack, montar_quadro, resultado_do_log, simular, simular_caso,
 )
+from versao import __version__
 
 
 # --- CRC ---------------------------------------------------------------------
@@ -127,12 +129,106 @@ def test_receptor_quadros_aleatorios_em_sequencia():
     assert [(q.seq, q.cmd, q.payload) for _, q in eventos] == quadros
 
 
+# --- respostas da jiga -------------------------------------------------------
+
+# Exemplos do Apendice A da monografia: os mesmos vetores dos testes Unity do Comm_BuildFrame
+def test_ack_ping_igual_ao_apendice_a():
+    assert montar_ack_ping(1, "0.1.0") == bytes.fromhex("7E 04 01 81 01 00 01 00 AC B8")
+
+
+def test_nack_igual_ao_apendice_a():
+    assert montar_nack(2, 0x10, 0x02) == bytes.fromhex("7E 02 02 FF 10 02 B5 54")
+
+
+def test_ack_ping_usa_a_versao_do_software():
+    maior, menor, correcao = (int(p) for p in __version__.split("."))
+    assert montar_ack_ping(5)[4:8] == bytes([1, maior, menor, correcao])
+
+
+def test_interpretar_ack_do_ping():
+    [(_, quadro)] = ReceptorQuadros().processar(montar_ack_ping(1, "0.2.0"))
+    resposta = interpretar_resposta(quadro)
+    assert (resposta.ack, resposta.seq, resposta.cmd, resposta.dados) == (True, 1, CMD_PING, b"\x01\x00\x02\x00")
+    assert resposta.descrever() == "ACK PING SEQ=1 (protocolo 1, firmware 0.2.0)"
+
+
+def test_interpretar_nack():
+    [(_, quadro)] = ReceptorQuadros().processar(montar_nack(7, 0x10, ERRO_CMD_DESCONHECIDO))
+    resposta = interpretar_resposta(quadro)
+    assert (resposta.ack, resposta.seq, resposta.cmd, resposta.erro) == (False, 7, 0x10, ERRO_CMD_DESCONHECIDO)
+    assert resposta.descrever() == "NACK 0x10 SEQ=7: CMD_DESCONHECIDO"
+
+
+def test_interpretar_quadro_que_nao_e_resposta():
+    with pytest.raises(ValueError):
+        interpretar_resposta(Quadro(seq=1, cmd=CMD_PING))
+
+
+def test_interpretar_nack_sem_codigo_de_erro():
+    with pytest.raises(ValueError):
+        interpretar_resposta(Quadro(seq=1, cmd=0xFF, payload=b"\x10"))
+
+
+def test_descrever_respostas_em_fluxo_picado():
+    fluxo = montar_ack_ping(1) + montar_nack(2, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)
+    assert len(descrever_respostas(fluxo)) == 2
+    assert descrever_respostas(fluxo[:-1])[-1] == "quadro incompleto"
+    assert descrever_respostas(b"") == []
+
+
+# --- jiga simulada (espelho do Comm_ProcessFrame) ----------------------------
+
+def test_jiga_responde_ping_e_nack():
+    jiga = JigaSimulada()
+    assert jiga.processar(montar_quadro(1, CMD_PING)) == ([QUADRO_OK], montar_ack_ping(1))
+    resposta = montar_nack(2, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)
+    assert jiga.processar(montar_quadro(2, CMD_INEXISTENTE)) == ([QUADRO_OK], resposta)
+
+
+def test_jiga_nao_responde_quadro_corrompido():
+    quadro = bytearray(montar_quadro(1, CMD_PING))
+    quadro[-1] ^= 0xFF
+    assert JigaSimulada().processar(quadro) == ([ERRO_CRC], b"")
+
+
+def test_jiga_seq_repetido_reenvia_sem_executar():
+    jiga = JigaSimulada()
+    _, primeira = jiga.processar(montar_quadro(3, CMD_PING))
+    _, segunda = jiga.processar(montar_quadro(3, CMD_INEXISTENTE))
+    assert segunda == primeira == montar_ack_ping(3)
+
+
+def test_jiga_sessao_nova_esquece_o_seq():
+    jiga = JigaSimulada()
+    jiga.processar(montar_quadro(3, CMD_PING))
+    jiga.nova_sessao()
+    _, resposta = jiga.processar(montar_quadro(3, CMD_INEXISTENTE))
+    assert resposta == montar_nack(3, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)
+
+
 # --- casos de teste enviados para a placa ------------------------------------
 
 @pytest.mark.parametrize("caso", CASOS_TESTE, ids=lambda c: c.nome)
 def test_casos_de_teste_coerentes(caso):
-    """O resultado esperado de cada caso bate com o receptor do PC."""
+    """O log e a resposta esperados de cada caso batem com a jiga simulada."""
     assert simular_caso(caso) == caso.esperado
+    assert simular(caso)[1] == caso.resposta_esperada()
+
+
+def test_casos_em_sequencia_nao_interferem():
+    """Na placa os casos rodam um atras do outro, com o cache de SEQ ligado: cada caso usa SEQs proprios."""
+    jiga = JigaSimulada()
+    for caso in CASOS_TESTE:
+        assert simular(caso, jiga) == (caso.esperado, caso.resposta_esperada()), caso.nome
+
+
+def test_avaliar_caso():
+    caso = CASOS_TESTE[0]
+    linhas = ["[TASK -> COMM] Sessao nova", LOG_FIRMWARE[QUADRO_OK] + ": LEN=0 SEQ=1 CMD=0x01"]
+    assert avaliar_caso(caso, linhas, caso.resposta_esperada()).aprovado
+    sem_resposta = avaliar_caso(caso, linhas, b"")
+    assert sem_resposta.log_ok and not sem_resposta.resposta_ok and not sem_resposta.aprovado
+    assert not avaliar_caso(caso, [], caso.resposta_esperada()).log_ok
 
 
 @pytest.mark.parametrize("resultado", [QUADRO_OK, ERRO_CRC, ERRO_LEN, TIMEOUT])
