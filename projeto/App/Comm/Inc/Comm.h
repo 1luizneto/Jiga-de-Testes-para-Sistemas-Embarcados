@@ -21,6 +21,24 @@
 // Tamanho máximo do payload
 #define dCOMM_PAYLOAD_MAX_SIZE (240U)
 
+// Bytes fixos de todo quadro: SOF + LEN + SEQ + CMD + CRC16
+#define dCOMM_FRAME_OVERHEAD (6U)
+
+// Tamanho maximo de um quadro completo
+#define dCOMM_FRAME_MAX_SIZE (dCOMM_FRAME_OVERHEAD + dCOMM_PAYLOAD_MAX_SIZE)
+
+// Versao do protocolo PC <-> Jiga
+#define dCOMM_PROTOCOL_VERSION (1U)
+
+// Codigos de comando
+#define dCOMM_CMD_PING (0x01U)
+
+// ACK: CMD de requisicao com o bit 7 ligado
+#define dCOMM_ACK_FLAG (0x80U)
+
+// CMD de todo NACK
+#define dCOMM_CMD_NACK (0xFFU)
+
 /***********************************************************************************************************************
  * TIPOS DE DADOS PUBLICOS
  **********************************************************************************************************************/
@@ -36,6 +54,7 @@ typedef enum commReturn
     eCOMM_RETURN_CRC_ERROR,
     eCOMM_RETURN_LEN_ERROR,
     eCOMM_RETURN_TIMEOUT,
+	eCOMM_RETURN_RESENT,
 
     eCOMM_RETURN_END_ENUM
 } commReturn_t;
@@ -50,6 +69,22 @@ typedef struct commFrame
 
 } commFrame_t;
 
+// @brief Codigos de erro do NACK
+typedef enum commError
+{
+	eCOMM_ERROR_CMD_DESCONHECIDO   = 0x01,
+	eCOMM_ERROR_PARAMETRO_INVALIDO = 0x02,
+	eCOMM_ERROR_NAO_CONFIGURADO    = 0x03,
+	eCOMM_ERROR_CRC_INVALIDO       = 0x04,
+	eCOMM_ERROR_TAMANHO_EXCEDIDO   = 0x05,
+	eCOMM_ERROR_PERIFERICO         = 0x06,
+	eCOMM_ERROR_OCUPADO            = 0x07,
+	eCOMM_ERROR_ROTINA_INVALIDA    = 0x08,
+	eCOMM_ERROR_SEM_RESULTADO      = 0x09,
+
+	eCOMM_ERROR_END_ENUM
+} commError_t;
+
 /***********************************************************************************************************************
  * PROTOTIPOS PUBLICOS
  **********************************************************************************************************************/
@@ -59,5 +94,8 @@ commReturn_t Comm_Init(void);
 commReturn_t Comm_Reset(void);
 commReturn_t Comm_Timeout(void);
 commReturn_t Comm_ProcessByte(uint8_t byte, commFrame_t *frame);
+commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t payloadSize,
+                             uint8_t *buffer, uint16_t bufferSize, uint16_t *frameSize);
+commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
 
 #endif /* COMM_INC_COMM_H_ */

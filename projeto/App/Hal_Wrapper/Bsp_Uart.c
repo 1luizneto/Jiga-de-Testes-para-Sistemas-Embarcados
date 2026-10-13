@@ -15,6 +15,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 17/09/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.0.1 - 12/10/2026</b> \n Luiz Neto \n BspUart_Send libera o mutex tambem quando o envio da
+ *                 certo, nao transmite sem o mutex e dispensa o mutex antes do scheduler iniciar
  *
  *   @copyright
  *   @{

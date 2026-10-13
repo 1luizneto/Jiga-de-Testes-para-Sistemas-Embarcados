@@ -22,6 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include <string.h>
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -94,8 +95,9 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 
-/// Escritas na ISR do OTG_FS e lidas pela task: precisam ser volatile
-static cdcReceiveFsFunc_t rxCallback = NULL;
+/// Callbacks registrados pela BSP antes de a USB iniciar; sao chamados na ISR do OTG_FS
+static cdcReceiveFsFunc_t rxCallback        = NULL;
+static cdcLineStateFunc_t lineStateCallback = NULL;
 
 /* USER CODE END PRIVATE_VARIABLES */
 
@@ -157,6 +159,13 @@ static int8_t CDC_Init_FS(void)
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+
+  // Nova enumeracao (cabo reconectado): a porta comeca fechada. Sem isso, se o cabo sair com a porta
+  // aberta, o DTR ficaria "ligado" e a proxima abertura nao seria vista como sessao nova
+  if (lineStateCallback != NULL)
+  {
+    lineStateCallback(0U);
+  }
 
   return (USBD_OK);
   /* USER CODE END 3 */
@@ -232,6 +241,14 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 
     case CDC_SET_CONTROL_LINE_STATE:
 
+      // Requisicao sem dados: o pbuf aponta para o proprio pacote SETUP (usbd_cdc.c, USBD_CDC_Setup).
+      // Bit 0 do wValue = DTR, que o PC liga quando um programa abre a porta e desliga ao fechar
+      if (lineStateCallback != NULL)
+      {
+        USBD_SetupReqTypedef *req = (USBD_SetupReqTypedef *)pbuf;
+        lineStateCallback((uint8_t)(req->wValue & 0x01U));
+      }
+
     break;
 
     case CDC_SEND_BREAK:
@@ -294,13 +311,24 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   /* USER CODE BEGIN 7 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
   // pClassData so existe depois que o host enumera a placa
-  if (hcdc == NULL){
+  if (hcdc == NULL)
+  {
     return USBD_FAIL;
   }
-  if (hcdc->TxState != 0){
+  if (Len > APP_TX_DATA_SIZE)
+  {
+    return USBD_FAIL;
+  }
+  if (hcdc->TxState != 0)
+  {
     return USBD_BUSY;
   }
-  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
+
+  // Copia para o buffer da propria USB: quem chama pode reutilizar Buf assim que esta funcao retornar.
+  // Seguro porque TxState == 0 garante que nenhum envio esta usando o UserTxBufferFS
+  // (so a CommTask transmite; o TxState so volta a 0 na ISR, ao fim do envio)
+  memcpy(UserTxBufferFS, Buf, Len);
+  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, Len);
   result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
   /* USER CODE END 7 */
   return result;
@@ -332,13 +360,21 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
 /**
-  * @brief  Copia o ultimo pacote recebido para Buf e rearma a recepcao
-  * @param  Buf: Buffer de destino
-  * @param  cb: Callback;
+  * @brief  Registra a funcao chamada (na ISR) a cada pacote recebido
+  * @param  cb: Callback; NULL desativa
   */
 void CDC_RegisterRxCallback(cdcReceiveFsFunc_t cb)
 {
 	rxCallback = cb;
+}
+
+/**
+  * @brief  Registra a funcao chamada (na ISR) quando o PC muda o DTR, e com DTR = 0 a cada nova enumeracao
+  * @param  cb: Callback; NULL desativa
+  */
+void CDC_RegisterLineStateCallback(cdcLineStateFunc_t cb)
+{
+	lineStateCallback = cb;
 }
 
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */

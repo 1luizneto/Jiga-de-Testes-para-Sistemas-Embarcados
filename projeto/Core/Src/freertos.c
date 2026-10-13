@@ -45,7 +45,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define dCOMM_RX_TIMEOUT_MS (100U)
+#define dCOMM_RX_TIMEOUT_MS (20U)
+
+/// Tempo maximo esperando a USB terminar o envio anterior antes de desistir da resposta
+#define dCOMM_TX_TIMEOUT_MS (50U)
 
 /* USER CODE END PD */
 
@@ -128,6 +131,10 @@ const osMutexAttr_t uartDebugMutex_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+
+#ifndef UNIT_TEST_ON_TARGET
+static void CommTask_Responde(const commFrame_t *frame);
+#endif
 
 /* USER CODE END FunctionPrototypes */
 
@@ -246,6 +253,15 @@ void CommTask(void *argument)
   {
 	  retUsb = Usb_Read(rxBuffer, sizeof(rxBuffer), &rxSize, dCOMM_RX_TIMEOUT_MS);
 
+	  // Um programa abriu a porta no PC: ele recomeca a contagem de SEQ, entao a resposta guardada da sessao
+	  // anterior nao vale mais. Consultado antes de processar os bytes lidos, que ja sao da sessao nova
+	  // (o PC liga o DTR ao abrir a porta, antes de enviar qualquer dado)
+	  if (Usb_NewSession() != 0U)
+	  {
+		  Comm_Init();
+		  DebugLog_SendTerminal("[TASK -> COMM] Sessao nova (porta aberta no PC): cache de SEQ limpo\n");
+	  }
+
 	  if (retUsb == eUSB_RETURN_OK)
 	  {
 		  // Um bloco do USB pode ter pedaco de quadro ou varios quadros: o parser consome byte a byte
@@ -255,15 +271,22 @@ void CommTask(void *argument)
 			  switch (Comm_ProcessByte(rxBuffer[i], &frame))
 			  {
 				  case eCOMM_RETURN_FRAME_OK:
+
 					  DebugLog_SendTerminal("[TASK -> COMM] Quadro OK: LEN=%u SEQ=%u CMD=0x%02X\n", frame.size, frame.seq, frame.cmd);
+					  CommTask_Responde(&frame);
+
 				  break;
 
 				  case eCOMM_RETURN_CRC_ERROR:
+
 					  DebugLog_SendTerminal("[TASK -> COMM] Erro de CRC: quadro descartado\n");
+
 				  break;
 
 				  case eCOMM_RETURN_LEN_ERROR:
+
 					  DebugLog_SendTerminal("[TASK -> COMM] LEN maior que %u: quadro descartado\n", dCOMM_PAYLOAD_MAX_SIZE);
+
 				  break;
 
 				  default:
@@ -304,6 +327,51 @@ void TestExecTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+
+#ifndef UNIT_TEST_ON_TARGET
+/***********************************************************************************************************************
+ * @brief      Monta a resposta do quadro (Comm_ProcessFrame) e envia pelo USB-CDC.
+ * @details    Quadro com CRC errado ou LEN invalido nao chega aqui: nao tem resposta, o PC retransmite por timeout.
+ **********************************************************************************************************************/
+static void CommTask_Responde(const commFrame_t *frame)
+{
+	// static: fora da stack da task. O CDC_Transmit_FS copia os dados, entao o buffer ja pode
+	// ser reutilizado na proxima resposta assim que o Usb_Write retornar OK
+	static uint8_t txBuffer[dCOMM_FRAME_MAX_SIZE];
+	uint16_t txSize = 0;
+	uint32_t espera = 0;
+	usbReturn_t retUsb;
+
+	commReturn_t ret = Comm_ProcessFrame(frame, txBuffer, sizeof(txBuffer), &txSize);
+	if ((ret != eCOMM_RETURN_OK) && (ret != eCOMM_RETURN_RESENT))
+	{
+		DebugLog_SendTerminal("[TASK -> COMM] Erro ao montar a resposta (%d)\n", ret);
+		return;
+	}
+
+	// Envio anterior ainda em andamento: tenta de novo, com limite para a task nao travar
+	// se o PC parar de ler a porta
+	while ((retUsb = Usb_Write(txBuffer, txSize)) == eUSB_RETURN_BUSY)
+	{
+		if (espera >= dCOMM_TX_TIMEOUT_MS)
+		{
+			break;
+		}
+		osDelay(1);
+		espera++;
+	}
+
+	if (retUsb != eUSB_RETURN_OK)
+	{
+		DebugLog_SendTerminal("[TASK -> COMM] Resposta nao enviada (%d)\n", retUsb);
+		return;
+	}
+
+	DebugLog_SendTerminal("[TASK -> COMM] Resposta %s: LEN=%u SEQ=%u CMD=0x%02X\n",
+	                      (ret == eCOMM_RETURN_RESENT) ? "reenviada" : "enviada",
+	                      txBuffer[1], txBuffer[2], txBuffer[3]);
+}
+#endif
 
 /* USER CODE END Application */
 

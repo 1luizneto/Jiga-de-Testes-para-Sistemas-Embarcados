@@ -34,7 +34,10 @@ from datetime import datetime
 import serial
 from serial.tools import list_ports
 
-from protocolo import CASOS_TESTE, LOG_FIRMWARE, montar_quadro
+from protocolo import (
+    CASOS_TESTE, QUADRO_OK, ReceptorQuadros, descrever_log, descrever_resposta, interpretar_resposta,
+    montar_quadro,
+)
 from versao import __version__
 
 # VID/PID padrao do USB-CDC da STMicroelectronics (Virtual COM Port)
@@ -90,6 +93,7 @@ class Terminal:
         self.rodando = True
         self.trava_saida = threading.Lock()
         self.seq = 0
+        self.receptor = ReceptorQuadros()  # decodifica as respostas da jiga
 
     # --- saida ------------------------------------------------------------
 
@@ -106,6 +110,15 @@ class Terminal:
             self.exibir(f"[{hora}] RX {len(dados)} B\n{formatar_hex(dados)}")
         else:
             self.exibir(dados.decode("utf-8", errors="replace").rstrip("\r\n"))
+        # Cada quadro completo vindo da jiga tambem aparece decodificado (pode chegar picado)
+        for resultado, quadro in self.receptor.processar(dados):
+            if resultado != QUADRO_OK:
+                self.exibir(f"  => quadro invalido ({resultado})")
+                continue
+            try:
+                self.exibir(f"  => {interpretar_resposta(quadro).descrever()}")
+            except ValueError as e:
+                self.exibir(f"  => resposta invalida: {e}")
 
     # --- conexao ----------------------------------------------------------
 
@@ -208,8 +221,8 @@ class Terminal:
             self.exibir(f"*** caso invalido; use 1 a {len(CASOS_TESTE)} ou 'todos' ***")
             return
         for caso in casos:
-            esperado = ", ".join(LOG_FIRMWARE[r] for r in caso.esperado)
-            self.exibir(f"*** caso '{caso.nome}' | esperado no DebugLog: {esperado} ***")
+            self.exibir(f"*** caso '{caso.nome}' | esperado: log {descrever_log(caso.esperado)}"
+                        f" | USB {descrever_resposta(caso.resposta_esperada())} ***")
             for tipo, valor in caso.passos:
                 if tipo == "enviar":
                     self.enviar(valor)
