@@ -43,9 +43,9 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  19 .debug_line   0003cbc0  00000000  00000000  0008ab8e  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 20 .debug_str    0011cdd5  00000000  00000000  000c774e  2**0
+ 20 .debug_str    0011cdd4  00000000  00000000  000c774e  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .comment      00000043  00000000  00000000  001e4523  2**0
+ 21 .comment      00000043  00000000  00000000  001e4522  2**0
                   CONTENTS, READONLY
  22 .debug_frame  0000aa48  00000000  00000000  001e4568  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
@@ -2907,7 +2907,7 @@ void CommTask(void *argument)
   {
 	  retUsb = Usb_Read(rxBuffer, sizeof(rxBuffer), &rxSize, dCOMM_RX_TIMEOUT_MS);
  8001408:	f107 020c 	add.w	r2, r7, #12
- 800140c:	2364      	movs	r3, #100	@ 0x64
+ 800140c:	2314      	movs	r3, #20
  800140e:	2140      	movs	r1, #64	@ 0x40
  8001410:	4825      	ldr	r0, [pc, #148]	@ (80014a8 <CommTask+0xc4>)
  8001412:	f7ff fc1b 	bl	8000c4c <Usb_Read>

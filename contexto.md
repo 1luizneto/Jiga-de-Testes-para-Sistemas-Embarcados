@@ -103,7 +103,7 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   de gravar; LEN==0 pula para VALIDA_CRC) → LE_PAYLOAD → VALIDA_CRC (1º byte = parte baixa, 2º = alta,
   depois `Comm_ValidaQuadro`: CRC via `Crc16_Calcule`, preenche o frame só se válido, sempre reseta).
   `default` → reset + ERROR. Sem DebugLog dentro do parser.
-- CommTask: `Usb_Read(rxBuffer[64] static, ..., 100 ms)`; OK → `Comm_ProcessByte` por byte, trata
+- CommTask: `Usb_Read(rxBuffer[64] static, ..., 20 ms)`; OK → `Comm_ProcessByte` por byte, trata
   FRAME_OK dentro do laço (bloco pode ter 2 quadros) e loga cada resultado; EMPTY → `Comm_Timeout()` e
   loga se descartou. `frame` é `static` (stack da task é 1 KB e o vsnprintf do DebugLog gasta muito). Eco removido.
 - `BspUart_Send` corrigido: o mutex não era liberado no caminho de sucesso (a própria task travava 10 ms
