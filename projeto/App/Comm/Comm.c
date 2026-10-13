@@ -49,6 +49,9 @@
 #define dCOMM_IDX_SEQ (1U)
 #define dCOMM_IDX_CMD (2U)
 
+// Deslocamento dos campos no quadro de saída: o buffer comeca pelo SOF
+#define dCOMM_FRAME_OFFSET (1U)
+
 /***********************************************************************************************************************
  * TIPOS LOCAIS
  **********************************************************************************************************************/
@@ -199,6 +202,55 @@ commReturn_t Comm_ProcessByte(uint8_t byte, commFrame_t *frame)
 	}
 
 	return eCOMM_RETURN_READING;
+}
+
+/***********************************************************************************************************************
+ * @brief      Monta um quadro completo (SOF ate CRC) a partir dos campos. Inverso do Comm_ProcessByte.
+ *
+ * @param[in]  seq         SEQ do quadro (na resposta, o mesmo SEQ da requisicao)
+ * @param[in]  cmd         CMD do quadro (ACK: cmd | 0x80, NACK: 0xFF)
+ * @param[in]  payload     Dados do payload, pode ser NULL se payloadSize for 0. Nao pode sobrepor o buffer de saida.
+ * @param[in]  payloadSize Tamanho do payload (0 a dCOMM_PAYLOAD_MAX_SIZE)
+ * @param[out] buffer      Onde o quadro e escrito
+ * @param[in]  bufferSize  Capacidade do buffer, nada e escrito se o quadro nao couber
+ * @param[out] frameSize   Quantidade de bytes escritos no buffer
+ *
+ * @return     eCOMM_RETURN_OK, eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR (falha no CRC)
+ **********************************************************************************************************************/
+commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t payloadSize,
+                             uint8_t *buffer, uint16_t bufferSize, uint16_t *frameSize)
+{
+	uint16_t size = (uint16_t)(dCOMM_FRAME_OVERHEAD + payloadSize);
+	uint16_t crc;
+
+	if ((buffer == NULL) || (frameSize == NULL) || (payloadSize > dCOMM_PAYLOAD_MAX_SIZE) ||
+	    ((payload == NULL) && (payloadSize > 0U)) || (bufferSize < size))
+	{
+		return eCOMM_RETURN_INVALID_ARGUMENT;
+	}
+
+	buffer[0U]                                 = dCOMM_SOF;
+	buffer[dCOMM_FRAME_OFFSET + dCOMM_IDX_LEN] = payloadSize;
+	buffer[dCOMM_FRAME_OFFSET + dCOMM_IDX_SEQ] = seq;
+	buffer[dCOMM_FRAME_OFFSET + dCOMM_IDX_CMD] = cmd;
+
+	if (payloadSize > 0U)
+	{
+		memcpy(&buffer[dCOMM_FRAME_OFFSET + dCOMM_HEADER_SIZE], payload, payloadSize);
+	}
+
+	if (Crc16_Calcule(&buffer[dCOMM_FRAME_OFFSET], (uint16_t)(dCOMM_HEADER_SIZE + payloadSize), &crc,
+	                  dCRC_INITIAL_VALUE) != eCRC16_RETURN_OK)
+	{
+		return eCOMM_RETURN_ERROR;
+	}
+
+	buffer[size - 2U] = (uint8_t)(crc & 0xFFU);
+	buffer[size - 1U] = (uint8_t)(crc >> 8);
+
+	*frameSize = size;
+
+	return eCOMM_RETURN_OK;
 }
 
 /***********************************************************************************************************************

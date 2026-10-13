@@ -38,6 +38,13 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_QuadroParcialSemTimeout);
 		RUN_TEST(Test_Comm_FrameNulo);
 
+		RUN_TEST(Test_Comm_BuildAckPing);
+		RUN_TEST(Test_Comm_BuildAckSemPayload);
+		RUN_TEST(Test_Comm_BuildNack);
+		RUN_TEST(Test_Comm_BuildIdaEVolta);
+		RUN_TEST(Test_Comm_BuildArgumentosInvalidos);
+		RUN_TEST(Test_Comm_BuildBufferPequeno);
+
 	UNITY_END();
 
 	for (;;)

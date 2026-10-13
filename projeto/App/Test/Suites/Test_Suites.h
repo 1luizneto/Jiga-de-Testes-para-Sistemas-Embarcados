@@ -27,5 +27,13 @@ void Test_Comm_TimeoutDescartaQuadroParcial(void);
 void Test_Comm_QuadroParcialSemTimeout(void);
 void Test_Comm_FrameNulo(void);
 
+// Testes da montagem de quadros (Comm_BuildFrame)
+void Test_Comm_BuildAckPing(void);
+void Test_Comm_BuildAckSemPayload(void);
+void Test_Comm_BuildNack(void);
+void Test_Comm_BuildIdaEVolta(void);
+void Test_Comm_BuildArgumentosInvalidos(void);
+void Test_Comm_BuildBufferPequeno(void);
+
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
