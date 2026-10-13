@@ -16,6 +16,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: a CommTask repassa os comandos (exceto PING) para o `Exec` e responde com o resultado
   (`Comm_BuildResult`); um comando pendente por vez: retransmissão do pendente é ignorada e outro
   comando recebe NACK OCUPADO. `DAC_SET` e `RESET_ALL` funcionam pelo USB. 8 testes Unity novos.
+- Firmware: filas de 1 elemento entre CommTask e TestExecTask (criadas no `.ioc`, alocação estática):
+  a TestExecTask executa os comandos e devolve o resultado; a CommTask continua lendo o USB durante a
+  execução.
 
 ### Corrigido
 - Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas

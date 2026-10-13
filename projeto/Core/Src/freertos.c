@@ -39,6 +39,7 @@
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
+typedef StaticQueue_t osStaticMessageQDef_t;
 /* USER CODE BEGIN PTD */
 
 /* USER CODE END PTD */
@@ -101,6 +102,11 @@ const osThreadAttr_t UARTEmulationTask_attributes = {
 
 //taskNameTesteHandle = osThreadNew(entryFunctionTeste, NULL, &taskNameTeste_attributes);
 
+#ifndef UNIT_TEST_ON_TARGET
+/// Buffer de envio da CommTask (respostas imediatas e respostas de resultado). O CDC_Transmit_FS copia os
+/// dados, entao pode ser reutilizado assim que o Usb_Write retornar OK. static: fora da stack de 1 KB
+static uint8_t commTxBuffer[dCOMM_FRAME_MAX_SIZE];
+#endif
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
@@ -124,6 +130,28 @@ const osThreadAttr_t TestExec_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
+/* Definitions for comandoQueue */
+osMessageQueueId_t comandoQueueHandle;
+uint8_t comandoQueueBuffer[ 1 * sizeof( commFrame_t ) ];
+osStaticMessageQDef_t comandoQueueControlBlock;
+const osMessageQueueAttr_t comandoQueue_attributes = {
+  .name = "comandoQueue",
+  .cb_mem = &comandoQueueControlBlock,
+  .cb_size = sizeof(comandoQueueControlBlock),
+  .mq_mem = &comandoQueueBuffer,
+  .mq_size = sizeof(comandoQueueBuffer)
+};
+/* Definitions for resultadoQueue */
+osMessageQueueId_t resultadoQueueHandle;
+uint8_t resultadoQueueBuffer[ 1 * sizeof( execResult_t ) ];
+osStaticMessageQDef_t resultadoQueueControlBlock;
+const osMessageQueueAttr_t resultadoQueue_attributes = {
+  .name = "resultadoQueue",
+  .cb_mem = &resultadoQueueControlBlock,
+  .cb_size = sizeof(resultadoQueueControlBlock),
+  .mq_mem = &resultadoQueueBuffer,
+  .mq_size = sizeof(resultadoQueueBuffer)
+};
 /* Definitions for uartDebugMutex */
 osMutexId_t uartDebugMutexHandle;
 const osMutexAttr_t uartDebugMutex_attributes = {
@@ -135,6 +163,8 @@ const osMutexAttr_t uartDebugMutex_attributes = {
 
 #ifndef UNIT_TEST_ON_TARGET
 static void CommTask_Responde(const commFrame_t *frame);
+static void CommTask_VerificaResultado(void);
+static void CommTask_Envia(uint16_t tamanho, const char *tipo);
 #endif
 
 /* USER CODE END FunctionPrototypes */
@@ -172,6 +202,13 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
+
+  /* Create the queue(s) */
+  /* creation of comandoQueue */
+  comandoQueueHandle = osMessageQueueNew (1, sizeof(commFrame_t), &comandoQueue_attributes);
+
+  /* creation of resultadoQueue */
+  resultadoQueueHandle = osMessageQueueNew (1, sizeof(execResult_t), &resultadoQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -303,6 +340,9 @@ void CommTask(void *argument)
 			  DebugLog_SendTerminal("[TASK -> COMM] Timeout: quadro incompleto descartado\n");
 		  }
 	  }
+
+	  // A cada volta (no maximo dCOMM_RX_TIMEOUT_MS): a TestExecTask terminou algum comando?
+	  CommTask_VerificaResultado();
   }
 #endif
   /* USER CODE END CommTask */
@@ -318,13 +358,29 @@ void CommTask(void *argument)
 void TestExecTask(void *argument)
 {
   /* USER CODE BEGIN TestExecTask */
+	// static: o quadro e o resultado tem ~250 bytes cada e a stack da task e de 1 KB
+	static commFrame_t comando;
+	static execResult_t resultado;
 
 	DebugLog_SendTerminal("[TASK -> EXEC] Inicio da Task\n");
 
   /* Infinite loop */
   for(;;)
   {
-	  osDelay(1);
+	  // Bloqueada ate a CommTask repassar um comando (nao gasta CPU enquanto espera). Na build Test ninguem
+	  // repassa nada e a task fica parada aqui: os testes Unity chamam o Exec_Process direto
+	  if (osMessageQueueGet(comandoQueueHandle, &comando, NULL, osWaitForever) != osOK)
+	  {
+		  continue;
+	  }
+
+	  Exec_Process(&comando, &resultado);
+
+	  DebugLog_SendTerminal("[TASK -> EXEC] Executado: CMD=0x%02X SEQ=%u erro=%u\n",
+	                        resultado.cmd, resultado.seq, resultado.erro);
+
+	  // A CommTask esvazia esta fila a cada volta do laco (<= 20 ms), entao a espera aqui e curta
+	  osMessageQueuePut(resultadoQueueHandle, &resultado, 0U, osWaitForever);
   }
   /* USER CODE END TestExecTask */
 }
@@ -334,49 +390,94 @@ void TestExecTask(void *argument)
 
 #ifndef UNIT_TEST_ON_TARGET
 /***********************************************************************************************************************
- * @brief      Monta a resposta do quadro (Comm_ProcessFrame) e envia pelo USB-CDC.
+ * @brief      Decide a resposta de um quadro valido (Comm_ProcessFrame) e envia, ou repassa para a TestExecTask.
  * @details    Quadro com CRC errado ou LEN invalido nao chega aqui: nao tem resposta, o PC retransmite por timeout.
- *             Comando repassado (FORWARD) e executado pelo Exec e respondido com o Comm_BuildResult.
+ *             Comando repassado (FORWARD) vai pela comandoQueue; a resposta dele sai no CommTask_VerificaResultado.
+ * @param[in]  frame  Quadro recebido e validado pelo Comm_ProcessByte
  **********************************************************************************************************************/
 static void CommTask_Responde(const commFrame_t *frame)
 {
-	// static: fora da stack da task. O CDC_Transmit_FS copia os dados, entao o buffer ja pode
-	// ser reutilizado na proxima resposta assim que o Usb_Write retornar OK
-	static uint8_t txBuffer[dCOMM_FRAME_MAX_SIZE];
 	uint16_t txSize = 0;
+	commReturn_t ret = Comm_ProcessFrame(frame, commTxBuffer, sizeof(commTxBuffer), &txSize);
+
+	switch (ret)
+	{
+		case eCOMM_RETURN_OK:
+		case eCOMM_RETURN_RESENT:
+
+			CommTask_Envia(txSize, (ret == eCOMM_RETURN_RESENT) ? "reenviada" : "enviada");
+
+		break;
+
+		case eCOMM_RETURN_IGNORED:
+
+			// Retransmissao do comando que ainda esta executando: a resposta sai quando o resultado chegar
+			DebugLog_SendTerminal("[TASK -> COMM] Retransmissao do comando pendente: ignorada\n");
+
+		break;
+
+		case eCOMM_RETURN_FORWARD:
+
+			// Sem esperar: a fila de 1 elemento so esta cheia se a TestExecTask ainda nao pegou o comando anterior,
+			// o que o Comm ja impede (um pendente por vez). Se acontecer, recusa e libera o pendente
+			if (osMessageQueuePut(comandoQueueHandle, frame, 0U, 0U) != osOK)
+			{
+				if (Comm_BuildResult(frame->seq, frame->cmd, (uint8_t)eCOMM_ERROR_OCUPADO, NULL, 0U,
+				                     commTxBuffer, sizeof(commTxBuffer), &txSize) == eCOMM_RETURN_OK)
+				{
+					CommTask_Envia(txSize, "enviada");
+				}
+			}
+
+		break;
+
+		default:
+
+			DebugLog_SendTerminal("[TASK -> COMM] Erro ao montar a resposta (%d)\n", ret);
+
+		break;
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      Confere, sem bloquear, se a TestExecTask devolveu um resultado; se sim, monta o ACK/NACK e envia.
+ * @details    Sem bloquear porque a CommTask precisa continuar lendo o USB. Resultado de um comando que nao esta
+ *             mais pendente (ex.: o PC reabriu a porta enquanto ele executava) e descartado.
+ **********************************************************************************************************************/
+static void CommTask_VerificaResultado(void)
+{
+	// static: ~245 bytes, fora da stack de 1 KB da task
+	static execResult_t resultado;
+	uint16_t txSize = 0;
+
+	if (osMessageQueueGet(resultadoQueueHandle, &resultado, NULL, 0U) != osOK)
+	{
+		return;
+	}
+
+	if (Comm_BuildResult(resultado.seq, resultado.cmd, resultado.erro, resultado.dados, resultado.size,
+	                     commTxBuffer, sizeof(commTxBuffer), &txSize) != eCOMM_RETURN_OK)
+	{
+		DebugLog_SendTerminal("[TASK -> COMM] Resultado descartado: SEQ=%u nao esta pendente\n", resultado.seq);
+		return;
+	}
+
+	CommTask_Envia(txSize, "enviada");
+}
+
+/***********************************************************************************************************************
+ * @brief      Envia a resposta que esta no commTxBuffer pelo USB-CDC.
+ * @details    Se a USB ainda esta enviando a anterior, tenta de novo por ate dCOMM_TX_TIMEOUT_MS, para a task nao
+ *             travar se o PC parar de ler a porta.
+ * @param[in]  tamanho  Bytes da resposta no commTxBuffer
+ * @param[in]  tipo     "enviada" ou "reenviada" (so para o log)
+ **********************************************************************************************************************/
+static void CommTask_Envia(uint16_t tamanho, const char *tipo)
+{
 	uint32_t espera = 0;
 	usbReturn_t retUsb;
 
-	commReturn_t ret = Comm_ProcessFrame(frame, txBuffer, sizeof(txBuffer), &txSize);
-
-	// Retransmissao do comando que ainda esta executando: a resposta sai quando o resultado chegar
-	if (ret == eCOMM_RETURN_IGNORED)
-	{
-		DebugLog_SendTerminal("[TASK -> COMM] Retransmissao do comando pendente: ignorada\n");
-		return;
-	}
-
-	if (ret == eCOMM_RETURN_FORWARD)
-	{
-		// PROVISORIO (passo 4 da v0.4.0): executa aqui mesmo, dentro da CommTask.
-		// No passo 5 o comando vai pela fila para a TestExecTask, e o resultado volta por outra fila.
-		// static: o resultado tem ~245 bytes e a stack da CommTask e de 1 KB
-		static execResult_t result;
-
-		Exec_Process(frame, &result);
-		ret = Comm_BuildResult(result.seq, result.cmd, result.erro, result.dados, result.size,
-		                       txBuffer, sizeof(txBuffer), &txSize);
-	}
-
-	if ((ret != eCOMM_RETURN_OK) && (ret != eCOMM_RETURN_RESENT))
-	{
-		DebugLog_SendTerminal("[TASK -> COMM] Erro ao montar a resposta (%d)\n", ret);
-		return;
-	}
-
-	// Envio anterior ainda em andamento: tenta de novo, com limite para a task nao travar
-	// se o PC parar de ler a porta
-	while ((retUsb = Usb_Write(txBuffer, txSize)) == eUSB_RETURN_BUSY)
+	while ((retUsb = Usb_Write(commTxBuffer, tamanho)) == eUSB_RETURN_BUSY)
 	{
 		if (espera >= dCOMM_TX_TIMEOUT_MS)
 		{
@@ -393,8 +494,7 @@ static void CommTask_Responde(const commFrame_t *frame)
 	}
 
 	DebugLog_SendTerminal("[TASK -> COMM] Resposta %s: LEN=%u SEQ=%u CMD=0x%02X\n",
-	                      (ret == eCOMM_RETURN_RESENT) ? "reenviada" : "enviada",
-	                      txBuffer[1], txBuffer[2], txBuffer[3]);
+	                      tipo, commTxBuffer[1], commTxBuffer[2], commTxBuffer[3]);
 }
 #endif
 
