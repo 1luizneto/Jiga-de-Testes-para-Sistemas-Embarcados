@@ -1337,7 +1337,7 @@ static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t r
  8000b46:	46bd      	mov	sp, r7
  8000b48:	bd80      	pop	{r7, pc}
  8000b4a:	bf00      	nop
- 8000b4c:	00030001 	.word	0x00030001
+ 8000b4c:	00040001 	.word	0x00040001
 
 08000b50 <Comm_RespondeNack>:
 /***********************************************************************************************************************

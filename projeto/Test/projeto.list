@@ -2981,7 +2981,7 @@ static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t r
  8001b22:	46bd      	mov	sp, r7
  8001b24:	bd80      	pop	{r7, pc}
  8001b26:	bf00      	nop
- 8001b28:	00030001 	.word	0x00030001
+ 8001b28:	00040001 	.word	0x00040001
 
 08001b2c <Comm_RespondeNack>:
 /***********************************************************************************************************************
@@ -6076,7 +6076,7 @@ void Test_Comm_ProcessPing(void)
  8002f18:	f507 773c 	add.w	r7, r7, #752	@ 0x2f0
  8002f1c:	46bd      	mov	sp, r7
  8002f1e:	bd80      	pop	{r7, pc}
- 8002f20:	00030001 	.word	0x00030001
+ 8002f20:	00040001 	.word	0x00040001
 
 08002f24 <Test_Comm_ProcessRepassaComando>:
 
