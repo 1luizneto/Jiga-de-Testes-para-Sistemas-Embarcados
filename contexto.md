@@ -63,7 +63,7 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - **Enquadramento por comprimento (opção A)**: 0x7E só é SOF no estado AGUARDA_SOF; dentro do quadro é
   dado comum. Byte stuffing (HDLC) foi descartado: quadro de tamanho variável, mais complexidade, e o
   USB bulk já tem CRC e retransmissão (erros reais são de dessincronização). Justificar isso no texto.
-- **Timeout de pacote**: quem mede o tempo é a CommTask; `Usb_Read` com 100 ms retorna EMPTY →
+- **Timeout de pacote**: quem mede o tempo é a CommTask; `Usb_Read` com 20 ms retorna EMPTY →
   `Comm_Timeout()` descarta quadro pela metade. Parser continua puro (sem FreeRTOS), testável no Unity.
 - **Nomes**: `Comm_ProcessByte` = parser (recebe 1 byte). `Comm_ProcessFrame` fica reservado para quem
   receber um `commFrame_t` validado e decidir o que fazer (PING/STATUS/ABORT ou fila para a TestExecTask).

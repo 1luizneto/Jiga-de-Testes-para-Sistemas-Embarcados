@@ -45,7 +45,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define dCOMM_RX_TIMEOUT_MS (100U)
+#define dCOMM_RX_TIMEOUT_MS (20U)
 
 /* USER CODE END PD */
 
