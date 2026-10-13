@@ -10,6 +10,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 ### Adicionado
 - Firmware: módulo `AnalogOut` (validação de canal 1–2 e valor 0–4095, estado seguro) e `Bsp_Dac` (HAL);
   a jiga liga com as duas saídas analógicas em 0.
+- Firmware: módulo `Exec` (despachante dos comandos diretos): `RESET_ALL` (estado seguro) e `DAC_SET`
+  (canal 1–2, valor 0–4095); tamanho ou faixa inválidos → NACK PARAMETRO_INVALIDO sem acionar a saída;
+  comando desconhecido → CMD_DESCONHECIDO. 10 testes Unity com DAC falso.
 
 ### Corrigido
 - Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas

@@ -43,5 +43,16 @@ void Test_Comm_ProcessSeqNovo(void);
 void Test_Comm_ProcessInitLimpaCache(void);
 void Test_Comm_ProcessArgumentosInvalidos(void);
 
+// Testes do despachante de comandos (Exec)
+void Test_Exec_DacSetValido(void);
+void Test_Exec_DacSetLimites(void);
+void Test_Exec_DacSetCanalInvalido(void);
+void Test_Exec_DacSetValorInvalido(void);
+void Test_Exec_DacSetTamanhoErrado(void);
+void Test_Exec_ResetAll(void);
+void Test_Exec_ResetAllComPayload(void);
+void Test_Exec_CmdDesconhecido(void);
+void Test_Exec_DacSetFalhaPeriferico(void);
+void Test_Exec_ArgumentosInvalidos(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

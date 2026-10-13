@@ -1,5 +1,6 @@
 "./App/Comm/Comm.o"
 "./App/Comm/DebugLog.o"
+"./App/Exec/Exec.o"
 "./App/Hal_Wrapper/Bsp.o"
 "./App/Hal_Wrapper/Bsp_Crc.o"
 "./App/Hal_Wrapper/Bsp_Dac.o"

@@ -22,6 +22,7 @@ RM := rm -rf
 -include Core/Src/subdir.mk
 -include App/System/subdir.mk
 -include App/Hal_Wrapper/subdir.mk
+-include App/Exec/subdir.mk
 -include App/Comm/subdir.mk
 -include objects.mk
 

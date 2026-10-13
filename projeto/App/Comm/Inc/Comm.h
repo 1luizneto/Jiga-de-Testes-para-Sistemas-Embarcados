@@ -31,7 +31,10 @@
 #define dCOMM_PROTOCOL_VERSION (1U)
 
 // Codigos de comando
-#define dCOMM_CMD_PING (0x01U)
+// Codigos de comando
+#define dCOMM_CMD_PING      (0x01U)
+#define dCOMM_CMD_RESET_ALL (0x02U)
+#define dCOMM_CMD_DAC_SET   (0x10U)
 
 // ACK: CMD de requisicao com o bit 7 ligado
 #define dCOMM_ACK_FLAG (0x80U)
