@@ -1,4 +1,6 @@
-../App/Hal_Wrapper/Bsp_Usb.c:80:16:BspUsb_Init	16	static
-../App/Hal_Wrapper/Bsp_Usb.c:108:20:BspUsb_Transmit	24	static
-../App/Hal_Wrapper/Bsp_Usb.c:124:20:BspUsb_Received	24	static
-../App/Hal_Wrapper/Bsp_Usb.c:136:13:BspUsb_RxFromIsr	24	static,ignoring_inline_asm
+../App/Hal_Wrapper/Bsp_Usb.c:90:16:BspUsb_Init	16	static
+../App/Hal_Wrapper/Bsp_Usb.c:121:20:BspUsb_Transmit	24	static
+../App/Hal_Wrapper/Bsp_Usb.c:137:20:BspUsb_Received	24	static
+../App/Hal_Wrapper/Bsp_Usb.c:149:13:BspUsb_RxFromIsr	24	static,ignoring_inline_asm
+../App/Hal_Wrapper/Bsp_Usb.c:168:13:BspUsb_LineStateFromIsr	16	static
+../App/Hal_Wrapper/Bsp_Usb.c:181:16:BspUsb_NewSession	16	static
