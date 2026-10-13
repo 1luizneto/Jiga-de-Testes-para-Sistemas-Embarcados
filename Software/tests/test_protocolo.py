@@ -6,10 +6,12 @@ import random
 import pytest
 
 from protocolo import (
-    CASOS_TESTE, CMD_INEXISTENTE, CMD_PING, ERRO_CMD_DESCONHECIDO, ERRO_CRC, ERRO_LEN, LENDO,
+    CASOS_TESTE, CMD_DAC_SET, CMD_INEXISTENTE, CMD_PING, CMD_RESET_ALL, DAC_VALOR_MAX,
+    ERRO_CMD_DESCONHECIDO, ERRO_CRC, ERRO_LEN, ERRO_OCUPADO, ERRO_PARAMETRO_INVALIDO, LENDO,
     LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX, QUADRO_OK, SOF, TAMANHO_QUADRO_MAX, TIMEOUT, JigaSimulada,
     Quadro, ReceptorQuadros, avaliar_caso, crc16_ccitt, descrever_respostas, interpretar_resposta,
-    montar_ack_ping, montar_nack, montar_quadro, resultado_do_log, simular, simular_caso,
+    montar_ack, montar_ack_ping, montar_dac_set, montar_nack, montar_quadro, resultado_do_log,
+    simular, simular_caso,
 )
 from versao import __version__
 
@@ -153,10 +155,34 @@ def test_interpretar_ack_do_ping():
 
 
 def test_interpretar_nack():
-    [(_, quadro)] = ReceptorQuadros().processar(montar_nack(7, 0x10, ERRO_CMD_DESCONHECIDO))
+    [(_, quadro)] = ReceptorQuadros().processar(montar_nack(7, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO))
     resposta = interpretar_resposta(quadro)
-    assert (resposta.ack, resposta.seq, resposta.cmd, resposta.erro) == (False, 7, 0x10, ERRO_CMD_DESCONHECIDO)
-    assert resposta.descrever() == "NACK 0x10 SEQ=7: CMD_DESCONHECIDO"
+    assert (resposta.ack, resposta.seq, resposta.cmd, resposta.erro) == (False, 7, 0x55, ERRO_CMD_DESCONHECIDO)
+    assert resposta.descrever() == "NACK 0x55 SEQ=7: CMD_DESCONHECIDO"
+
+
+def test_descrever_com_nome_do_comando():
+    [(_, ack)] = ReceptorQuadros().processar(montar_ack(4, CMD_DAC_SET))
+    [(_, nack)] = ReceptorQuadros().processar(montar_nack(5, CMD_RESET_ALL, ERRO_OCUPADO))
+    assert interpretar_resposta(ack).descrever() == "ACK DAC_SET SEQ=4"
+    assert interpretar_resposta(nack).descrever() == "NACK RESET_ALL SEQ=5: OCUPADO"
+
+
+# --- DAC_SET -----------------------------------------------------------------
+
+def test_dac_set_igual_ao_validado_na_placa():
+    # Quadro enviado no teste manual do OCUPADO (v0.4.0, passo 5): a placa aceitou e respondeu ACK
+    assert montar_dac_set(20, 1, 2048) == bytes.fromhex("7E 03 14 10 01 00 08 33 E0")
+
+
+def test_dac_set_valor_little_endian():
+    assert montar_dac_set(1, 2, 0x0FFF)[4:7] == bytes([0x02, 0xFF, 0x0F])
+
+
+@pytest.mark.parametrize("canal, valor", [(256, 0), (-1, 0), (1, 0x10000), (1, -1)])
+def test_dac_set_fora_de_u8_u16(canal, valor):
+    with pytest.raises(ValueError):
+        montar_dac_set(1, canal, valor)
 
 
 def test_interpretar_quadro_que_nao_e_resposta():
@@ -204,6 +230,80 @@ def test_jiga_sessao_nova_esquece_o_seq():
     jiga.nova_sessao()
     _, resposta = jiga.processar(montar_quadro(3, CMD_INEXISTENTE))
     assert resposta == montar_nack(3, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)
+
+
+# --- jiga simulada: execucao (espelho do Exec e da TestExecTask) -------------
+
+def test_jiga_dac_set_e_reset_all():
+    jiga = JigaSimulada()
+    assert jiga.processar(montar_dac_set(1, 1, 2048))[1] == montar_ack(1, CMD_DAC_SET)
+    assert jiga.processar(montar_dac_set(2, 2, DAC_VALOR_MAX))[1] == montar_ack(2, CMD_DAC_SET)
+    assert jiga.dac == {1: 2048, 2: DAC_VALOR_MAX}
+    assert jiga.processar(montar_quadro(3, CMD_RESET_ALL))[1] == montar_ack(3, CMD_RESET_ALL)
+    assert jiga.dac == {1: 0, 2: 0}
+
+
+@pytest.mark.parametrize("quadro", [
+    montar_dac_set(1, 3, 100),                          # canal inexistente
+    montar_dac_set(1, 0, 100),                          # canal 0
+    montar_dac_set(1, 1, DAC_VALOR_MAX + 1),            # valor acima de 12 bits
+    montar_quadro(1, CMD_DAC_SET, bytes([0x01, 0x00])),  # payload curto
+    montar_quadro(1, CMD_RESET_ALL, bytes([0x00])),      # RESET_ALL com payload
+], ids=["canal 3", "canal 0", "valor 4096", "tamanho 2", "reset com payload"])
+def test_jiga_parametro_invalido_nao_altera_saida(quadro):
+    """CT09: NACK PARAMETRO_INVALIDO e nenhuma saida alterada."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_dac_set(9, 1, 1234))
+    _, resposta = jiga.processar(quadro)
+    [(_, nack)] = ReceptorQuadros().processar(resposta)
+    assert interpretar_resposta(nack).erro == ERRO_PARAMETRO_INVALIDO
+    assert jiga.dac == {1: 1234, 2: 0}
+
+
+def test_jiga_ocupado_no_mesmo_bloco():
+    """Dois comandos no mesmo envio: o 2o recebe OCUPADO antes do ACK do 1o, e nao e executado."""
+    jiga = JigaSimulada()
+    resultados, respostas = jiga.processar(montar_dac_set(1, 1, 1024) + montar_quadro(2, CMD_RESET_ALL))
+    assert resultados == [QUADRO_OK, QUADRO_OK]
+    assert respostas == montar_nack(2, CMD_RESET_ALL, ERRO_OCUPADO) + montar_ack(1, CMD_DAC_SET)
+    assert jiga.dac[1] == 1024
+
+
+def test_jiga_ocupado_nao_fica_no_cache():
+    """Depois do pendente, o mesmo SEQ que recebeu OCUPADO e executado de verdade."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_dac_set(1, 1, 1024) + montar_quadro(2, CMD_RESET_ALL))
+    assert jiga.processar(montar_quadro(2, CMD_RESET_ALL))[1] == montar_ack(2, CMD_RESET_ALL)
+    assert jiga.dac[1] == 0
+
+
+def test_jiga_retransmissao_do_pendente_e_ignorada():
+    """O mesmo comando duas vezes no mesmo envio: uma unica resposta, executado uma vez."""
+    jiga = JigaSimulada()
+    comando = montar_dac_set(1, 1, 500)
+    _, respostas = jiga.processar(comando + comando)
+    assert respostas == montar_ack(1, CMD_DAC_SET)
+
+
+def test_jiga_ping_atendido_com_comando_pendente():
+    jiga = JigaSimulada()
+    _, respostas = jiga.processar(montar_dac_set(1, 1, 500) + montar_quadro(2, CMD_PING))
+    assert respostas == montar_ack_ping(2) + montar_ack(1, CMD_DAC_SET)
+
+
+def test_jiga_sessao_nova_esquece_o_pendente():
+    jiga = JigaSimulada()
+    jiga.pendente = Quadro(seq=1, cmd=CMD_DAC_SET, payload=bytes([1, 0, 1]))
+    jiga.nova_sessao()
+    assert jiga.pendente is None
+
+
+def test_jiga_quadro_grande_em_blocos_de_64():
+    """Payload maximo chega em 4 blocos (64+64+64+54): a resposta sai uma vez, no fim."""
+    jiga = JigaSimulada()
+    resultados, respostas = jiga.processar(montar_quadro(1, CMD_INEXISTENTE, bytes(PAYLOAD_MAX)))
+    assert resultados == [QUADRO_OK]
+    assert respostas == montar_nack(1, CMD_INEXISTENTE, ERRO_CMD_DESCONHECIDO)
 
 
 # --- casos de teste enviados para a placa ------------------------------------

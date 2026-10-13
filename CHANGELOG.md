@@ -19,6 +19,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: filas de 1 elemento entre CommTask e TestExecTask (criadas no `.ioc`, alocação estática):
   a TestExecTask executa os comandos e devolve o resultado; a CommTask continua lendo o USB durante a
   execução.
+- Software: `protocolo.py` conhece `RESET_ALL` e `DAC_SET` (`montar_dac_set`) e os erros
+  PARAMETRO_INVALIDO e OCUPADO; a `JigaSimulada` espelha o firmware novo (execução, comando pendente,
+  OCUPADO e o DAC).
+- Software: 7 casos de teste novos (17 no total): `RESET_ALL`, `DAC_SET` válido, canal/valor/tamanho
+  inválidos (CT09), "Comando durante execução" (OCUPADO) e `RESET_ALL` no fim da bateria.
+- Software: 26 testes pytest novos (93 no total).
 
 ### Corrigido
 - Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas

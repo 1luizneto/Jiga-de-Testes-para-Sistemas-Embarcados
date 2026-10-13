@@ -31,6 +31,8 @@ CRC_POLINOMIO = 0x1021
 
 # Comandos ja implementados no firmware (os demais entram com o Apendice A)
 CMD_PING = 0x01
+CMD_RESET_ALL = 0x02
+CMD_DAC_SET = 0x10
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
 
@@ -38,13 +40,24 @@ FLAG_ACK = 0x80
 # Os casos de teste usam ele para nao mudar de resposta quando os comandos forem implementados.
 CMD_INEXISTENTE = 0x55
 
-NOMES_COMANDO = {CMD_PING: "PING"}
+NOMES_COMANDO = {CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_DAC_SET: "DAC_SET"}
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
 VERSAO_PROTOCOLO = 1
 
+# DAC (Apendice A): canal 1 = DAC1 (PA4), 2 = DAC2 (PA5); 12 bits
+DAC_CANAIS = (1, 2)
+DAC_VALOR_MAX = 4095
+
+# A CommTask le o USB em blocos de ate 64 bytes (rxBuffer) e so confere o resultado da TestExecTask
+# depois de processar o bloco inteiro: um comando que chega no mesmo bloco de outro pendente recebe
+# OCUPADO antes de o pendente ser respondido
+TAMANHO_BLOCO_RX = 64
+
 # Codigos de erro do NACK (Apendice A, commError_t no firmware)
 ERRO_CMD_DESCONHECIDO = 0x01
+ERRO_PARAMETRO_INVALIDO = 0x02
+ERRO_OCUPADO = 0x07
 CODIGOS_ERRO = {
     0x01: "CMD_DESCONHECIDO",
     0x02: "PARAMETRO_INVALIDO",
@@ -191,6 +204,17 @@ def montar_ack_ping(seq, versao=__version__):
     return montar_ack(seq, CMD_PING, bytes([VERSAO_PROTOCOLO, *versao_em_bytes(versao)]))
 
 
+def montar_dac_set(seq, canal, valor):
+    """DAC_SET: payload [canal (u8)][valor (u16, little-endian)].
+
+    Aceita canal e valor fora da faixa do DAC (so precisam caber em u8/u16), para os casos de
+    teste montarem comandos invalidos de proposito.
+    """
+    if not 0 <= canal <= 0xFF or not 0 <= valor <= 0xFFFF:
+        raise ValueError("canal precisa caber em 1 byte e valor em 2 bytes")
+    return montar_quadro(seq, CMD_DAC_SET, bytes([canal]) + valor.to_bytes(2, "little"))
+
+
 def nome_comando(cmd):
     return NOMES_COMANDO.get(cmd, f"0x{cmd:02X}")
 
@@ -248,39 +272,84 @@ def descrever_respostas(dados):
 
 @dataclass
 class JigaSimulada:
-    """Espelho do firmware: parser (Comm_ProcessByte) + resposta (Comm_ProcessFrame).
+    """Espelho do firmware: parser (Comm_ProcessByte), resposta (Comm_ProcessFrame/Comm_BuildResult)
+    e execucao (Exec_Process, na TestExecTask).
 
-    PING -> ACK com as versoes; qualquer outro comando -> NACK CMD_DESCONHECIDO. Se o SEQ for o
-    mesmo do ultimo quadro atendido, devolve a resposta guardada sem executar (retransmissao).
+    - SEQ do comando pendente -> ignorado (retransmissao; a resposta sai quando ele terminar);
+    - SEQ do ultimo quadro respondido -> reenvia a resposta guardada, sem executar;
+    - PING -> ACK com as versoes, na hora (inclusive com um comando pendente);
+    - outro comando com um pendente -> NACK OCUPADO, sem guardar no cache;
+    - demais -> executados: RESET_ALL, DAC_SET; codigo desconhecido -> NACK CMD_DESCONHECIDO.
+
+    Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
+    (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
     """
 
     receptor: ReceptorQuadros = field(default_factory=ReceptorQuadros)
     ultimo_seq: int = None
     ultima_resposta: bytes = b""
+    pendente: Quadro = None
+    dac: dict = field(default_factory=lambda: {canal: 0 for canal in DAC_CANAIS})
 
     def nova_sessao(self):
-        """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta."""
+        """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
         self.receptor.reiniciar()
         self.ultimo_seq = None
         self.ultima_resposta = b""
+        self.pendente = None
+
+    def _guardar(self, seq, resposta):
+        self.ultimo_seq, self.ultima_resposta = seq, resposta
+        return resposta
 
     def _responder(self, quadro):
+        """Equivale ao Comm_ProcessFrame: resposta imediata (bytes) ou b"" (ignorado/repassado)."""
+        if self.pendente is not None and quadro.seq == self.pendente.seq:
+            return b""
         if quadro.seq == self.ultimo_seq:
             return self.ultima_resposta
         if quadro.cmd == CMD_PING:
-            resposta = montar_ack_ping(quadro.seq)
-        else:
-            resposta = montar_nack(quadro.seq, quadro.cmd, ERRO_CMD_DESCONHECIDO)
-        self.ultimo_seq, self.ultima_resposta = quadro.seq, resposta
-        return resposta
+            return self._guardar(quadro.seq, montar_ack_ping(quadro.seq))
+        if self.pendente is not None:
+            return montar_nack(quadro.seq, quadro.cmd, ERRO_OCUPADO)
+        self.pendente = quadro
+        return b""
+
+    def _executar(self, quadro):
+        """Equivale ao Exec_Process: 0 (ACK) ou codigo de erro (NACK). Comando invalido nao mexe no DAC."""
+        if quadro.cmd == CMD_RESET_ALL:
+            if quadro.payload:
+                return ERRO_PARAMETRO_INVALIDO
+            self.dac = {canal: 0 for canal in DAC_CANAIS}
+            return 0
+        if quadro.cmd == CMD_DAC_SET:
+            if len(quadro.payload) != 3:
+                return ERRO_PARAMETRO_INVALIDO
+            canal, valor = quadro.payload[0], int.from_bytes(quadro.payload[1:3], "little")
+            if canal not in DAC_CANAIS or valor > DAC_VALOR_MAX:
+                return ERRO_PARAMETRO_INVALIDO
+            self.dac[canal] = valor
+            return 0
+        return ERRO_CMD_DESCONHECIDO
+
+    def _concluir_pendente(self):
+        """Equivale ao CommTask_VerificaResultado + Comm_BuildResult."""
+        if self.pendente is None:
+            return b""
+        quadro, self.pendente = self.pendente, None
+        erro = self._executar(quadro)
+        resposta = montar_ack(quadro.seq, quadro.cmd) if erro == 0 else montar_nack(quadro.seq, quadro.cmd, erro)
+        return self._guardar(quadro.seq, resposta)
 
     def processar(self, dados):
         """Retorna (resultados do parser diferentes de LENDO, bytes que a jiga responde)."""
         resultados, respostas = [], b""
-        for resultado, quadro in self.receptor.processar(dados):
-            resultados.append(resultado)
-            if resultado == QUADRO_OK:
-                respostas += self._responder(quadro)
+        for inicio in range(0, len(dados), TAMANHO_BLOCO_RX):
+            for resultado, quadro in self.receptor.processar(dados[inicio:inicio + TAMANHO_BLOCO_RX]):
+                resultados.append(resultado)
+                if resultado == QUADRO_OK:
+                    respostas += self._responder(quadro)
+            respostas += self._concluir_pendente()
         return resultados, respostas
 
     def timeout(self):
@@ -352,6 +421,30 @@ CASOS_TESTE = [
     CasoTeste("SEQ repetido", "PING e depois outro CMD com o mesmo SEQ: reenvia o ACK, sem executar",
               [("enviar", _ping(12)), ("esperar", 0.1), ("enviar", montar_quadro(12, CMD_INEXISTENTE))],
               [QUADRO_OK, QUADRO_OK], [montar_ack_ping(12), montar_ack_ping(12)]),
+    # Comandos executados pela TestExecTask (v0.4.0). Os invalidos fecham o CT09 junto com o
+    # "Comando desconhecido": NACK com o erro certo e nenhuma saida alterada
+    CasoTeste("RESET_ALL", "leva as saidas ao estado seguro: ACK",
+              [("enviar", montar_quadro(13, CMD_RESET_ALL))],
+              [QUADRO_OK], [montar_ack(13, CMD_RESET_ALL)]),
+    CasoTeste("DAC_SET valido", "DAC1 = 2048 (~1,65 V no PA4): ACK",
+              [("enviar", montar_dac_set(14, 1, 2048))],
+              [QUADRO_OK], [montar_ack(14, CMD_DAC_SET)]),
+    CasoTeste("DAC_SET canal invalido", "canal 3 nao existe: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_dac_set(15, 3, 2048))],
+              [QUADRO_OK], [montar_nack(15, CMD_DAC_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("DAC_SET valor invalido", "4096 passa de 12 bits: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_dac_set(16, 1, DAC_VALOR_MAX + 1))],
+              [QUADRO_OK], [montar_nack(16, CMD_DAC_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("DAC_SET tamanho errado", "payload de 2 bytes (esperado 3): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(17, CMD_DAC_SET, bytes([0x01, 0x00])))],
+              [QUADRO_OK], [montar_nack(17, CMD_DAC_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("Comando durante execucao", "DAC_SET e RESET_ALL no mesmo envio: o 2o recebe OCUPADO (antes do ACK)",
+              [("enviar", montar_dac_set(18, 1, 1024) + montar_quadro(19, CMD_RESET_ALL))],
+              [QUADRO_OK, QUADRO_OK],
+              [montar_nack(19, CMD_RESET_ALL, ERRO_OCUPADO), montar_ack(18, CMD_DAC_SET)]),
+    CasoTeste("RESET_ALL no fim", "deixa a jiga no estado seguro depois da bateria: ACK",
+              [("enviar", montar_quadro(20, CMD_RESET_ALL))],
+              [QUADRO_OK], [montar_ack(20, CMD_RESET_ALL)]),
 ]
 
 
