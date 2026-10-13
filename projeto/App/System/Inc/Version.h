@@ -17,13 +17,13 @@
 #define dFW_VERSION_MAJOR (0U)
 
 /// Funcionalidade nova, compativel com a versao anterior
-#define dFW_VERSION_MINOR (3U)
+#define dFW_VERSION_MINOR (4U)
 
 /// Correcao de bug, sem funcionalidade nova
 #define dFW_VERSION_PATCH (0U)
 
 /// Versao em texto, para logs e para o comando STATUS
-#define dFW_VERSION_STRING "0.3.0"
+#define dFW_VERSION_STRING "0.4.0"
 
 #endif /* SYSTEM_INC_VERSION_H_ */
 
