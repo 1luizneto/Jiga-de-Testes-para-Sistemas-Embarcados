@@ -22,6 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include <string.h>
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -294,13 +295,24 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   /* USER CODE BEGIN 7 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
   // pClassData so existe depois que o host enumera a placa
-  if (hcdc == NULL){
+  if (hcdc == NULL)
+  {
     return USBD_FAIL;
   }
-  if (hcdc->TxState != 0){
+  if (Len > APP_TX_DATA_SIZE)
+  {
+    return USBD_FAIL;
+  }
+  if (hcdc->TxState != 0)
+  {
     return USBD_BUSY;
   }
-  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
+
+  // Copia para o buffer da propria USB: quem chama pode reutilizar Buf assim que esta funcao retornar.
+  // Seguro porque TxState == 0 garante que nenhum envio esta usando o UserTxBufferFS
+  // (so a CommTask transmite; o TxState so volta a 0 na ISR, ao fim do envio)
+  memcpy(UserTxBufferFS, Buf, Len);
+  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, Len);
   result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
   /* USER CODE END 7 */
   return result;

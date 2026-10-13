@@ -11,9 +11,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: `Comm_BuildFrame` monta quadros de resposta, com 6 testes Unity usando os exemplos do Apêndice A.
 - Firmware: `Comm_ProcessFrame` decide a resposta de cada quadro: ACK do PING com as versões do
   protocolo e do firmware, NACK CMD_DESCONHECIDO e reenvio da última resposta quando o SEQ se repete.
+- Firmware: a CommTask responde cada quadro válido pelo USB-CDC (ACK/NACK do `Comm_ProcessFrame`);
+  quadro com CRC errado ou LEN inválido não tem resposta e o PC retransmite por timeout.
 
 ### Alterado
 - Firmware: timeout entre bytes de 100 ms para 20 ms, conforme o Apêndice A da monografia.
+- Firmware: `CDC_Transmit_FS` copia os dados para o buffer da USB, então quem chama pode reutilizar
+  o próprio buffer assim que a função retorna.
 
 ## [0.2.0] - 2026-10-13
 
