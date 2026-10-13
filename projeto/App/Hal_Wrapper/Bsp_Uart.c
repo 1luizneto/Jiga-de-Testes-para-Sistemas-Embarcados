@@ -16,7 +16,11 @@
  *   Changelog
  *   @version      <b>1.0.0 - 17/09/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.0.1 - 12/10/2026</b> \n Luiz Neto \n BspUart_Send libera o mutex tambem quando o envio da
- *                 certo, nao transmite sem o mutex e dispensa o mutex antes do scheduler iniciar
+ *                                                           certo, nao transmite sem o mutex e dispensa o mutex
+ *                                                           antes do scheduler iniciar
+ *   @version      <b>1.1.0 - 13/10/2026</b> \n Luiz Neto \n O mutex sai do envio e vira o lock/unlock do DebugLog;
+ *                                                          assinaturas iguais aos tipos do DebugLog
+ *                                                          (sem cast para void *)
  *
  *   @copyright
  *   @{
@@ -57,7 +61,9 @@ extern osMutexId_t uartDebugMutexHandle;
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
 
-bspUartReturn_t BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize);
+static void BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize);
+static uint8_t BspUart_Lock(void);
+static void BspUart_Unlock(void);
 bspUartReturn_t BspUart_Received(void);
 
 
@@ -67,7 +73,10 @@ bspUartReturn_t BspUart_Received(void);
 
 bspUartReturn_t BspUart_Init(void)
 {
-	DebugLog_Init((void *)BspUart_Send);
+	if (DebugLog_Init(BspUart_Send, BspUart_Lock, BspUart_Unlock) != eDEBUGLOG_RETURN_OK)
+	{
+		return eBSP_UART_RETURN_ERROR;
+	}
 
 	return eBSP_UART_RETURN_OK;
 }
@@ -76,36 +85,39 @@ bspUartReturn_t BspUart_Init(void)
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
-bspUartReturn_t BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize)
+/**
+ * @brief  Envia pela USART3. Quem chama (DebugLog) ja esta com o lock.
+ */
+static void BspUart_Send(uint8_t *txBuffer, uint16_t bufferSize)
 {
-	bspUartReturn_t ret;
+	(void)HAL_UART_Transmit(&huart3, txBuffer, bufferSize, dTIMEOUT_UART);
+}
 
-	// Antes do scheduler (ex.: log do main) so existe um contexto, entao nao ha disputa pela UART
-	uint8_t usaMutex = (osKernelGetState() == osKernelRunning) ? 1U : 0U;
-
-	// Sem o mutex nao transmite: outra task esta usando a UART
-	if ((usaMutex == 1U) && (osMutexAcquire(uartDebugMutexHandle, dTIMEOUT_MUTEX) != osOK))
+/**
+ * @brief  Reserva a UART de debug para uma mensagem.
+ * @return 1 se conseguiu, 0 se outra task nao liberou em dTIMEOUT_MUTEX
+ */
+static uint8_t BspUart_Lock(void)
+{
+	// Antes do scheduler
+	if (osKernelGetState() != osKernelRunning)
 	{
-		return eBSP_UART_RETURN_ERROR;
+		return 1U;
 	}
 
-	if (HAL_UART_Transmit(&huart3, txBuffer, bufferSize, dTIMEOUT_UART) == HAL_OK)
-	{
-		ret = eBSP_UART_RETURN_OK;
-	}
-	else
-	{
-		ret = eBSP_UART_RETURN_ERROR;
-	}
+	return (osMutexAcquire(uartDebugMutexHandle, dTIMEOUT_MUTEX) == osOK) ? 1U : 0U;
+}
 
-	if (usaMutex == 1U)
+/**
+ * @brief  Libera a UART de debug reservada pelo BspUart_Lock.
+ */
+static void BspUart_Unlock(void)
+{
+	if (osKernelGetState() == osKernelRunning)
 	{
 		osMutexRelease(uartDebugMutexHandle);
 	}
-
-	return ret;
 }
-
 bspUartReturn_t BspUart_Received(void)
 {
 	return eBSP_UART_RETURN_OK;
