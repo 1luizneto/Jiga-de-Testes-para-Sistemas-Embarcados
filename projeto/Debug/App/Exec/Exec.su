@@ -1,0 +1,4 @@
+../App/Exec/Exec.c:61:14:Exec_Process	16	static
+../App/Exec/Exec.c:100:14:Exec_SafeState	8	static
+../App/Exec/Exec.c:120:16:Exec_ResetAll	16	static
+../App/Exec/Exec.c:142:16:Exec_DacSet	24	static

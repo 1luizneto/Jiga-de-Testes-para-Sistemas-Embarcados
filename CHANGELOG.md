@@ -7,6 +7,34 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.4.0] - 2026-10-13
+
+### Adicionado
+- Firmware: módulo `AnalogOut` (validação de canal 1–2 e valor 0–4095, estado seguro) e `Bsp_Dac` (HAL);
+  a jiga liga com as duas saídas analógicas em 0.
+- Firmware: módulo `Exec` (despachante dos comandos diretos): `RESET_ALL` (estado seguro) e `DAC_SET`
+  (canal 1–2, valor 0–4095); tamanho ou faixa inválidos → NACK PARAMETRO_INVALIDO sem acionar a saída;
+  comando desconhecido → CMD_DESCONHECIDO. 10 testes Unity com DAC falso.
+- Firmware: a CommTask repassa os comandos (exceto PING) para o `Exec` e responde com o resultado
+  (`Comm_BuildResult`); um comando pendente por vez: retransmissão do pendente é ignorada e outro
+  comando recebe NACK OCUPADO. `DAC_SET` e `RESET_ALL` funcionam pelo USB. 8 testes Unity novos.
+- Firmware: filas de 1 elemento entre CommTask e TestExecTask (criadas no `.ioc`, alocação estática):
+  a TestExecTask executa os comandos e devolve o resultado; a CommTask continua lendo o USB durante a
+  execução.
+- Software: `protocolo.py` conhece `RESET_ALL` e `DAC_SET` (`montar_dac_set`) e os erros
+  PARAMETRO_INVALIDO e OCUPADO; a `JigaSimulada` espelha o firmware novo (execução, comando pendente,
+  OCUPADO e o DAC).
+- Software: 7 casos de teste novos (17 no total): `RESET_ALL`, `DAC_SET` válido, canal/valor/tamanho
+  inválidos (CT09), "Comando durante execução" (OCUPADO) e `RESET_ALL` no fim da bateria.
+- Software: 26 testes pytest novos (93 no total).
+
+### Corrigido
+- Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas
+  tasks logando, uma podia enviar o texto da outra. Agora o lock cobre a formatação e o envio.
+- Firmware: `BspUart_Init` sem o cast `(void *)`: a função de envio tem a mesma assinatura do DebugLog.
+- Software: com logs chegando sem pausa (ex.: a cada 5 ms), a GUI e o terminal não exibiam nada até a
+  porta fechar; a junção de bytes em rajadas agora tem tempo máximo (50 ms).
+
 ## [0.3.0] - 2026-10-13
 
 ### Adicionado
@@ -68,7 +96,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.3.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/releases/tag/v0.1.0

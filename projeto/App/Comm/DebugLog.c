@@ -15,6 +15,9 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 17/09/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 13/10/2026</b> \n Luiz Neto \n Lock/Unlock fornecidos pela Bsp cobrem a formatacao
+ *                                                           e o envio: duas taks logando juntas nao misturam as
+ *                                                           mensagens no printfBuffer
  *
  *   @copyright
  *   @{
@@ -41,7 +44,9 @@ static struct debugLog
 {
 	struct func
 	{
-		void (*uartSend)(uint8_t *txBuffer, uint16_t txBufferSize);
+		debugLogSendFunc_t   uartSend;
+		debugLogLockFunc_t   lock;
+		debugLogUnlockFunc_t unlock;
 	}func;
 
 	char printfBuffer[dDEBUGLOG_MAX_BUFFER_SIZE];
@@ -60,41 +65,58 @@ static struct debugLog
  * FUNCOES PUBLICAS
  **********************************************************************************************************************/
 
-debuglogReturn_t DebugLog_Init(void (*uartSendFunc)(uint8_t *txBuffer, uint16_t txBufferSize))
+debuglogReturn_t DebugLog_Init(debugLogSendFunc_t sendFunc, debugLogLockFunc_t lockFunc,
+                               debugLogUnlockFunc_t unlockFunc)
 {
-	if (uartSendFunc == NULL)
+	if ((sendFunc == NULL) || (lockFunc == NULL) || (unlockFunc == NULL))
 	{
 		return eDEBUGLOG_RETURN_INVALID_ARGUMENT;
 	}
 
-	debugLog.func.uartSend = uartSendFunc;
+	debugLog.func.uartSend = sendFunc;
+	debugLog.func.lock     = lockFunc;
+	debugLog.func.unlock   = unlockFunc;
 
 	return eDEBUGLOG_RETURN_OK;
 }
 
+/***********************************************************************************************************************
+ * @brief      Formata e envia uma mensagem para o terminal de debug (estilo printf).
+ * @details    O printfBuffer e unico: a trava cobre a formatacao E o envio, senao uma task de prioridade maior
+ *             poderia formatar a mensagem dela no buffer enquanto outra ainda nao terminou de enviar a sua.
+ *             Nao chamar de ISR (o lock usa mutex).
+ **********************************************************************************************************************/
 debuglogReturn_t DebugLog_SendTerminal(const char *string, ...)
 {
 	va_list args;
 	int size;
+	debuglogReturn_t ret = eDEBUGLOG_RETURN_ERROR;
 
-	if (string == NULL || debugLog.func.uartSend == NULL)
+	if ((string == NULL) || (debugLog.func.uartSend == NULL))
 	{
 		return eDEBUGLOG_RETURN_INVALID_ARGUMENT;
+	}
+
+	// Outra task segurou o terminal por tempo demais: perde esta mensagem em vez de travar quem chamou
+	if (debugLog.func.lock() == 0U)
+	{
+		return eDEBUGLOG_RETURN_ERROR;
 	}
 
 	va_start(args, string);
 	size = vsnprintf(debugLog.printfBuffer, dDEBUGLOG_MAX_BUFFER_SIZE, string, args);
 	va_end(args);
 
-	if (size <= 0 || size >= dDEBUGLOG_MAX_BUFFER_SIZE)
+	if ((size > 0) && (size < (int)dDEBUGLOG_MAX_BUFFER_SIZE))
 	{
-		return eDEBUGLOG_RETURN_ERROR;
+		debugLog.func.uartSend((uint8_t *)debugLog.printfBuffer, (uint16_t)size);
+		ret = eDEBUGLOG_RETURN_OK;
 	}
 
-	debugLog.func.uartSend((uint8_t *)debugLog.printfBuffer, (uint16_t)size);
+	// Libera em todos os caminhos, inclusive quando a formatacao falha
+	debugLog.func.unlock();
 
-	return eDEBUGLOG_RETURN_OK;
-
+	return ret;
 }
 
 /***********************************************************************************************************************

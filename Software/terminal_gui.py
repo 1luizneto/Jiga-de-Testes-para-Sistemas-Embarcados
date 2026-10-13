@@ -32,7 +32,8 @@ from protocolo import (
     descrever_resposta, interpretar_resposta, montar_quadro,
 )
 from terminal_usb import (
-    PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, detectar_porta, formatar_hex, interpretar_hex,
+    PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, TEMPO_MAX_RAJADA, detectar_porta, formatar_hex,
+    interpretar_hex,
 )
 from teste_protocolo import BAUD_LOG, ESPERA_LOG, detectar_porta_log
 from versao import __version__
@@ -95,7 +96,8 @@ class LeitorSerial(QThread):
 
     def _ler_rajada(self):
         dados = bytearray(self.serial.read(1))
-        while dados and self.rodando:
+        inicio = time.monotonic()
+        while dados and self.rodando and time.monotonic() - inicio < TEMPO_MAX_RAJADA:
             time.sleep(SILENCIO_FIM_RAJADA)
             pendentes = self.serial.in_waiting
             if not pendentes:
