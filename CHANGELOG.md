@@ -7,6 +7,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- Firmware: módulo `AnalogOut` (validação de canal 1–2 e valor 0–4095, estado seguro) e `Bsp_Dac` (HAL);
+  a jiga liga com as duas saídas analógicas em 0.
+
 ### Corrigido
 - Firmware: o DebugLog formatava a mensagem no buffer compartilhado antes de pegar o mutex; com duas
   tasks logando, uma podia enviar o texto da outra. Agora o lock cobre a formatação e o envio.

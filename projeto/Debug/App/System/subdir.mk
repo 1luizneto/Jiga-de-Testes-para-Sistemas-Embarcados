@@ -5,14 +5,17 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../App/System/AnalogOut.c \
 ../App/System/Crc16.c \
 ../App/System/Usb.c 
 
 OBJS += \
+./App/System/AnalogOut.o \
 ./App/System/Crc16.o \
 ./App/System/Usb.o 
 
 C_DEPS += \
+./App/System/AnalogOut.d \
 ./App/System/Crc16.d \
 ./App/System/Usb.d 
 
@@ -24,7 +27,7 @@ App/System/%.o App/System/%.su App/System/%.cyclo: ../App/System/%.c App/System/
 clean: clean-App-2f-System
 
 clean-App-2f-System:
-	-$(RM) ./App/System/Crc16.cyclo ./App/System/Crc16.d ./App/System/Crc16.o ./App/System/Crc16.su ./App/System/Usb.cyclo ./App/System/Usb.d ./App/System/Usb.o ./App/System/Usb.su
+	-$(RM) ./App/System/AnalogOut.cyclo ./App/System/AnalogOut.d ./App/System/AnalogOut.o ./App/System/AnalogOut.su ./App/System/Crc16.cyclo ./App/System/Crc16.d ./App/System/Crc16.o ./App/System/Crc16.su ./App/System/Usb.cyclo ./App/System/Usb.d ./App/System/Usb.o ./App/System/Usb.su
 
 .PHONY: clean-App-2f-System
 

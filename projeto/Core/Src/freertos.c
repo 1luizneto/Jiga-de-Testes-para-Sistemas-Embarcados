@@ -30,6 +30,7 @@
 #include "Crc16.h"
 #include "Comm.h"
 #include "Usb.h"
+#include "AnalogOut.h"
 
 #ifdef UNIT_TEST_ON_TARGET
 #include "TestRunner.h"
@@ -323,8 +324,9 @@ void TestExecTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  //DebugLog_SendTerminal("[TASK -> EXEC] teste de concorrencia do DebugLog %lu\n", osKernelGetTickCount());
-	  osDelay(5);
+	  AnalogOut_Set(1, 4095);
+	  AnalogOut_Set(2, 2048);
+	  osDelay(1);
   }
   /* USER CODE END TestExecTask */
 }
