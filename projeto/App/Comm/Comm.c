@@ -16,6 +16,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 01/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 13/10/2026</b> \n Luiz Neto \n Implementacao da comunicacao JIGA <-> HOST
  *
  *   @copyright
  *   @{
@@ -30,6 +31,7 @@
 #include "Crc16.h"
 #include <stddef.h>
 #include <string.h>
+#include "Version.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -79,6 +81,12 @@ static struct comm
 	/// CRC recebido no quadro (little-endian)
 	uint16_t crcReceived;
 
+	// Ultima resposta montada e o SEQ dela: se o PC repetir o SEQ (retransmissao), reenvia sem executar
+	uint8_t lastResponse[dCOMM_FRAME_MAX_SIZE];
+	uint16_t lastResponseSize;
+	uint8_t  lastSeq;
+	uint8_t  hasLastResponse;
+
 } comm;
 
 /***********************************************************************************************************************
@@ -90,6 +98,9 @@ static struct comm
  **********************************************************************************************************************/
 
 static commReturn_t Comm_ValidaQuadro(commFrame_t *frame);
+static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
+static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error,
+									uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -97,6 +108,10 @@ static commReturn_t Comm_ValidaQuadro(commFrame_t *frame);
 
 commReturn_t Comm_Init(void)
 {
+	comm.hasLastResponse  = 0U;
+	comm.lastResponseSize = 0U;
+	comm.lastSeq          = 0U;
+
 	return Comm_Reset();
 }
 
@@ -254,6 +269,71 @@ commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, u
 }
 
 /***********************************************************************************************************************
+ * @brief      Decide a resposta (ACK ou NACK) para um quadro valido e a monta no buffer. Nao envia nada.
+ *
+ * @details    Se o SEQ for igual ao do ultimo quadro atendido, o PC esta retransmitindo: a resposta guardada e
+ *             devolvida sem executar o comando de novo (Apendice A, Sequenciamento e Retransmissao).
+ * @param[in]  frame         Quadro recebido e validado pelo Comm_ProcessByte
+ * @param[out] response      Onde a resposta e montada
+ * @param[in]  responseSize  Capacidade do buffer de resposta
+ * @param[out] responseLen   Tamanho da resposta montada
+ *
+ * @return     eCOMM_RETURN_OK (resposta nova), eCOMM_RETURN_RESENT (resposta guardada),
+ *             eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR
+ **********************************************************************************************************************/
+commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+{
+
+	commReturn_t ret = eCOMM_RETURN_OK;
+
+
+	if ((frame == NULL) || (response == NULL) || (responseLen == NULL))
+	{
+		return eCOMM_RETURN_INVALID_ARGUMENT;
+	}
+
+	// Retransmissao
+	if ((comm.hasLastResponse != 0U) && (frame->seq == comm.lastSeq))
+	{
+		if (responseSize < comm.lastResponseSize)
+		{
+			return eCOMM_RETURN_INVALID_ARGUMENT;
+		}
+
+		memcpy(response, comm.lastResponse, comm.lastResponseSize);
+		*responseLen = comm.lastResponseSize;
+
+		return eCOMM_RETURN_RESENT;
+	}
+
+	switch (frame->cmd)
+	{
+		case dCOMM_CMD_PING:
+
+			ret = Comm_RespondePing(frame->seq, response, responseSize, responseLen);
+
+		break;
+
+		default:
+
+			ret = Comm_RespondeNack(frame->seq, frame->cmd, eCOMM_ERROR_CMD_DESCONHECIDO, response, responseSize, responseLen);
+
+		break;
+	}
+
+	// Guarda a resposta para o caso de retransmissao
+	if (ret == eCOMM_RETURN_OK)
+	{
+		memcpy(comm.lastResponse, response, *responseLen);
+		comm.lastResponseSize = *responseLen;
+		comm.lastSeq          = frame->seq;
+		comm.hasLastResponse  = 1U;
+	}
+
+	return ret;
+}
+
+/***********************************************************************************************************************
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
@@ -290,6 +370,28 @@ static commReturn_t Comm_ValidaQuadro(commFrame_t *frame)
 	Comm_Reset();
 
 	return ret;
+}
+
+/***********************************************************************************************************************
+ * @brief      ACK do PING: versao do protocolo e versao do firmware (maior, menor, correcao).
+ **********************************************************************************************************************/
+static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+{
+	const uint8_t payload[] = {dCOMM_PROTOCOL_VERSION, dFW_VERSION_MAJOR, dFW_VERSION_MINOR, dFW_VERSION_PATCH};
+
+	return Comm_BuildFrame(seq, (uint8_t)(dCOMM_CMD_PING | dCOMM_ACK_FLAG), payload, sizeof(payload),
+	                       response, responseSize, responseLen);
+}
+
+/***********************************************************************************************************************
+ * @brief      NACK: payload com o comando recusado e o codigo do erro.
+ **********************************************************************************************************************/
+static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error,
+                                      uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+{
+	const uint8_t payload[] = {cmd, (uint8_t)error};
+
+	return Comm_BuildFrame(seq, dCOMM_CMD_NACK, payload, sizeof(payload), response, responseSize, responseLen);
 }
 
 /** @} DOXYGEN GROUP TAG END OF FILE */

@@ -2,6 +2,7 @@
 #include "unity.h"
 #include "Comm.h"
 #include "Bsp_Crc.h"
+#include "Version.h"
 
 // Quadros gerados com Software/protocolo.py (montar_quadro), CRC-16/CCITT-FALSE little-endian
 static const uint8_t pingSeq1[] = {0x7E, 0x00, 0x01, 0x01, 0x8C, 0xEF};
@@ -32,6 +33,13 @@ static void IniciaTeste(commFrame_t *frame)
 	BspCrc_Init();
 	Comm_Init();
 	memset(frame, dFRAME_SENTINELA, sizeof(commFrame_t));
+}
+
+static void MontaRequisicao(commFrame_t *frame, uint8_t seq, uint8_t cmd)
+{
+	memset(frame, 0, sizeof(commFrame_t));
+	frame->seq = seq;
+	frame->cmd = cmd;
 }
 
 // 1. PING valido: READING 5x e FRAME_OK no ultimo byte
@@ -290,4 +298,110 @@ void Test_Comm_BuildBufferPequeno(void)
 	                  Comm_BuildFrame(0x02, 0xFF, payload, sizeof(payload), buffer, sizeof(buffer) - 1U, &frameSize));
 	TEST_ASSERT_EQUAL_HEX8_ARRAY(intacto, buffer, sizeof(buffer));
 	TEST_ASSERT_EQUAL_UINT16(0, frameSize);
+}
+
+// 17. PING: ACK com a versao do protocolo e do firmware
+void Test_Comm_ProcessPing(void)
+{
+	const uint8_t payload[] = {dCOMM_PROTOCOL_VERSION, dFW_VERSION_MAJOR, dFW_VERSION_MINOR, dFW_VERSION_PATCH};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado = 0, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x01, dCOMM_CMD_PING);
+
+	// O BuildFrame ja foi validado contra o Apendice A: serve de referencia sem fixar a versao no teste
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildFrame(0x01, 0x81, payload, sizeof(payload),
+	                                                   esperado, sizeof(esperado), &tamEsperado));
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+}
+
+// 18. Comando desconhecido: NACK [cmd, CMD_DESCONHECIDO]
+void Test_Comm_ProcessCmdDesconhecido(void)
+{
+	const uint8_t payload[] = {0x55, eCOMM_ERROR_CMD_DESCONHECIDO};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado = 0, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x02, 0x55);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildFrame(0x02, dCOMM_CMD_NACK, payload, sizeof(payload),
+	                                                   esperado, sizeof(esperado), &tamEsperado));
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+}
+
+// 19. SEQ repetido: reenvia a resposta guardada sem executar o novo comando
+void Test_Comm_ProcessSeqRepetido(void)
+{
+	uint8_t primeira[dCOMM_FRAME_MAX_SIZE];
+	uint8_t segunda[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamPrimeira = 0, tamSegunda = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+
+	MontaRequisicao(&frame, 0x03, dCOMM_CMD_PING);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, primeira, sizeof(primeira), &tamPrimeira));
+
+	// Mesmo SEQ com outro CMD: se executasse, viria um NACK; tem que vir o ACK do PING guardado
+	MontaRequisicao(&frame, 0x03, 0x55);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_RESENT, Comm_ProcessFrame(&frame, segunda, sizeof(segunda), &tamSegunda));
+	TEST_ASSERT_EQUAL_UINT16(tamPrimeira, tamSegunda);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(primeira, segunda, tamPrimeira);
+}
+
+// 20. SEQs diferentes: cada quadro e executado
+void Test_Comm_ProcessSeqNovo(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+
+	MontaRequisicao(&frame, 0x04, dCOMM_CMD_PING);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	MontaRequisicao(&frame, 0x05, dCOMM_CMD_PING);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_UINT8(0x05, resposta[2]); // SEQ da resposta = SEQ da requisicao
+}
+
+// 21. Comm_Init esquece a ultima resposta (ex.: placa reiniciada)
+void Test_Comm_ProcessInitLimpaCache(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+
+	MontaRequisicao(&frame, 0x06, dCOMM_CMD_PING);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	Comm_Init();
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+}
+
+// 22. Argumentos invalidos e buffer de resposta pequeno
+void Test_Comm_ProcessArgumentosInvalidos(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x07, dCOMM_CMD_PING);
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT, Comm_ProcessFrame(NULL, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT, Comm_ProcessFrame(&frame, NULL, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), NULL));
+
+	// ACK do PING tem 10 bytes: com 9 nao cabe
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT, Comm_ProcessFrame(&frame, resposta, 9U, &tamResposta));
 }

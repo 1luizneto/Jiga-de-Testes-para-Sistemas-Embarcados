@@ -35,5 +35,13 @@ void Test_Comm_BuildIdaEVolta(void);
 void Test_Comm_BuildArgumentosInvalidos(void);
 void Test_Comm_BuildBufferPequeno(void);
 
+// Testes da decisao de resposta (Comm_ProcessFrame)
+void Test_Comm_ProcessPing(void);
+void Test_Comm_ProcessCmdDesconhecido(void);
+void Test_Comm_ProcessSeqRepetido(void);
+void Test_Comm_ProcessSeqNovo(void);
+void Test_Comm_ProcessInitLimpaCache(void);
+void Test_Comm_ProcessArgumentosInvalidos(void);
+
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
