@@ -7,7 +7,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
-## [0.2.0] - 2026-10-12
+### Alterado
+- Firmware: timeout entre bytes de 100ms para 20ms, conforme o Apêndice A da monografia.
+
+## [0.2.0] - 2026-10-13
 
 ### Adicionado
 - Firmware: receptor de quadros do protocolo (`Comm_ProcessByte`) com máquina de estados
@@ -18,7 +21,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: `Version.h` com a versão do firmware, exibida no log de inicialização.
 - Firmware: 10 testes Unity do parser (build `Test`).
 - Software: módulo `protocolo.py` (CRC, montagem de quadros, receptor espelho do firmware e casos de teste).
-- Software: painel "Protocolo" no `terminal_gui.py` (montar quadros e executar casos de teste).
+- Software: painel "Protocolo" no `terminal_gui.py`: montar quadros e executar os casos de teste
+  com veredito pelo DebugLog (porta do ST-Link), tabela PASS/FALHA e log de cada caso.
 - Software: comandos `/quadro` e `/teste` e opção `--versao` no `terminal_usb.py`.
 - Software: `teste_protocolo.py`, teste automático com a placa (envia pelo USB-CDC e confere o DebugLog).
 - Software: testes com pytest (`Software/tests`) e CI no GitHub Actions.
