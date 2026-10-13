@@ -140,10 +140,11 @@ class ReceptorQuadros:
 #
 # Cada passo e ("enviar", bytes) ou ("esperar", segundos). "esperado" e a lista de
 # resultados que o parser da placa deve produzir, na ordem; a CommTask loga cada um
-# na UART de debug (ST-Link). Esperar mais que dCOMM_RX_TIMEOUT_MS (100 ms) dispara
+# na UART de debug (ST-Link). Esperar mais que dCOMM_RX_TIMEOUT_MS (20 ms) dispara
 # o timeout de pacote.
 
 ESPERA_TIMEOUT = 0.25
+TIMEOUT_PACOTE_MS = 20
 
 
 def _ping(seq):
@@ -180,7 +181,7 @@ CASOS_TESTE = [
               [("enviar", bytes([0xAA, 0xBB, 0x00]) + _ping(6))], [QUADRO_OK]),
     CasoTeste("Dois quadros juntos", "dois PINGs no mesmo envio",
               [("enviar", _ping(7) + _ping(8))], [QUADRO_OK, QUADRO_OK]),
-    CasoTeste("Quadro pela metade", "meio quadro, silencio > 100 ms, depois um PING",
+    CasoTeste("Quadro pela metade", "meio quadro, silencio > 20 ms, depois um PING",
               [("enviar", _ping(9)[:3]), ("esperar", ESPERA_TIMEOUT), ("enviar", _ping(10))],
               [TIMEOUT, QUADRO_OK]),
 ]
@@ -210,7 +211,7 @@ def simular_caso(caso, receptor=None):
     for tipo, valor in caso.passos:
         if tipo == "enviar":
             resultados += [r for r, _ in receptor.processar(valor)]
-        elif valor * 1000 > 100:
+        elif valor * 1000 > TIMEOUT_PACOTE_MS:
             resultado = receptor.timeout()
             if resultado == TIMEOUT:
                 resultados.append(TIMEOUT)
