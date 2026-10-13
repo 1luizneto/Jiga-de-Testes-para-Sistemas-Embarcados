@@ -16,7 +16,10 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 01/10/2026</b> \n Luiz Neto \n Primeira versao
- *   @version      <b>1.1.0 - 13/10/2026</b> \n Luiz Neto \n Implementacao da comunicacao JIGA <-> HOST
+ *   @version      <b>1.1.0 - 12/10/2026</b> \n Luiz Neto \n Receptor de quadros (Comm_ProcessByte): maquina de
+ *                 estados, validacao por CRC, descarte de LEN > 240 e timeout de pacote (Comm_Timeout)
+ *   @version      <b>1.2.0 - 13/10/2026</b> \n Luiz Neto \n Respostas ao host: Comm_BuildFrame monta o quadro e
+ *                 Comm_ProcessFrame decide ACK/NACK, com reenvio da ultima resposta quando o SEQ se repete
  *
  *   @copyright
  *   @{
