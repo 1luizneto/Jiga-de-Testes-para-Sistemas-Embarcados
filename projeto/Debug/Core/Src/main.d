@@ -58,7 +58,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h \
  ../USB_DEVICE/Target/usbd_conf.h ../Core/Inc/gpio.h \
  C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Hal_Wrapper/Inc/Bsp.h \
- C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Comm/Inc/DebugLog.h
+ C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Comm/Inc/DebugLog.h \
+ C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/System/Inc/Version.h
 ../Core/Inc/main.h:
 ../Drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_hal.h:
 ../Core/Inc/stm32f7xx_hal_conf.h:
@@ -128,3 +129,4 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/gpio.h:
 C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Hal_Wrapper/Inc/Bsp.h:
 C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/Comm/Inc/DebugLog.h:
+C:/Users/LuizOliveiradeSouzaN/Documents/TCC/Firmware/Jiga-de-Testes-para-Sistemas-Embarcados/projeto/App/System/Inc/Version.h:

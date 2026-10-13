@@ -188,10 +188,10 @@ CASOS_TESTE = [
 
 # Inicio das linhas que a CommTask escreve no DebugLog para cada resultado
 LOG_FIRMWARE = {
-    QUADRO_OK: "[COMM] Quadro OK",
-    ERRO_CRC: "[COMM] Erro de CRC",
-    ERRO_LEN: "[COMM] LEN maior que",
-    TIMEOUT: "[COMM] Timeout",
+    QUADRO_OK: "[TASK -> COMM] Quadro OK",
+    ERRO_CRC: "[TASK -> COMM] Erro de CRC",
+    ERRO_LEN: "[TASK -> COMM] LEN maior que",
+    TIMEOUT: "[TASK -> COMM] Timeout",
 }
 
 

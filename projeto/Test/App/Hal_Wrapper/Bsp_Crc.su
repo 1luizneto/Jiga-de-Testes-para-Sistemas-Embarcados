@@ -1,0 +1,4 @@
+../App/Hal_Wrapper/Bsp_Crc.c:60:16:BspCrc_Init	8	static
+../App/Hal_Wrapper/Bsp_Crc.c:71:16:BspCRC_Config	16	static
+../App/Hal_Wrapper/Bsp_Crc.c:79:16:BspCRC_InputData	16	static
+../App/Hal_Wrapper/Bsp_Crc.c:86:16:BspCrc_GetResult	16	static
