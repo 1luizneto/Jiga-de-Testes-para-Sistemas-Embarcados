@@ -7,6 +7,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.3.0] - 2026-10-13
+
 ### Adicionado
 - Firmware: `Comm_BuildFrame` monta quadros de resposta, com 6 testes Unity usando os exemplos do Apêndice A.
 - Firmware: `Comm_ProcessFrame` decide a resposta de cada quadro: ACK do PING com as versões do
@@ -66,6 +68,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.2.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/releases/tag/v0.1.0
