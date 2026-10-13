@@ -7,7 +7,8 @@
   implementar ou mostrar o código. Fora isso, não entregue o código pronto.
 - Ao revisar, leia os arquivos atuais antes; aponte erros com explicação do porquê.
 - Responda em português.
-- Commits: padrão `feat:`/`fix:`/`chore:`/`docs:` em português e **sem** linha de co-autor do Claude.
+- Commits: padrão `feat:`/`fix:`/`chore:`/`docs:` em português, **sem** linha de co-autor do Claude;
+  PRs sem a linha "Generated with Claude Code".
 
 ## Projeto
 TCC de Engenharia de Computação (IFPB Campina Grande, 2026). Jiga de testes hardware-in-the-loop
