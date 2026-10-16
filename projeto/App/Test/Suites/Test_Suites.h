@@ -65,4 +65,16 @@ void Test_Comm_PendentePingAtendido(void);
 void Test_Comm_ResultInesperado(void);
 void Test_Comm_ResultArgumentosInvalidos(void);
 
+// Testes das entradas e saidas digitais (DigitalIo)
+void Test_DigitalIo_SetValido(void);
+void Test_DigitalIo_SetLimites(void);
+void Test_DigitalIo_SetSaidaInvalida(void);
+void Test_DigitalIo_SetNivelInvalido(void);
+void Test_DigitalIo_ReadMascara(void);
+void Test_DigitalIo_ReadExtremos(void);
+void Test_DigitalIo_ReadFalha(void);
+void Test_DigitalIo_SafeState(void);
+void Test_DigitalIo_SafeStateComFalha(void);
+void Test_DigitalIo_ArgumentosInvalidos(void);
+
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
