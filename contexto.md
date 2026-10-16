@@ -249,6 +249,19 @@ faixa útil, sim. Firmware não muda.
 - **Mistura CMSIS-RTOS v2 + API nativa do FreeRTOS**: stream buffer não existe na CMSIS nem no CubeMX
   (as filas sim: criadas no `.ioc`)
 - **Timeout entre bytes de 20 ms**: o texto já diz 20 ms; o firmware bate desde a v0.3.0
+- **Entradas digitais GPIO5–8 (PC12, PD2, PG2, PG3), seção do hardware / Cap. 3**:
+  - São FT: com a jiga ligada (VDD = 3,3 V) aguentam até 5,5 V (DS11532, Tabela 14:
+    mín(VDD + 3,6; 5,5)); conferir na tabela de pinos que os 4 são FT. Colocar o DS11532 no `.bib`
+  - Nota 5 da Tabela 14: acima de 4 V os pull-up/pull-down internos precisam estar desligados → as
+    entradas ficam sem pull interno; o resistor, quando necessário, é externo e escolhido conforme o DUT
+    (pull-up para a tensão do DUT em saída open-drain; pull-down para leitura definida com fio solto;
+    saída push-pull e o loopback do CT11 não precisam)
+  - Restrição de uso: com a jiga desligada (VDD = 0) o limite cai para 3,6 V → ligar a jiga antes do
+    DUT e desligar o DUT antes da jiga (não se aplica se o DUT for alimentado pela própria jiga)
+  - TODO da metodologia.tex (~linha 161) sobre rótulos: não renomear; dizer que GPIO5–8 correspondem aos
+    rótulos `GPIO1_IN`…`GPIO4_IN` do `.ioc`
+- **ADC**: sampling time de 480 ciclos (fonte do DUT com impedância de alguns kΩ); leitura por polling,
+  uma conversão por comando
 
 ## Pendências menores (código)
 - Cast `(void *)` no `BspCrc_Init` esconde assinatura incompatível — corrigir como foi feito no `BspUart_Init`

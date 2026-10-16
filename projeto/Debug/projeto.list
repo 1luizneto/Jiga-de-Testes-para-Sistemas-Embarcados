@@ -3016,8 +3016,8 @@ void MX_ADC1_Init(void)
   sConfig.Rank = ADC_REGULAR_RANK_1;
  8001414:	2301      	movs	r3, #1
  8001416:	607b      	str	r3, [r7, #4]
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
- 8001418:	2300      	movs	r3, #0
+  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+ 8001418:	2307      	movs	r3, #7
  800141a:	60bb      	str	r3, [r7, #8]
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
  800141c:	463b      	mov	r3, r7
@@ -3135,8 +3135,8 @@ void MX_ADC2_Init(void)
   sConfig.Rank = ADC_REGULAR_RANK_1;
  80014b8:	2301      	movs	r3, #1
  80014ba:	607b      	str	r3, [r7, #4]
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
- 80014bc:	2300      	movs	r3, #0
+  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+ 80014bc:	2307      	movs	r3, #7
  80014be:	60bb      	str	r3, [r7, #8]
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
  80014c0:	463b      	mov	r3, r7
@@ -3254,8 +3254,8 @@ void MX_ADC3_Init(void)
   sConfig.Rank = ADC_REGULAR_RANK_1;
  800155c:	2301      	movs	r3, #1
  800155e:	607b      	str	r3, [r7, #4]
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
- 8001560:	2300      	movs	r3, #0
+  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+ 8001560:	2307      	movs	r3, #7
  8001562:	60bb      	str	r3, [r7, #8]
   if (HAL_ADC_ConfigChannel(&hadc3, &sConfig) != HAL_OK)
  8001564:	463b      	mov	r3, r7
