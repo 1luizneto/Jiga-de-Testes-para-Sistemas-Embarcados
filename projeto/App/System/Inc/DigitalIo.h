@@ -48,7 +48,7 @@ typedef enum digitalIoReturn
 /// @brief Aplica o nível em uma saida
 typedef digitalIoReturn_t (*digitalIoWriteFunc_t)(uint8_t saida, uint8_t nivel);
 
-/// @brief Aplica o nível em uma entrada
+/// @brief Le o nivel de uma entrada
 typedef digitalIoReturn_t (*digitalIoReadFunc_t)(uint8_t entrada, uint8_t *nivel);
 
 /***********************************************************************************************************************
@@ -56,7 +56,7 @@ typedef digitalIoReturn_t (*digitalIoReadFunc_t)(uint8_t entrada, uint8_t *nivel
  **********************************************************************************************************************/
 
 digitalIoReturn_t DigitalIO_Init(digitalIoWriteFunc_t writeFunc, digitalIoReadFunc_t readFunc);
-digitalIoReturn_t DigitalIO_Set(uint8_t saída, uint8_t nivel);
+digitalIoReturn_t DigitalIO_Set(uint8_t saida, uint8_t nivel);
 digitalIoReturn_t DigitalIO_Read(uint8_t *mascara);
 digitalIoReturn_t DigitalIO_SafeState(void);
 

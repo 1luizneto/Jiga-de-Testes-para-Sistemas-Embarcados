@@ -15,7 +15,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 17/09/2026</b> \n Luiz Neto \n Primeira versao
- *   @version      <b>1.1.0 - 16/10/2026</b> \n Luiz Neto \n Inicializa o DAC e o GPIO
+ *   @version      <b>1.1.0 - 16/10/2026</b> \n Luiz Neto \n Inicializa o DAC, o GPIO e o ADC
  *
  *   @copyright
  *   @{
