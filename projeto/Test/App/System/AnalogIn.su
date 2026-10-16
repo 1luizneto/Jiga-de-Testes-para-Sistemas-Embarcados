@@ -1,0 +1,2 @@
+../App/System/AnalogIn.c:46:18:AnalogIn_Init	16	static
+../App/System/AnalogIn.c:67:18:AnalogIn_Read	24	static

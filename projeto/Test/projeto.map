@@ -868,6 +868,45 @@ Discarded input sections
  .debug_macro   0x00000000       0x66 ./App/Hal_Wrapper/Bsp_Usb.o
  .debug_macro   0x00000000       0x74 ./App/Hal_Wrapper/Bsp_Usb.o
  .debug_macro   0x00000000       0xdd ./App/Hal_Wrapper/Bsp_Usb.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .group         0x00000000        0xc ./App/System/AnalogIn.o
+ .text          0x00000000        0x0 ./App/System/AnalogIn.o
+ .data          0x00000000        0x0 ./App/System/AnalogIn.o
+ .bss           0x00000000        0x0 ./App/System/AnalogIn.o
+ .bss.analogIn  0x00000000        0x4 ./App/System/AnalogIn.o
+ .text.AnalogIn_Init
+                0x00000000       0x2c ./App/System/AnalogIn.o
+ .text.AnalogIn_Read
+                0x00000000       0x64 ./App/System/AnalogIn.o
+ .debug_info    0x00000000      0x1b2 ./App/System/AnalogIn.o
+ .debug_abbrev  0x00000000       0xf7 ./App/System/AnalogIn.o
+ .debug_aranges
+                0x00000000       0x28 ./App/System/AnalogIn.o
+ .debug_rnglists
+                0x00000000       0x19 ./App/System/AnalogIn.o
+ .debug_macro   0x00000000       0x7b ./App/System/AnalogIn.o
+ .debug_macro   0x00000000      0xafc ./App/System/AnalogIn.o
+ .debug_macro   0x00000000       0x22 ./App/System/AnalogIn.o
+ .debug_macro   0x00000000       0x8e ./App/System/AnalogIn.o
+ .debug_macro   0x00000000       0x51 ./App/System/AnalogIn.o
+ .debug_macro   0x00000000      0x103 ./App/System/AnalogIn.o
+ .debug_macro   0x00000000       0x6a ./App/System/AnalogIn.o
+ .debug_macro   0x00000000      0x1df ./App/System/AnalogIn.o
+ .debug_macro   0x00000000       0x10 ./App/System/AnalogIn.o
+ .debug_macro   0x00000000      0x190 ./App/System/AnalogIn.o
+ .debug_line    0x00000000      0x4f5 ./App/System/AnalogIn.o
+ .debug_str     0x00000000     0x42ed ./App/System/AnalogIn.o
+ .comment       0x00000000       0x44 ./App/System/AnalogIn.o
+ .debug_frame   0x00000000       0x58 ./App/System/AnalogIn.o
+ .ARM.attributes
+                0x00000000       0x32 ./App/System/AnalogIn.o
  .group         0x00000000        0xc ./App/System/AnalogOut.o
  .group         0x00000000        0xc ./App/System/AnalogOut.o
  .group         0x00000000        0xc ./App/System/AnalogOut.o
@@ -11350,6 +11389,7 @@ LOAD ./App/Hal_Wrapper/Bsp_Dac.o
 LOAD ./App/Hal_Wrapper/Bsp_Gpio.o
 LOAD ./App/Hal_Wrapper/Bsp_Uart.o
 LOAD ./App/Hal_Wrapper/Bsp_Usb.o
+LOAD ./App/System/AnalogIn.o
 LOAD ./App/System/AnalogOut.o
 LOAD ./App/System/Crc16.o
 LOAD ./App/System/DigitalIo.o

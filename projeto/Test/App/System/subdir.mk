@@ -5,18 +5,21 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../App/System/AnalogIn.c \
 ../App/System/AnalogOut.c \
 ../App/System/Crc16.c \
 ../App/System/DigitalIo.c \
 ../App/System/Usb.c 
 
 OBJS += \
+./App/System/AnalogIn.o \
 ./App/System/AnalogOut.o \
 ./App/System/Crc16.o \
 ./App/System/DigitalIo.o \
 ./App/System/Usb.o 
 
 C_DEPS += \
+./App/System/AnalogIn.d \
 ./App/System/AnalogOut.d \
 ./App/System/Crc16.d \
 ./App/System/DigitalIo.d \
@@ -30,7 +33,7 @@ App/System/%.o App/System/%.su App/System/%.cyclo: ../App/System/%.c App/System/
 clean: clean-App-2f-System
 
 clean-App-2f-System:
-	-$(RM) ./App/System/AnalogOut.cyclo ./App/System/AnalogOut.d ./App/System/AnalogOut.o ./App/System/AnalogOut.su ./App/System/Crc16.cyclo ./App/System/Crc16.d ./App/System/Crc16.o ./App/System/Crc16.su ./App/System/DigitalIo.cyclo ./App/System/DigitalIo.d ./App/System/DigitalIo.o ./App/System/DigitalIo.su ./App/System/Usb.cyclo ./App/System/Usb.d ./App/System/Usb.o ./App/System/Usb.su
+	-$(RM) ./App/System/AnalogIn.cyclo ./App/System/AnalogIn.d ./App/System/AnalogIn.o ./App/System/AnalogIn.su ./App/System/AnalogOut.cyclo ./App/System/AnalogOut.d ./App/System/AnalogOut.o ./App/System/AnalogOut.su ./App/System/Crc16.cyclo ./App/System/Crc16.d ./App/System/Crc16.o ./App/System/Crc16.su ./App/System/DigitalIo.cyclo ./App/System/DigitalIo.d ./App/System/DigitalIo.o ./App/System/DigitalIo.su ./App/System/Usb.cyclo ./App/System/Usb.d ./App/System/Usb.o ./App/System/Usb.su
 
 .PHONY: clean-App-2f-System
 
