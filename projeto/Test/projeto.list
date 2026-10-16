@@ -3457,138 +3457,138 @@ static uint8_t Exec_DacSet(const commFrame_t *frame)
  8001d80:	3710      	adds	r7, #16
  8001d82:	46bd      	mov	sp, r7
  8001d84:	bd80      	pop	{r7, pc}
-	...
 
-08001d88 <BspAdc_Init>:
-
-/***********************************************************************************************************************
- * @brief      Entrega a conversao dos ADCs ao modulo AnalogIn.
- **********************************************************************************************************************/
-bspAdcReturn_t BspAdc_Init(void)
-{
- 8001d88:	b580      	push	{r7, lr}
- 8001d8a:	af00      	add	r7, sp, #0
-	if (AnalogIn_Init(BspAdc_Read) != eANALOGIN_RETURN_OK)
- 8001d8c:	4805      	ldr	r0, [pc, #20]	@ (8001da4 <BspAdc_Init+0x1c>)
- 8001d8e:	f000 fa7f 	bl	8002290 <AnalogIn_Init>
- 8001d92:	4603      	mov	r3, r0
- 8001d94:	2b00      	cmp	r3, #0
- 8001d96:	d001      	beq.n	8001d9c <BspAdc_Init+0x14>
-	{
-		return eBSP_ADC_RETURN_ERROR;
- 8001d98:	2301      	movs	r3, #1
- 8001d9a:	e000      	b.n	8001d9e <BspAdc_Init+0x16>
-	}
-
-	return eBSP_ADC_RETURN_OK;
- 8001d9c:	2300      	movs	r3, #0
-}
- 8001d9e:	4618      	mov	r0, r3
- 8001da0:	bd80      	pop	{r7, pc}
- 8001da2:	bf00      	nop
- 8001da4:	08001da9 	.word	0x08001da9
-
-08001da8 <BspAdc_Read>:
- * @param[in]  canal  0 a 2
- * @param[out] valor  Resultado de 12 bits
- * @return     eANALOGIN_RETURN_OK ou eANALOGIN_RETURN_ERROR (falha ou timeout do HAL)
- **********************************************************************************************************************/
-static analogInReturn_t BspAdc_Read(uint8_t canal, uint16_t *valor)
-{
- 8001da8:	b580      	push	{r7, lr}
- 8001daa:	b084      	sub	sp, #16
- 8001dac:	af00      	add	r7, sp, #0
- 8001dae:	4603      	mov	r3, r0
- 8001db0:	6039      	str	r1, [r7, #0]
- 8001db2:	71fb      	strb	r3, [r7, #7]
-	ADC_HandleTypeDef *hadc = bspAdcHandles[canal];
- 8001db4:	79fb      	ldrb	r3, [r7, #7]
- 8001db6:	4a16      	ldr	r2, [pc, #88]	@ (8001e10 <BspAdc_Read+0x68>)
- 8001db8:	f852 3023 	ldr.w	r3, [r2, r3, lsl #2]
- 8001dbc:	60fb      	str	r3, [r7, #12]
-
-	if (HAL_ADC_Start(hadc) != HAL_OK)
- 8001dbe:	68f8      	ldr	r0, [r7, #12]
- 8001dc0:	f005 faaa 	bl	8007318 <HAL_ADC_Start>
- 8001dc4:	4603      	mov	r3, r0
- 8001dc6:	2b00      	cmp	r3, #0
- 8001dc8:	d001      	beq.n	8001dce <BspAdc_Read+0x26>
-	{
-		return eANALOGIN_RETURN_ERROR;
- 8001dca:	2302      	movs	r3, #2
- 8001dcc:	e01b      	b.n	8001e06 <BspAdc_Read+0x5e>
-	}
-
-	if (HAL_ADC_PollForConversion(hadc, dBSP_ADC_TIMEOUT_MS) != HAL_OK)
- 8001dce:	210a      	movs	r1, #10
- 8001dd0:	68f8      	ldr	r0, [r7, #12]
- 8001dd2:	f005 fba3 	bl	800751c <HAL_ADC_PollForConversion>
- 8001dd6:	4603      	mov	r3, r0
- 8001dd8:	2b00      	cmp	r3, #0
- 8001dda:	d004      	beq.n	8001de6 <BspAdc_Read+0x3e>
-	{
-		(void)HAL_ADC_Stop(hadc);
- 8001ddc:	68f8      	ldr	r0, [r7, #12]
- 8001dde:	f005 fb69 	bl	80074b4 <HAL_ADC_Stop>
-		return eANALOGIN_RETURN_ERROR;
- 8001de2:	2302      	movs	r3, #2
- 8001de4:	e00f      	b.n	8001e06 <BspAdc_Read+0x5e>
-	}
-
-	*valor = (uint16_t)HAL_ADC_GetValue(hadc);
- 8001de6:	68f8      	ldr	r0, [r7, #12]
- 8001de8:	f005 fc23 	bl	8007632 <HAL_ADC_GetValue>
- 8001dec:	4603      	mov	r3, r0
- 8001dee:	b29a      	uxth	r2, r3
- 8001df0:	683b      	ldr	r3, [r7, #0]
- 8001df2:	801a      	strh	r2, [r3, #0]
-
-	if (HAL_ADC_Stop(hadc) != HAL_OK)
- 8001df4:	68f8      	ldr	r0, [r7, #12]
- 8001df6:	f005 fb5d 	bl	80074b4 <HAL_ADC_Stop>
- 8001dfa:	4603      	mov	r3, r0
- 8001dfc:	2b00      	cmp	r3, #0
- 8001dfe:	d001      	beq.n	8001e04 <BspAdc_Read+0x5c>
-	{
-		return eANALOGIN_RETURN_ERROR;
- 8001e00:	2302      	movs	r3, #2
- 8001e02:	e000      	b.n	8001e06 <BspAdc_Read+0x5e>
-	}
-
-	return eANALOGIN_RETURN_OK;
- 8001e04:	2300      	movs	r3, #0
-}
- 8001e06:	4618      	mov	r0, r3
- 8001e08:	3710      	adds	r7, #16
- 8001e0a:	46bd      	mov	sp, r7
- 8001e0c:	bd80      	pop	{r7, pc}
- 8001e0e:	bf00      	nop
- 8001e10:	08017074 	.word	0x08017074
-
-08001e14 <Bsp_Init>:
+08001d86 <Bsp_Init>:
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
  **********************************************************************************************************************/
 
 void Bsp_Init(void)
 {
- 8001e14:	b580      	push	{r7, lr}
- 8001e16:	af00      	add	r7, sp, #0
+ 8001d86:	b580      	push	{r7, lr}
+ 8001d88:	af00      	add	r7, sp, #0
 	BspUart_Init();
- 8001e18:	f000 f8f6 	bl	8002008 <BspUart_Init>
+ 8001d8a:	f000 f93d 	bl	8002008 <BspUart_Init>
 	BspCrc_Init();
- 8001e1c:	f000 f80a 	bl	8001e34 <BspCrc_Init>
+ 8001d8e:	f000 f851 	bl	8001e34 <BspCrc_Init>
 	BspUsb_Init();
- 8001e20:	f000 f944 	bl	80020ac <BspUsb_Init>
+ 8001d92:	f000 f98b 	bl	80020ac <BspUsb_Init>
 	BspDac_Init();
- 8001e24:	f000 f858 	bl	8001ed8 <BspDac_Init>
+ 8001d96:	f000 f89f 	bl	8001ed8 <BspDac_Init>
 	BspGpio_Init();
- 8001e28:	f000 f896 	bl	8001f58 <BspGpio_Init>
+ 8001d9a:	f000 f8dd 	bl	8001f58 <BspGpio_Init>
 	BspAdc_Init();
- 8001e2c:	f7ff ffac 	bl	8001d88 <BspAdc_Init>
+ 8001d9e:	f000 f803 	bl	8001da8 <BspAdc_Init>
 }
- 8001e30:	bf00      	nop
- 8001e32:	bd80      	pop	{r7, pc}
+ 8001da2:	bf00      	nop
+ 8001da4:	bd80      	pop	{r7, pc}
+	...
+
+08001da8 <BspAdc_Init>:
+
+/***********************************************************************************************************************
+ * @brief      Entrega a conversao dos ADCs ao modulo AnalogIn.
+ **********************************************************************************************************************/
+bspAdcReturn_t BspAdc_Init(void)
+{
+ 8001da8:	b580      	push	{r7, lr}
+ 8001daa:	af00      	add	r7, sp, #0
+	if (AnalogIn_Init(BspAdc_Read) != eANALOGIN_RETURN_OK)
+ 8001dac:	4805      	ldr	r0, [pc, #20]	@ (8001dc4 <BspAdc_Init+0x1c>)
+ 8001dae:	f000 fa6f 	bl	8002290 <AnalogIn_Init>
+ 8001db2:	4603      	mov	r3, r0
+ 8001db4:	2b00      	cmp	r3, #0
+ 8001db6:	d001      	beq.n	8001dbc <BspAdc_Init+0x14>
+	{
+		return eBSP_ADC_RETURN_ERROR;
+ 8001db8:	2301      	movs	r3, #1
+ 8001dba:	e000      	b.n	8001dbe <BspAdc_Init+0x16>
+	}
+
+	return eBSP_ADC_RETURN_OK;
+ 8001dbc:	2300      	movs	r3, #0
+}
+ 8001dbe:	4618      	mov	r0, r3
+ 8001dc0:	bd80      	pop	{r7, pc}
+ 8001dc2:	bf00      	nop
+ 8001dc4:	08001dc9 	.word	0x08001dc9
+
+08001dc8 <BspAdc_Read>:
+ * @param[in]  canal  0 a 2
+ * @param[out] valor  Resultado de 12 bits
+ * @return     eANALOGIN_RETURN_OK ou eANALOGIN_RETURN_ERROR (falha ou timeout do HAL)
+ **********************************************************************************************************************/
+static analogInReturn_t BspAdc_Read(uint8_t canal, uint16_t *valor)
+{
+ 8001dc8:	b580      	push	{r7, lr}
+ 8001dca:	b084      	sub	sp, #16
+ 8001dcc:	af00      	add	r7, sp, #0
+ 8001dce:	4603      	mov	r3, r0
+ 8001dd0:	6039      	str	r1, [r7, #0]
+ 8001dd2:	71fb      	strb	r3, [r7, #7]
+	ADC_HandleTypeDef *hadc = bspAdcHandles[canal];
+ 8001dd4:	79fb      	ldrb	r3, [r7, #7]
+ 8001dd6:	4a16      	ldr	r2, [pc, #88]	@ (8001e30 <BspAdc_Read+0x68>)
+ 8001dd8:	f852 3023 	ldr.w	r3, [r2, r3, lsl #2]
+ 8001ddc:	60fb      	str	r3, [r7, #12]
+
+	if (HAL_ADC_Start(hadc) != HAL_OK)
+ 8001dde:	68f8      	ldr	r0, [r7, #12]
+ 8001de0:	f005 fa9a 	bl	8007318 <HAL_ADC_Start>
+ 8001de4:	4603      	mov	r3, r0
+ 8001de6:	2b00      	cmp	r3, #0
+ 8001de8:	d001      	beq.n	8001dee <BspAdc_Read+0x26>
+	{
+		return eANALOGIN_RETURN_ERROR;
+ 8001dea:	2302      	movs	r3, #2
+ 8001dec:	e01b      	b.n	8001e26 <BspAdc_Read+0x5e>
+	}
+
+	if (HAL_ADC_PollForConversion(hadc, dBSP_ADC_TIMEOUT_MS) != HAL_OK)
+ 8001dee:	210a      	movs	r1, #10
+ 8001df0:	68f8      	ldr	r0, [r7, #12]
+ 8001df2:	f005 fb93 	bl	800751c <HAL_ADC_PollForConversion>
+ 8001df6:	4603      	mov	r3, r0
+ 8001df8:	2b00      	cmp	r3, #0
+ 8001dfa:	d004      	beq.n	8001e06 <BspAdc_Read+0x3e>
+	{
+		(void)HAL_ADC_Stop(hadc);
+ 8001dfc:	68f8      	ldr	r0, [r7, #12]
+ 8001dfe:	f005 fb59 	bl	80074b4 <HAL_ADC_Stop>
+		return eANALOGIN_RETURN_ERROR;
+ 8001e02:	2302      	movs	r3, #2
+ 8001e04:	e00f      	b.n	8001e26 <BspAdc_Read+0x5e>
+	}
+
+	*valor = (uint16_t)HAL_ADC_GetValue(hadc);
+ 8001e06:	68f8      	ldr	r0, [r7, #12]
+ 8001e08:	f005 fc13 	bl	8007632 <HAL_ADC_GetValue>
+ 8001e0c:	4603      	mov	r3, r0
+ 8001e0e:	b29a      	uxth	r2, r3
+ 8001e10:	683b      	ldr	r3, [r7, #0]
+ 8001e12:	801a      	strh	r2, [r3, #0]
+
+	if (HAL_ADC_Stop(hadc) != HAL_OK)
+ 8001e14:	68f8      	ldr	r0, [r7, #12]
+ 8001e16:	f005 fb4d 	bl	80074b4 <HAL_ADC_Stop>
+ 8001e1a:	4603      	mov	r3, r0
+ 8001e1c:	2b00      	cmp	r3, #0
+ 8001e1e:	d001      	beq.n	8001e24 <BspAdc_Read+0x5c>
+	{
+		return eANALOGIN_RETURN_ERROR;
+ 8001e20:	2302      	movs	r3, #2
+ 8001e22:	e000      	b.n	8001e26 <BspAdc_Read+0x5e>
+	}
+
+	return eANALOGIN_RETURN_OK;
+ 8001e24:	2300      	movs	r3, #0
+}
+ 8001e26:	4618      	mov	r0, r3
+ 8001e28:	3710      	adds	r7, #16
+ 8001e2a:	46bd      	mov	sp, r7
+ 8001e2c:	bd80      	pop	{r7, pc}
+ 8001e2e:	bf00      	nop
+ 8001e30:	08017074 	.word	0x08017074
 
 08001e34 <BspCrc_Init>:
 /***********************************************************************************************************************
@@ -14278,7 +14278,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   Bsp_Init();
- 800661c:	f7fb fbfa 	bl	8001e14 <Bsp_Init>
+ 800661c:	f7fb fbb3 	bl	8001d86 <Bsp_Init>
 
   HAL_Delay(1000);
  8006620:	f44f 707a 	mov.w	r0, #1000	@ 0x3e8
