@@ -54,6 +54,15 @@ void Test_Exec_ResetAllComPayload(void);
 void Test_Exec_CmdDesconhecido(void);
 void Test_Exec_DacSetFalhaPeriferico(void);
 void Test_Exec_ArgumentosInvalidos(void);
+void Test_Exec_GpioSetValido(void);
+void Test_Exec_GpioSetParametroInvalido(void);
+void Test_Exec_GpioSetTamanhoErrado(void);
+void Test_Exec_GpioReadValido(void);
+void Test_Exec_GpioReadComPayload(void);
+void Test_Exec_AdcReadValido(void);
+void Test_Exec_AdcReadCanalInvalido(void);
+void Test_Exec_AdcReadTamanhoErrado(void);
+void Test_Exec_AdcReadFalhaPeriferico(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
