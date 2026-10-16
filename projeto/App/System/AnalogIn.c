@@ -80,7 +80,7 @@ analogInReturn_t AnalogIn_Read(uint8_t canal, uint16_t *valor)
 
 	if (analogIn.func.read(canal, &leitura) != eANALOGIN_RETURN_OK)
 	{
-		return eANALOGIN_RETURN_OK;
+		return eANALOGIN_RETURN_ERROR;
 	}
 
 	if (leitura > dANALOGIN_VALOR_MAX)
