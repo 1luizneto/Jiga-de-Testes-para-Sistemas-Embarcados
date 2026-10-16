@@ -66,7 +66,7 @@ digitalIoReturn_t DigitalIO_Init(digitalIoWriteFunc_t writeFunc, digitalIoReadFu
  * @param[in]  saida  1 a 4 (GPIO1 a GPIO4)
  * @param[in]  nivel  0 (baixo) ou 1 (alto)
  **********************************************************************************************************************/
-digitalIoReturn_t DigitalIO_Set(uint8_t saída, uint8_t nivel)
+digitalIoReturn_t DigitalIO_Set(uint8_t saida, uint8_t nivel)
 {
 	if (digitalIo.func.write == NULL)
 	{
@@ -132,7 +132,7 @@ digitalIoReturn_t DigitalIo_SafeState(void)
 
 	for (uint8_t saida = dDIGITALIO_SAIDA_MIN; saida <= dDIGITALIO_SAIDA_MAX; saida++)
 	{
-		if (DigitalIo_Set(saida, dDIGITALIO_NIVEL_BAIXO) != eDIGITALIO_RETURN_OK)
+		if (DigitalIO_Set(saida, dDIGITALIO_NIVEL_BAIXO) != eDIGITALIO_RETURN_OK)
 		{
 			ret = eDIGITALIO_RETURN_ERROR;
 		}
