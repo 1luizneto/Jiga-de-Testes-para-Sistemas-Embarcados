@@ -1,4 +1,0 @@
-../App/System/DigitalIo.c:48:19:DigitalIO_Init	3
-../App/System/DigitalIo.c:69:19:DigitalIO_Set	5
-../App/System/DigitalIo.c:91:19:DigitalIO_Read	6
-../App/System/DigitalIo.c:129:19:DigitalIO_SafeState	3

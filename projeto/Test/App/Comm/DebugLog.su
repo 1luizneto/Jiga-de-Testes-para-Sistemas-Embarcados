@@ -1,2 +1,0 @@
-../App/Comm/DebugLog.c:68:18:DebugLog_Init	24	static
-../App/Comm/DebugLog.c:89:18:DebugLog_SendTerminal	24	static
