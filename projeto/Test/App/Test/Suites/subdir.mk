@@ -5,18 +5,21 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../App/Test/Suites/Test_AnalogIn.c \
 ../App/Test/Suites/Test_Comm.c \
 ../App/Test/Suites/Test_Crc16.c \
 ../App/Test/Suites/Test_DigitalIo.c \
 ../App/Test/Suites/Test_Exec.c 
 
 OBJS += \
+./App/Test/Suites/Test_AnalogIn.o \
 ./App/Test/Suites/Test_Comm.o \
 ./App/Test/Suites/Test_Crc16.o \
 ./App/Test/Suites/Test_DigitalIo.o \
 ./App/Test/Suites/Test_Exec.o 
 
 C_DEPS += \
+./App/Test/Suites/Test_AnalogIn.d \
 ./App/Test/Suites/Test_Comm.d \
 ./App/Test/Suites/Test_Crc16.d \
 ./App/Test/Suites/Test_DigitalIo.d \
@@ -30,7 +33,7 @@ App/Test/Suites/%.o App/Test/Suites/%.su App/Test/Suites/%.cyclo: ../App/Test/Su
 clean: clean-App-2f-Test-2f-Suites
 
 clean-App-2f-Test-2f-Suites:
-	-$(RM) ./App/Test/Suites/Test_Comm.cyclo ./App/Test/Suites/Test_Comm.d ./App/Test/Suites/Test_Comm.o ./App/Test/Suites/Test_Comm.su ./App/Test/Suites/Test_Crc16.cyclo ./App/Test/Suites/Test_Crc16.d ./App/Test/Suites/Test_Crc16.o ./App/Test/Suites/Test_Crc16.su ./App/Test/Suites/Test_DigitalIo.cyclo ./App/Test/Suites/Test_DigitalIo.d ./App/Test/Suites/Test_DigitalIo.o ./App/Test/Suites/Test_DigitalIo.su ./App/Test/Suites/Test_Exec.cyclo ./App/Test/Suites/Test_Exec.d ./App/Test/Suites/Test_Exec.o ./App/Test/Suites/Test_Exec.su
+	-$(RM) ./App/Test/Suites/Test_AnalogIn.cyclo ./App/Test/Suites/Test_AnalogIn.d ./App/Test/Suites/Test_AnalogIn.o ./App/Test/Suites/Test_AnalogIn.su ./App/Test/Suites/Test_Comm.cyclo ./App/Test/Suites/Test_Comm.d ./App/Test/Suites/Test_Comm.o ./App/Test/Suites/Test_Comm.su ./App/Test/Suites/Test_Crc16.cyclo ./App/Test/Suites/Test_Crc16.d ./App/Test/Suites/Test_Crc16.o ./App/Test/Suites/Test_Crc16.su ./App/Test/Suites/Test_DigitalIo.cyclo ./App/Test/Suites/Test_DigitalIo.d ./App/Test/Suites/Test_DigitalIo.o ./App/Test/Suites/Test_DigitalIo.su ./App/Test/Suites/Test_Exec.cyclo ./App/Test/Suites/Test_Exec.d ./App/Test/Suites/Test_Exec.o ./App/Test/Suites/Test_Exec.su
 
 .PHONY: clean-App-2f-Test-2f-Suites
 

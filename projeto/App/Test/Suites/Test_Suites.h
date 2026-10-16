@@ -77,4 +77,12 @@ void Test_DigitalIo_SafeState(void);
 void Test_DigitalIo_SafeStateComFalha(void);
 void Test_DigitalIo_ArgumentosInvalidos(void);
 
+// Testes das entradas analogicas (AnalogIn)
+void Test_AnalogIn_ReadValido(void);
+void Test_AnalogIn_ReadLimites(void);
+void Test_AnalogIn_ReadCanalInvalido(void);
+void Test_AnalogIn_ReadFalhaPeriferico(void);
+void Test_AnalogIn_ReadValorForaDaFaixa(void);
+void Test_AnalogIn_ArgumentosInvalidos(void);
+
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

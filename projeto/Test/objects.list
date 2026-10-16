@@ -13,6 +13,7 @@
 "./App/System/Crc16.o"
 "./App/System/DigitalIo.o"
 "./App/System/Usb.o"
+"./App/Test/Suites/Test_AnalogIn.o"
 "./App/Test/Suites/Test_Comm.o"
 "./App/Test/Suites/Test_Crc16.o"
 "./App/Test/Suites/Test_DigitalIo.o"

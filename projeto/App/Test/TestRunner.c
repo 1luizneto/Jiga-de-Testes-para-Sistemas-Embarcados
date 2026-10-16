@@ -83,6 +83,13 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_DigitalIo_SafeStateComFalha);
 		RUN_TEST(Test_DigitalIo_ArgumentosInvalidos);
 
+		RUN_TEST(Test_AnalogIn_ReadValido);
+		RUN_TEST(Test_AnalogIn_ReadLimites);
+		RUN_TEST(Test_AnalogIn_ReadCanalInvalido);
+		RUN_TEST(Test_AnalogIn_ReadFalhaPeriferico);
+		RUN_TEST(Test_AnalogIn_ReadValorForaDaFaixa);
+		RUN_TEST(Test_AnalogIn_ArgumentosInvalidos);
+
 	UNITY_END();
 
 	for (;;)
