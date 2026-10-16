@@ -1,0 +1,3 @@
+../App/Hal_Wrapper/Bsp_Gpio.c:82:17:BspGpio_Init	8	static
+../App/Hal_Wrapper/Bsp_Gpio.c:100:26:BspGpio_Write	24	static
+../App/Hal_Wrapper/Bsp_Gpio.c:116:26:BspGpio_Read	24	static
