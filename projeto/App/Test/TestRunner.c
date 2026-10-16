@@ -72,6 +72,17 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_ResultInesperado);
 		RUN_TEST(Test_Comm_ResultArgumentosInvalidos);
 
+		RUN_TEST(Test_DigitalIo_SetValido);
+		RUN_TEST(Test_DigitalIo_SetLimites);
+		RUN_TEST(Test_DigitalIo_SetSaidaInvalida);
+		RUN_TEST(Test_DigitalIo_SetNivelInvalido);
+		RUN_TEST(Test_DigitalIo_ReadMascara);
+		RUN_TEST(Test_DigitalIo_ReadExtremos);
+		RUN_TEST(Test_DigitalIo_ReadFalha);
+		RUN_TEST(Test_DigitalIo_SafeState);
+		RUN_TEST(Test_DigitalIo_SafeStateComFalha);
+		RUN_TEST(Test_DigitalIo_ArgumentosInvalidos);
+
 	UNITY_END();
 
 	for (;;)
