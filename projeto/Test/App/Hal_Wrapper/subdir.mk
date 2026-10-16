@@ -5,6 +5,7 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../App/Hal_Wrapper/Bsp.Adc.c \
 ../App/Hal_Wrapper/Bsp.c \
 ../App/Hal_Wrapper/Bsp_Crc.c \
 ../App/Hal_Wrapper/Bsp_Dac.c \
@@ -13,6 +14,7 @@ C_SRCS += \
 ../App/Hal_Wrapper/Bsp_Usb.c 
 
 OBJS += \
+./App/Hal_Wrapper/Bsp.Adc.o \
 ./App/Hal_Wrapper/Bsp.o \
 ./App/Hal_Wrapper/Bsp_Crc.o \
 ./App/Hal_Wrapper/Bsp_Dac.o \
@@ -21,6 +23,7 @@ OBJS += \
 ./App/Hal_Wrapper/Bsp_Usb.o 
 
 C_DEPS += \
+./App/Hal_Wrapper/Bsp.Adc.d \
 ./App/Hal_Wrapper/Bsp.d \
 ./App/Hal_Wrapper/Bsp_Crc.d \
 ./App/Hal_Wrapper/Bsp_Dac.d \
@@ -36,7 +39,7 @@ App/Hal_Wrapper/%.o App/Hal_Wrapper/%.su App/Hal_Wrapper/%.cyclo: ../App/Hal_Wra
 clean: clean-App-2f-Hal_Wrapper
 
 clean-App-2f-Hal_Wrapper:
-	-$(RM) ./App/Hal_Wrapper/Bsp.cyclo ./App/Hal_Wrapper/Bsp.d ./App/Hal_Wrapper/Bsp.o ./App/Hal_Wrapper/Bsp.su ./App/Hal_Wrapper/Bsp_Crc.cyclo ./App/Hal_Wrapper/Bsp_Crc.d ./App/Hal_Wrapper/Bsp_Crc.o ./App/Hal_Wrapper/Bsp_Crc.su ./App/Hal_Wrapper/Bsp_Dac.cyclo ./App/Hal_Wrapper/Bsp_Dac.d ./App/Hal_Wrapper/Bsp_Dac.o ./App/Hal_Wrapper/Bsp_Dac.su ./App/Hal_Wrapper/Bsp_Gpio.cyclo ./App/Hal_Wrapper/Bsp_Gpio.d ./App/Hal_Wrapper/Bsp_Gpio.o ./App/Hal_Wrapper/Bsp_Gpio.su ./App/Hal_Wrapper/Bsp_Uart.cyclo ./App/Hal_Wrapper/Bsp_Uart.d ./App/Hal_Wrapper/Bsp_Uart.o ./App/Hal_Wrapper/Bsp_Uart.su ./App/Hal_Wrapper/Bsp_Usb.cyclo ./App/Hal_Wrapper/Bsp_Usb.d ./App/Hal_Wrapper/Bsp_Usb.o ./App/Hal_Wrapper/Bsp_Usb.su
+	-$(RM) ./App/Hal_Wrapper/Bsp.Adc.cyclo ./App/Hal_Wrapper/Bsp.Adc.d ./App/Hal_Wrapper/Bsp.Adc.o ./App/Hal_Wrapper/Bsp.Adc.su ./App/Hal_Wrapper/Bsp.cyclo ./App/Hal_Wrapper/Bsp.d ./App/Hal_Wrapper/Bsp.o ./App/Hal_Wrapper/Bsp.su ./App/Hal_Wrapper/Bsp_Crc.cyclo ./App/Hal_Wrapper/Bsp_Crc.d ./App/Hal_Wrapper/Bsp_Crc.o ./App/Hal_Wrapper/Bsp_Crc.su ./App/Hal_Wrapper/Bsp_Dac.cyclo ./App/Hal_Wrapper/Bsp_Dac.d ./App/Hal_Wrapper/Bsp_Dac.o ./App/Hal_Wrapper/Bsp_Dac.su ./App/Hal_Wrapper/Bsp_Gpio.cyclo ./App/Hal_Wrapper/Bsp_Gpio.d ./App/Hal_Wrapper/Bsp_Gpio.o ./App/Hal_Wrapper/Bsp_Gpio.su ./App/Hal_Wrapper/Bsp_Uart.cyclo ./App/Hal_Wrapper/Bsp_Uart.d ./App/Hal_Wrapper/Bsp_Uart.o ./App/Hal_Wrapper/Bsp_Uart.su ./App/Hal_Wrapper/Bsp_Usb.cyclo ./App/Hal_Wrapper/Bsp_Usb.d ./App/Hal_Wrapper/Bsp_Usb.o ./App/Hal_Wrapper/Bsp_Usb.su
 
 .PHONY: clean-App-2f-Hal_Wrapper
 
