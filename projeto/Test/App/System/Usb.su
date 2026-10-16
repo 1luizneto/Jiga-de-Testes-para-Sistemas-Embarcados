@@ -1,4 +1,0 @@
-../App/System/Usb.c:70:13:Usb_Init	24	static
-../App/System/Usb.c:84:13:Usb_Write	16	static
-../App/System/Usb.c:94:13:Usb_Read	32	static
-../App/System/Usb.c:110:9:Usb_NewSession	8	static

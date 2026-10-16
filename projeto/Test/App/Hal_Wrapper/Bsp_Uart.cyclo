@@ -1,5 +1,0 @@
-../App/Hal_Wrapper/Bsp_Uart.c:74:17:BspUart_Init	2
-../App/Hal_Wrapper/Bsp_Uart.c:94:13:BspUart_Send	1
-../App/Hal_Wrapper/Bsp_Uart.c:104:16:BspUart_Lock	3
-../App/Hal_Wrapper/Bsp_Uart.c:118:13:BspUart_Unlock	2
-../App/Hal_Wrapper/Bsp_Uart.c:125:17:BspUart_Received	1

@@ -1,8 +1,0 @@
-../App/Test/Suites/Test_AnalogIn.c:21:25:AdcFalso_Read	16	static
-../App/Test/Suites/Test_AnalogIn.c:31:13:IniciaAnalogIn	8	static
-../App/Test/Suites/Test_AnalogIn.c:39:6:Test_AnalogIn_ReadValido	24	static
-../App/Test/Suites/Test_AnalogIn.c:52:6:Test_AnalogIn_ReadLimites	24	static
-../App/Test/Suites/Test_AnalogIn.c:69:6:Test_AnalogIn_ReadCanalInvalido	24	static
-../App/Test/Suites/Test_AnalogIn.c:80:6:Test_AnalogIn_ReadFalhaPeriferico	24	static
-../App/Test/Suites/Test_AnalogIn.c:92:6:Test_AnalogIn_ReadValorForaDaFaixa	24	static
-../App/Test/Suites/Test_AnalogIn.c:103:6:Test_AnalogIn_ArgumentosInvalidos	16	static
