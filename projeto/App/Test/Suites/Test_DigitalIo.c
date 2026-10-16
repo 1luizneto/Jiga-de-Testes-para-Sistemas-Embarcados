@@ -45,7 +45,7 @@ static void IniciaDigitalIo(void)
 	memset(&gpioFalso, 0, sizeof(gpioFalso));
 	gpioFalso.retornoWrite = eDIGITALIO_RETURN_OK;
 	gpioFalso.retornoRead  = eDIGITALIO_RETURN_OK;
-	DigitalIo_Init(GpioFalso_Write, GpioFalso_Read);
+	DigitalIO_Init(GpioFalso_Write, GpioFalso_Read);
 }
 
 // 1. Set valido: a saida e o nivel chegam ao pino
@@ -53,7 +53,7 @@ void Test_DigitalIo_SetValido(void)
 {
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIo_Set(1, 1));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIO_Set(1, 1));
 	TEST_ASSERT_EQUAL_UINT8(1, gpioFalso.escritas);
 	TEST_ASSERT_EQUAL_UINT8(1, gpioFalso.saida[0]);
 	TEST_ASSERT_EQUAL_UINT8(1, gpioFalso.nivel[0]);
@@ -64,7 +64,7 @@ void Test_DigitalIo_SetLimites(void)
 {
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIo_Set(4, 0));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIO_Set(4, 0));
 	TEST_ASSERT_EQUAL_UINT8(4, gpioFalso.saida[0]);
 	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.nivel[0]);
 }
@@ -74,8 +74,8 @@ void Test_DigitalIo_SetSaidaInvalida(void)
 {
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIo_Set(0, 1));
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIo_Set(5, 1));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIO_Set(0, 1));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIO_Set(5, 1));
 	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
 }
 
@@ -84,7 +84,7 @@ void Test_DigitalIo_SetNivelInvalido(void)
 {
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIo_Set(1, 2));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIO_Set(1, 2));
 	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
 }
 
@@ -96,7 +96,7 @@ void Test_DigitalIo_ReadMascara(void)
 	gpioFalso.entradas[1] = 1;
 	gpioFalso.entradas[3] = 1;
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIo_Read(&mascara));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIO_Read(&mascara));
 	TEST_ASSERT_EQUAL_HEX8(0x05, mascara);
 }
 
@@ -106,11 +106,11 @@ void Test_DigitalIo_ReadExtremos(void)
 	uint8_t mascara = 0xFF;
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIo_Read(&mascara));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIO_Read(&mascara));
 	TEST_ASSERT_EQUAL_HEX8(0x00, mascara);
 
 	memset(gpioFalso.entradas, 1, sizeof(gpioFalso.entradas));
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIo_Read(&mascara));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIO_Read(&mascara));
 	TEST_ASSERT_EQUAL_HEX8(0x0F, mascara);
 }
 
@@ -121,7 +121,7 @@ void Test_DigitalIo_ReadFalha(void)
 	IniciaDigitalIo();
 	gpioFalso.retornoRead = eDIGITALIO_RETURN_ERROR;
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_ERROR, DigitalIo_Read(&mascara));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_ERROR, DigitalIO_Read(&mascara));
 	TEST_ASSERT_EQUAL_HEX8(0xAA, mascara);
 }
 
@@ -130,7 +130,7 @@ void Test_DigitalIo_SafeState(void)
 {
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIo_SafeState());
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_OK, DigitalIO_SafeState());
 	TEST_ASSERT_EQUAL_UINT8(4, gpioFalso.escritas);
 	for (uint8_t i = 0; i < 4U; i++)
 	{
@@ -145,7 +145,7 @@ void Test_DigitalIo_SafeStateComFalha(void)
 	IniciaDigitalIo();
 	gpioFalso.retornoWrite = eDIGITALIO_RETURN_ERROR;
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_ERROR, DigitalIo_SafeState());
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_ERROR, DigitalIO_SafeState());
 	TEST_ASSERT_EQUAL_UINT8(4, gpioFalso.escritas);
 }
 
@@ -154,7 +154,7 @@ void Test_DigitalIo_ArgumentosInvalidos(void)
 {
 	IniciaDigitalIo();
 
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIo_Init(NULL, GpioFalso_Read));
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIo_Init(GpioFalso_Write, NULL));
-	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIo_Read(NULL));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIO_Init(NULL, GpioFalso_Read));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIO_Init(GpioFalso_Write, NULL));
+	TEST_ASSERT_EQUAL(eDIGITALIO_RETURN_INVALID_ARGUMENT, DigitalIO_Read(NULL));
 }

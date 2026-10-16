@@ -126,7 +126,7 @@ digitalIoReturn_t DigitalIO_Read(uint8_t *mascara)
  * @brief      Leva as quatro saidas ao estado seguro: nivel baixo.
  * @details    Tenta todas as saidas mesmo que uma falhe, para nao deixar um estimulo aplicado.
  **********************************************************************************************************************/
-digitalIoReturn_t DigitalIo_SafeState(void)
+digitalIoReturn_t DigitalIO_SafeState(void)
 {
 	digitalIoReturn_t ret = eDIGITALIO_RETURN_OK;
 

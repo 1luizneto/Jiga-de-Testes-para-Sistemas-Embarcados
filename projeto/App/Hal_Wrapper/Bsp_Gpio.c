@@ -58,10 +58,10 @@ bspGpioSaidas[dDIGITALIO_SAIDA_MAX] =
 static const bspGpioPino_t
 bspGpioEntradas[dDIGITALIO_ENTRADA_MAX] =
 {
-		{GPIO1_IN_GPIO_Port, GPIO1_IN_Pin}, // GPIO1 (PC12)
-		{GPIO2_IN_GPIO_Port, GPIO2_IN_Pin}, // GPIO2 (PD2)
-		{GPIO3_IN_GPIO_Port, GPIO3_IN_Pin}, // GPIO3 (PG2)
-		{GPIO4_IN_GPIO_Port, GPIO4_IN_Pin}, // GPIO4 (PG3)
+		{GPIO1_IN_GPIO_Port, GPIO1_IN_Pin}, // GPIO5 (PC12)
+		{GPIO2_IN_GPIO_Port, GPIO2_IN_Pin}, // GPIO6 (PD2)
+		{GPIO3_IN_GPIO_Port, GPIO3_IN_Pin}, // GPIO7 (PG2)
+		{GPIO4_IN_GPIO_Port, GPIO4_IN_Pin}, // GPIO8 (PG3)
 };
 
 /***********************************************************************************************************************
@@ -79,11 +79,31 @@ static digitalIoReturn_t BspGpio_Read(uint8_t entrada, uint8_t *nivel);
  * @brief      Entrega a escrita e a leitura dos pinos ao modulo DigitalIo.
  * @details    Nao aplica o estado seguro: o MX_GPIO_Init ja liga as saidas em nivel baixo.
  **********************************************************************************************************************/
+bspGpioReturn_t BspGpio_Init(void)
+{
+	if (DigitalIO_Init(BspGpio_Write, BspGpio_Read) != eDIGITALIO_RETURN_OK)
+	{
+		return eBSP_GPIO_RETURN_ERROR;
+	}
+
+	return eBSP_GPIO_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * FUNCOES LOCAIS
+ **********************************************************************************************************************/
+
+/***********************************************************************************************************************
+ * @brief      Entrega a escrita e a leitura dos pinos ao modulo DigitalIo.
+ * @details    Nao aplica o estado seguro: o MX_GPIO_Init ja liga as saidas em nivel baixo.
+ **********************************************************************************************************************/
 static digitalIoReturn_t BspGpio_Write(uint8_t saidas, uint8_t nivel)
 {
 	const bspGpioPino_t *gpio = &bspGpioSaidas[saidas - 1U];
 
 	HAL_GPIO_WritePin(gpio->porta, gpio->pino, (nivel != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+	return eDIGITALIO_RETURN_OK;
 }
 
 /***********************************************************************************************************************

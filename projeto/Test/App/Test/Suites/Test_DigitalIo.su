@@ -1,0 +1,13 @@
+../App/Test/Suites/Test_DigitalIo.c:23:26:GpioFalso_Write	16	static
+../App/Test/Suites/Test_DigitalIo.c:35:26:GpioFalso_Read	16	static
+../App/Test/Suites/Test_DigitalIo.c:43:13:IniciaDigitalIo	8	static
+../App/Test/Suites/Test_DigitalIo.c:52:6:Test_DigitalIo_SetValido	16	static
+../App/Test/Suites/Test_DigitalIo.c:63:6:Test_DigitalIo_SetLimites	16	static
+../App/Test/Suites/Test_DigitalIo.c:73:6:Test_DigitalIo_SetSaidaInvalida	16	static
+../App/Test/Suites/Test_DigitalIo.c:83:6:Test_DigitalIo_SetNivelInvalido	16	static
+../App/Test/Suites/Test_DigitalIo.c:92:6:Test_DigitalIo_ReadMascara	24	static
+../App/Test/Suites/Test_DigitalIo.c:104:6:Test_DigitalIo_ReadExtremos	24	static
+../App/Test/Suites/Test_DigitalIo.c:118:6:Test_DigitalIo_ReadFalha	24	static
+../App/Test/Suites/Test_DigitalIo.c:129:6:Test_DigitalIo_SafeState	24	static
+../App/Test/Suites/Test_DigitalIo.c:143:6:Test_DigitalIo_SafeStateComFalha	16	static
+../App/Test/Suites/Test_DigitalIo.c:153:6:Test_DigitalIo_ArgumentosInvalidos	16	static
