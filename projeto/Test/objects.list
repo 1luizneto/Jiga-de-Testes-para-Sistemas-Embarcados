@@ -7,6 +7,7 @@
 "./App/Hal_Wrapper/Bsp_Gpio.o"
 "./App/Hal_Wrapper/Bsp_Uart.o"
 "./App/Hal_Wrapper/Bsp_Usb.o"
+"./App/System/AnalogIn.o"
 "./App/System/AnalogOut.o"
 "./App/System/Crc16.o"
 "./App/System/DigitalIo.o"
