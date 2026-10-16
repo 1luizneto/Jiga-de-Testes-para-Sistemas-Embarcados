@@ -73,7 +73,7 @@ digitalIoReturn_t DigitalIO_Set(uint8_t saida, uint8_t nivel)
 		return eDIGITALIO_RETURN_ERROR;
 	}
 
-	if ((saida < dDIGITALIO_SAIDA_MIN) || (saida > dDIGITALIO_ENTRADA_MAX))
+	if ((saida < dDIGITALIO_SAIDA_MIN) || (saida > dDIGITALIO_SAIDA_MAX) || (nivel > dDIGITALIO_NIVEL_ALTO))
 	{
 		return eDIGITALIO_RETURN_INVALID_ARGUMENT;
 	}
