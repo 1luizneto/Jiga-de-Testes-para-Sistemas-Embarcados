@@ -1,0 +1,2 @@
+../App/Hal_Wrapper/Bsp_Gpio.c:82:26:BspGpio_Write	1
+../App/Hal_Wrapper/Bsp_Gpio.c:96:26:BspGpio_Read	2
