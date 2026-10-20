@@ -9,6 +9,7 @@ A versão está em `versao.py` (ver [Versionamento](../README.md#versionamento))
 | `terminal_usb.py` | Terminal de linha de comando |
 | `protocolo.py` | Quadro, CRC-16/CCITT-FALSE, receptor (espelho do firmware) e casos de teste |
 | `teste_protocolo.py` | Teste automático com a placa |
+| `medir_loopback.py` | Medição do loopback DAC → ADC (dados do CT10), salva em CSV |
 | `tests/` | Testes do software (pytest) |
 
 ## Instalação
@@ -52,7 +53,8 @@ Durante a execução:
 | `/quadro 01`     | envia um quadro (CMD em hex, SEQ automático) |
 | `/quadro 10 AA BB` | quadro com payload                   |
 | `/teste`         | lista os casos de teste do protocolo   |
-| `/teste 3`, `/teste todos` | envia um caso / todos        |
+| `/teste 3`, `/teste todos` | envia um caso / todos (menos os de loopback) |
+| `/teste loopback` | envia todos, incluindo o CT10 e o CT11 |
 | `/modo`          | alterna entre hex e texto              |
 | `/ajuda`         | mostra os comandos                     |
 | `/sair`, Ctrl+C  | encerra                                |
@@ -68,10 +70,27 @@ pelo USB-CDC e confere, no DebugLog, se a CommTask logou o resultado esperado:
 python teste_protocolo.py            # detecta as duas portas
 python teste_protocolo.py --listar   # lista os casos
 python teste_protocolo.py --caso 8   # só um caso
+python teste_protocolo.py --loopback # inclui o CT10 e o CT11 (precisa dos jumpers)
 python teste_protocolo.py --porta COM14 --porta-log COM8
 ```
 
 Não deixe outro terminal aberto nessas portas enquanto o script roda.
+
+Os casos marcados como `[loopback]` (CT10 e CT11) só passam com os jumpers DAC1 (PA4) → A0 (PA3),
+DAC2 (PA5) → A1 (PC0) e GPIO1–4 (PC8–PC11) → GPIO5–8 (PC12, PD2, PG2, PG3); sem `--loopback` eles
+são pulados. Na GUI, a mesma escolha é a caixa "Incluir loopback".
+
+## Medição do loopback DAC → ADC
+
+Com os jumpers do DAC ligados, faz a varredura do CT10 guardando os valores: média, mínimo e máximo
+das leituras de cada ponto, erro em códigos e em mV, e a reta ajustada por canal. Só usa o USB-CDC.
+
+```
+python medir_loopback.py                               # 11 pontos da faixa útil, 8 leituras cada
+python medir_loopback.py --pontos 33 --amostras 16
+python medir_loopback.py --de 0 --ate 4095 --pontos 41 # inclui as pontas (saturação do buffer)
+python medir_loopback.py --saida medicao.csv
+```
 
 ## Testes do software
 
