@@ -1,4 +1,4 @@
-# Contexto: Jiga de Testes para Sistemas Embarcados (TCC) — atualizado em 13/10/2026
+# Contexto: Jiga de Testes para Sistemas Embarcados (TCC) — atualizado em 20/10/2026
 
 ## Forma de trabalho (IMPORTANTE)
 - Prefiro entender e implementar eu mesmo. Me oriente com perguntas, revisões e roteiros
@@ -24,20 +24,24 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   (firmware em `projeto/`, app Python em `Software/`)
 - A monografia (`Texto/TCC_Monografia`, raiz `documento.tex`) NÃO está no git: copiar à parte.
 
-## Estado do git/GitHub (13/10/2026)
+## Estado do git/GitHub (20/10/2026)
 - Tags/releases: **v0.1.0** (USB com stream buffer), **v0.2.0** (parser de quadros), **v0.3.0** (respostas
-  ACK/NACK).
-- **v0.4.0** (fila CommTask ↔ TestExecTask, `RESET_ALL`, `DAC_SET`) fechada no branch **`feat_comandos-dac`**:
-  versão já em 0.4.0 nos 3 lugares. Falta: medição do DAC (decisão do buffer), validação final na placa
-  com a versão nova, PR → `main`, merge, `git tag -a v0.4.0` no `main`, push da tag e release (o notebook
-  da empresa não tem o `gh`; fazer pela página do GitHub).
-- Depois do merge: branch da v0.5.0 **a partir do `main` atualizado** (`git checkout main && git pull &&
-  git checkout -b feat/adc-gpio`). Branch criado de `main` desatualizado já deu problema uma vez.
+  ACK/NACK), **v0.4.0** (fila CommTask ↔ TestExecTask, `RESET_ALL`, `DAC_SET`).
+- **v0.5.0** (`GPIO_SET`, `GPIO_READ`, `ADC_READ`, CT10 e CT11) fechada no branch **`feat_adc-gpio`**:
+  versão já em 0.5.0 nos 3 lugares; 29/29 casos HIL passaram com loopback (ainda com o firmware 0.4.0 no
+  PING). Falta: medição com o `medir_loopback.py` (dados do Cap. 4), validação final com a versão nova
+  gravada, PR → `main`, merge, `git tag -a v0.5.0` no `main`, push da tag e release (o notebook da empresa
+  não tem o `gh`; fazer pela página do GitHub).
+- Depois do merge: branch da v0.6.0 **a partir do `main` atualizado** (`git checkout main && git pull &&
+  git checkout -b feat_pwm`). Branch criado de `main` desatualizado já deu problema uma vez.
+- Mensagem de commit: só o texto entre aspas (o commit `ca7c6e9` saiu com `git commit -m "..."` dentro
+  da mensagem; ficou assim porque já estava no `origin`).
 - Logs da CommTask usam o prefixo `[TASK -> COMM]`, os da TestExecTask `[TASK -> EXEC]`; o `LOG_FIRMWARE`
   do `protocolo.py` está alinhado com os do parser (se mudar o texto de um log do parser no firmware,
   mudar lá também, senão o `teste_protocolo.py` dá FALHA).
-- Artefatos de build (`projeto/Debug/`, `projeto/Test/`) ainda estão versionados: não commitar as
-  mudanças deles (há uma proposta de tirá-los do git via `.gitignore`).
+- Artefatos de build (`projeto/Debug/`, `projeto/Test/`) saíram do git na v0.5.0 e estão no
+  `.gitignore`: o CubeIDE gera tudo de novo no build. Para commitar código, `git add projeto/App` (ou o
+  arquivo), nunca a pasta `projeto` inteira sem olhar o `git status`.
 - Duas configurações de gravação versionadas: `projeto/projeto Debug.launch` (grava `Debug/projeto.elf`)
   e `projeto/projeto Test.launch` (grava `Test/projeto.elf`, build `Test`). Escolher pela setinha do
   botão de Debug, **sem editar** a aba Main. Se um `.launch` aparecer alterado no `git status`, alguém
@@ -51,6 +55,15 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - USART3 (VCP do ST-LINK, PID 374B) = UART de debug (DebugLog) a **1.000.000 baud**, mutex `uartDebugMutex`
 - DAC1 = PA4 (canal 1), DAC2 = PA5 (canal 2): 12 bits, sem trigger, **buffer de saída ligado** (CubeMX);
   faixa útil medida ~0,1 a ~3,2 V (ver "Medição do DAC")
+- Saídas digitais GPIO1–4 = PC8–PC11 (push-pull, ligam em nível baixo pelo `MX_GPIO_Init`). Entradas
+  GPIO5–8 = PC12, PD2, PG2, PG3 (rótulos `GPIO1_IN`…`GPIO4_IN` no `.ioc`, **não renomear**), **sem pull
+  interno**: são FT e aceitam até 5,5 V com a jiga ligada, mas acima de 4 V o pull interno precisa estar
+  desligado (DS11532, Tabela 14, nota 5). Sem resistor externo, entrada solta lê valor indefinido
+- ADC: canal 0 = A0 = PA3 (ADC1_IN3), canal 1 = A1 = PC0 (ADC2_IN10), canal 2 = A2 = PC3 (ADC3_IN13), um
+  ADC por canal, 12 bits, **sampling time de 480 ciclos**, referência 3,3 V
+- PWM (v0.6.0, já no `.ioc`): PWM1 = PE9 (TIM1_CH1, 216 MHz, 16 bits), PWM2 = PA0 (TIM2_CH1, 108 MHz,
+  32 bits), PWM3 = PA6 (TIM3_CH1, 108 MHz, 16 bits)
+- Loopback dos testes (jumpers): PA4→PA3, PA5→PC0 (CT10); PC8→PC12, PC9→PD2, PC10→PG2, PC11→PG3 (CT11)
 - Timebase do HAL no TIM6; FPU habilitada; USE_NEWLIB_REENTRANT habilitado
 
 ## Tasks (FreeRTOS)
@@ -74,7 +87,10 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - ACK: mesmo SEQ, CMD | 0x80, payload com os dados. NACK: mesmo SEQ, CMD = 0xFF, payload [cmd, erro]
 - PING SEQ=1: `7E 00 01 01 8C EF`; ACK do PING = [versão do protocolo (1), fw maior, menor, correção]
 - Comandos implementados: PING (0x01), RESET_ALL (0x02, sem payload), DAC_SET (0x10, [canal u8 1–2][valor
-  u16 LE 0–4095]). Ex.: DAC_SET SEQ=20, canal 1, 2048 = `7E 03 14 10 01 00 08 33 E0`
+  u16 LE 0–4095]), GPIO_SET (0x20, [pino u8 1–4][nível u8 0/1]), GPIO_READ (0x21, sem payload → ACK
+  [máscara u8, bit 0 = GPIO5 … bit 3 = GPIO8, bits 4–7 em 0]), ADC_READ (0x40, [canal u8 0–2] → ACK
+  [canal u8][valor u16 LE]). Ex.: DAC_SET SEQ=20, canal 1, 2048 = `7E 03 14 10 01 00 08 33 E0`; ACK do
+  ADC_READ SEQ=3, canal 0, 2047 = `7E 03 03 C0 00 FF 07 9E EE` (Apêndice A)
 - Códigos de erro do NACK (Apêndice A, `commError_t`): 0x01 CMD_DESCONHECIDO, 0x02 PARAMETRO_INVALIDO,
   0x03 NAO_CONFIGURADO, 0x04 CRC_INVALIDO, 0x05 TAMANHO_EXCEDIDO, 0x06 ERRO_PERIFERICO, 0x07 OCUPADO,
   0x08 ROTINA_INVALIDA, 0x09 SEM_RESULTADO
@@ -104,8 +120,24 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - **Quem decide se um comando existe é o `Exec`** (CMD_DESCONHECIDO); o `Comm` só atende o PING.
 - **Validação em um lugar só**: o `Exec` confere o tamanho do payload; o módulo do periférico
   (`AnalogOut_Set`) confere a faixa e recusa sem tocar no hardware (CT09: "nenhuma saída alterada").
-- **Estado seguro** (Apêndice A): no boot (`BspDac_Init` → `AnalogOut_SafeState`) e no `RESET_ALL`
-  (`Exec_SafeState`). Cada periférico novo entra no `Exec_SafeState`.
+- **Estado seguro** (Apêndice A): no boot e no `RESET_ALL` (`Exec_SafeState`). Cada periférico novo entra
+  no `Exec_SafeState`, que tenta **todos** mesmo que um falhe (para não deixar estímulo aplicado). No
+  boot, o DAC precisa do `AnalogOut_SafeState` no `BspDac_Init`; os GPIOs não, o `MX_GPIO_Init` já liga
+  as saídas em nível baixo.
+- **ACK com dados (v0.5.0)**: a função local do comando recebe também o `execResult_t` e preenche `dados`
+  e `size` **só no ACK** (o `Exec_Process` zera o `size` antes; NACK nunca leva dado velho).
+- **Leitura do GPIO pino a pino**: a BSP lê uma entrada; quem monta a máscara (bit 0 = GPIO5) é o
+  `DigitalIo`, que é testável. Em falha de leitura a máscara não é escrita.
+- **ADC por polling, uma conversão por comando** (`Start → PollForConversion(10 ms) → GetValue → Stop`;
+  o ADC é parado também no timeout). Sampling time de 480 ciclos (~20 µs) porque com 3 ciclos o
+  capacitor de amostragem não carrega com fonte de alguns kΩ. Valor > 4095 vindo da BSP = falha.
+- **Casos de teste com resposta que varia** (`CasoTeste.conferir`): sem fio, o `GPIO_READ` e o `ADC_READ`
+  só conferem o formato (1 byte com bits 4–7 em 0; canal certo e ≤ 4095); com loopback, o CT11 confere a
+  máscara exata e o CT10 a leitura a **±41 códigos** do DAC (1 % do fundo de escala = 33 mV). A reprovação
+  diz o motivo (ex.: `resposta 8: A0 leu 1320; esperado 1278 +/- 41`).
+- **Casos de loopback** (`requer_loopback`): só entram no "executar todos" com `--loopback` / caixa
+  "Incluir loopback"; o "RESET_ALL no fim" continua sendo o último. Nos casos com vários comandos, um de
+  cada vez, com `PAUSA_COMANDO` = 50 ms entre eles (senão o 2º recebe OCUPADO).
 - **Nomes**: `Comm_ProcessByte` = parser; `Comm_BuildFrame` = monta quadro; `Comm_ProcessFrame` = decide a
   resposta; `Comm_BuildResult` = resposta a partir do resultado da execução.
 - `AGUARDA_RESULTADO` NÃO fica no parser: é o "pendente" do `Comm` + a espera da CommTask pela fila.
@@ -117,8 +149,11 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   `printfBuffer` E o envio (antes, duas tasks podiam misturar mensagens). Não chamar de ISR.
 
 ## Organização do código (`projeto/`)
-- `App/Comm` (Comm, DebugLog), `App/System` (Crc16, Usb, AnalogOut, Version.h), `App/Exec` (Exec),
-  `App/Hal_Wrapper` (Bsp, Bsp_Crc, Bsp_Usb, Bsp_Uart, Bsp_Dac), `App/Test` (Unity, TestRunner, Suites)
+- `App/Comm` (Comm, DebugLog), `App/System` (Crc16, Usb, AnalogOut, AnalogIn, DigitalIo, Version.h),
+  `App/Exec` (Exec), `App/Hal_Wrapper` (Bsp, Bsp_Crc, Bsp_Usb, Bsp_Uart, Bsp_Dac, Bsp_Gpio, Bsp_Adc),
+  `App/Test` (Unity, TestRunner, Suites)
+- As funções do `DigitalIo` usam o prefixo `DigitalIO_` (O maiúsculo; escolha do Luiz), os tipos e enums
+  `digitalIo…`/`eDIGITALIO_…`
 - Padrão: módulos de `System` recebem ponteiros de função da BSP no `_Init`; struct `static` local com os
   dados do módulo; enums de retorno `eXXX_RETURN_...`. Os testes Unity trocam a BSP por funções falsas
   pelo mesmo `_Init` (ex.: DAC falso no `Test_Exec.c`).
@@ -126,7 +161,7 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   maiúsculas: `Dac.h` colidiu com `Core/Inc/dac.h`). Planejado: `AnalogOut` (DAC), `AnalogIn` (ADC),
   `DigitalIo` (GPIO), `Pwm`, `I2cSlave`, `SpiSlave`, `UartEmu`. `Bsp_Xxx` pode, o prefixo evita a colisão.
 - Código próprio fora de Core/Drivers/Middlewares; no código gerado, só dentro de USER CODE
-- `Bsp_Init()` é chamado no `main.c` antes do scheduler (UART, CRC, USB, DAC)
+- `Bsp_Init()` é chamado no `main.c` antes do scheduler (UART, CRC, USB, DAC, GPIO, ADC)
 - Build configuration `Test`: Unity on-target, saída pela USART3, define `UNIT_TEST_ON_TARGET`;
   `App/Test` excluída das builds Debug/Release. Na build Test a CommTask fica em `osDelay` e a TestExecTask
   parada na fila (os testes chamam o `Exec_Process` direto)
@@ -171,6 +206,29 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - Terminais: junção de rajadas com tempo máximo (50 ms): logs contínuos voltaram a aparecer
 - **93 testes pytest**
 
+### v0.5.0 — GPIO e ADC (20/10/2026)
+**Firmware**
+- CubeMX: sampling time de 480 ciclos nos três ADCs (entradas continuam sem pull, rótulos sem renomear)
+- `DigitalIo` (System: `DigitalIO_Set`/`Read`/`SafeState`, máscara bit 0 = GPIO5) + `Bsp_Gpio` (tabelas
+  porta/pino, `HAL_GPIO_WritePin`/`ReadPin`)
+- `AnalogIn` (System: `AnalogIn_Read`, canal 0–2, valor > 4095 = falha) + `Bsp_Adc` (handle por canal,
+  polling com timeout de 10 ms)
+- `Exec`: `GPIO_SET`, `GPIO_READ` e `ADC_READ` (primeiros ACKs com dados); `Exec_SafeState` com DAC e GPIO
+- **70 testes Unity** (45 + 10 DigitalIo com GPIO falso + 6 AnalogIn com ADC falso + 9 Exec); o
+  `Test_Exec.c` registra DAC, GPIO e ADC falsos no `IniciaExec`
+
+**Software**
+- `protocolo.py`: os três comandos, decodificação da máscara e do valor do ADC (em V); `JigaSimulada` com
+  GPIO, ADC e `loopback=True`; `CasoTeste` com `conferir`, `requer_loopback`, `resumo_esperado`
+- **29 casos HIL** (26 sem fio + CT10 DAC1→A0, CT10 DAC2→A1, CT11): **29/29 na placa com os jumpers**
+  — **CT10 e CT11 atendidos**
+- `teste_protocolo.py --loopback`, caixa "Incluir loopback" na GUI, `/teste loopback`; log e USB lidos a
+  cada passo (buffer maior)
+- `medir_loopback.py`: varredura DAC → ADC com N leituras por ponto → CSV + reta ajustada por canal
+- **149 testes pytest**
+
+**Repositório**: `projeto/Debug/` e `projeto/Test/` fora do git (`.gitignore`)
+
 **Versionamento (SemVer)**
 - Versão única para firmware + software. MAJOR = incompatibilidade no protocolo; MINOR = funcionalidade
   compatível; PATCH = correção. `0.x.y` = desenvolvimento; `1.0.0` = jiga funcional com o protocolo completo
@@ -183,7 +241,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 | Versão | Entrega | Casos de teste |
 |---|---|---|
 | ~~0.4.0~~ | CommTask ↔ TestExecTask, estado seguro, `RESET_ALL`, `DAC_SET`, OCUPADO, DebugLog com lock | CT09 ✅; DAC no multímetro |
-| 0.5.0 | `ADC_READ`, `GPIO_SET`, `GPIO_READ` | CT10 (DAC→ADC), CT11 (GPIO) |
+| ~~0.5.0~~ | `ADC_READ`, `GPIO_SET`, `GPIO_READ` | CT10 (DAC→ADC) ✅, CT11 (GPIO) ✅ |
 | 0.6.0 | `PWM_SET`, `PWM_STOP` | CT12 (osciloscópio) |
 | 0.7.0 | Emulação de escravo I2C (I2CEmulationTask sob demanda, 0x50–0x53) | parte do CT20 |
 | 0.8.0 | Escravo SPI e UART (0x60–0x63, 0x70–0x72) | CT13, CT20 |
@@ -198,12 +256,26 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
   `Exec_Process` + módulo do periférico + casos no `protocolo.py`/`JigaSimulada`).
 
 ## PRÓXIMOS PASSOS
-1. Fechar a v0.4.0: Test (45 Unity) e Debug (17/17, ACK do PING com `firmware 0.4.0`) com a versão nova
-   gravada; PR, merge, tag, release
-2. v0.5.0: `ADC_READ` (canal 0–2 → ACK [canal, valor u16]; primeiro comando com **dados** no ACK — o
-   `Comm_BuildResult` já trata, teste Unity `ResultComDados`), `GPIO_SET` (pino 1–4, nível) e `GPIO_READ`
-   (máscara GPIO5–8). Módulos `AnalogIn`/`DigitalIo` + `Bsp_Adc`/`Bsp_Gpio`; GPIO1–4 em nível baixo no
-   `Exec_SafeState`. Loopbacks DAC1→A0, DAC2→A1 e GPIO1–4→GPIO5–8 (CT10, CT11)
+1. Fechar a v0.5.0:
+   - Medição: `python Software/medir_loopback.py --pontos 33 --amostras 16` (faixa útil) e, se quiser
+     mostrar a saturação, `--de 0 --ate 4095 --pontos 41`; guardar os CSVs para o Cap. 4 e anotar o
+     resultado em "Medição do ADC" abaixo
+   - Gravar Test (70 Unity) e Debug (ACK do PING com `firmware 0.5.0`); `teste_protocolo.py` sem jumpers
+     (26/26, 3 pulados) e com `--loopback` (29/29); `pytest` (149)
+   - PR, merge, tag `v0.5.0`, release
+2. v0.6.0: `PWM_SET` (0x30, [canal u8 1–3][frequência u32 Hz][razão cíclica u16 em centésimos de %,
+   0–10000]) e `PWM_STOP` (0x31, [canal u8 1–3]); exemplo do Apêndice A: PWM_SET SEQ=4, canal 1, 1 kHz,
+   50 % = `7E 07 04 30 01 E8 03 00 00 88 13 5A 47`. Módulo `Pwm` + `Bsp_Pwm` (cálculo de PSC/ARR/CCR por
+   canal: TIM1 a 216 MHz e TIM3 a 108 MHz são de 16 bits, TIM2 a 108 MHz é de 32 bits), PWM parado no
+   estado seguro. Decidir: faixa de frequência aceita (RF03), arredondamento e o que fazer quando a
+   frequência pedida não é exata (NACK ou mais próxima). Critério: frequência ±1 %, razão cíclica ±1 ponto
+   percentual (CT12, osciloscópio). Sem loopback possível pela própria jiga ainda (a captura de entrada
+   não existe); medir no osciloscópio
+
+### Medição do ADC (v0.5.0) — loopback DAC → ADC, `medir_loopback.py`
+A preencher com o resultado da medição: pior erro por canal (códigos e mV), reta ajustada (ganho e
+offset) e se algum ponto ficou fora de ±41 códigos. O erro medido junta DAC + ADC; para separar, medir
+alguns pontos do DAC no multímetro (a tabela da v0.4.0 já mostra o DAC com ±3 mV no meio da escala).
 
 ### Medição do DAC (v0.4.0, 13/10/2026) — multímetro, sem carga, pino 3V3 = 3,300 V
 | Código | Ideal | PA4 (canal 1) | PA5 (canal 2) | Erro |
@@ -262,12 +334,16 @@ faixa útil, sim. Firmware não muda.
     rótulos `GPIO1_IN`…`GPIO4_IN` do `.ioc`
 - **ADC**: sampling time de 480 ciclos (fonte do DUT com impedância de alguns kΩ); leitura por polling,
   uma conversão por comando
+- **CT10 e CT11** (quadro de casos de teste): descrever a ligação por jumpers (PA4→PA3, PA5→PC0,
+  PC8–PC11→PC12/PD2/PG2/PG3), os 11 pontos de 124 a 3971 (faixa útil do DAC) e o critério de ±41 códigos;
+  no Cap. 4, a tabela/gráfico do `medir_loopback.py` (erro por ponto, reta ajustada) e o 29/29
+- **Verificação automática com tolerância**: os casos do PC conferem leituras analógicas por faixa e não
+  byte a byte (é o mesmo critério do `qua:criterios`); vale citar na seção do app/casos de teste
 
 ## Pendências menores (código)
 - Cast `(void *)` no `BspCrc_Init` esconde assinatura incompatível — corrigir como foi feito no `BspUart_Init`
 - Ramo de software do `Crc16.c` implementa CRC-16/Modbus (e `dCRC_POLINOMIO 0xA001`, `dCRC_LOW/HIGH`
   usam tipo `u8` inexistente, `dFALSE` não definido); trocar para CCITT-FALSE
-- Tirar `projeto/Debug/`, `projeto/Test/` do git (`.gitignore` + `git rm -r --cached`)
 - Desativar a Ethernet no CubeMX (inicializada sem uso)
 - Habilitar IRQs de I2C2/SPI2/UART4 (prioridade ≥ 5) quando chegar nas emulações (v0.7.0/v0.8.0)
 - Limitação conhecida: um quadro manual na GUI com o mesmo SEQ de um caso de teste faz o caso receber a
@@ -301,10 +377,18 @@ faixa útil, sim. Firmware não muda.
   nova com `Inc/` precisa do include path
 - PR mergeado não recebe commits novos do branch: o que for commitado depois precisa de outro PR
 - GUI aberta antes de atualizar o código continua com o software antigo na memória: reiniciar a GUI
+- **`undefined reference` + `dangerous relocation` no link**: a função é chamada mas não existe em nenhum
+  `.c` compilado (aconteceu com o `BspGpio_Init`: o comentário ficou, o corpo sumiu)
+- **Função que devolve valor sem `return`** compila (só warning) e devolve lixo: o `GPIO_SET` responderia
+  NACK aleatório. Ler os warnings do build
+- **Arquivo com nome errado** (`Bsp.Adc.c`) compila igual; renomear com `git mv` e dar F5 no projeto para
+  os makefiles esquecerem o nome antigo
+- **Stage perdido antes do commit**: o `chore:` dos artefatos de build saiu só com o `.gitignore`;
+  conferir `git diff --cached --stat` antes de commitar
 
 ## Setup no notebook novo
 - `git fetch` e checkout do branch atual (ver "Estado do git")
-- `cd Software && pip install -r requirements-dev.txt && pytest` (93 testes)
+- `cd Software && pip install -r requirements-dev.txt && pytest` (149 testes)
 - CubeIDE: importar `projeto/`; as configurações `projeto Debug` e `projeto Test` vêm do git; se o debug
   falhar, porta 61234 (ver armadilhas)
 - Terminal do DebugLog: porta do ST-Link a 1000000 baud
