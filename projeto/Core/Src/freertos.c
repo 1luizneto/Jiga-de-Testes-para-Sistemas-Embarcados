@@ -358,17 +358,14 @@ void CommTask(void *argument)
 void TestExecTask(void *argument)
 {
   /* USER CODE BEGIN TestExecTask */
-	// static: o quadro e o resultado tem ~250 bytes cada e a stack da task e de 1 KB
 	static commFrame_t comando;
 	static execResult_t resultado;
 
 	DebugLog_SendTerminal("[TASK -> EXEC] Inicio da Task\n");
 
   /* Infinite loop */
-  for(;;)
-  {
-	  // Bloqueada ate a CommTask repassar um comando (nao gasta CPU enquanto espera). Na build Test ninguem
-	  // repassa nada e a task fica parada aqui: os testes Unity chamam o Exec_Process direto
+  for(;;)  {
+
 	  if (osMessageQueueGet(comandoQueueHandle, &comando, NULL, osWaitForever) != osOK)
 	  {
 		  continue;
@@ -376,10 +373,8 @@ void TestExecTask(void *argument)
 
 	  Exec_Process(&comando, &resultado);
 
-	  DebugLog_SendTerminal("[TASK -> EXEC] Executado: CMD=0x%02X SEQ=%u erro=%u\n",
-	                        resultado.cmd, resultado.seq, resultado.erro);
+	  DebugLog_SendTerminal("[TASK -> EXEC] Executado: CMD=0x%02X SEQ=%u erro=%u\n", resultado.cmd, resultado.seq, resultado.erro);
 
-	  // A CommTask esvazia esta fila a cada volta do laco (<= 20 ms), entao a espera aqui e curta
 	  osMessageQueuePut(resultadoQueueHandle, &resultado, 0U, osWaitForever);
   }
   /* USER CODE END TestExecTask */
@@ -411,15 +406,12 @@ static void CommTask_Responde(const commFrame_t *frame)
 
 		case eCOMM_RETURN_IGNORED:
 
-			// Retransmissao do comando que ainda esta executando: a resposta sai quando o resultado chegar
 			DebugLog_SendTerminal("[TASK -> COMM] Retransmissao do comando pendente: ignorada\n");
 
 		break;
 
 		case eCOMM_RETURN_FORWARD:
 
-			// Sem esperar: a fila de 1 elemento so esta cheia se a TestExecTask ainda nao pegou o comando anterior,
-			// o que o Comm ja impede (um pendente por vez). Se acontecer, recusa e libera o pendente
 			if (osMessageQueuePut(comandoQueueHandle, frame, 0U, 0U) != osOK)
 			{
 				if (Comm_BuildResult(frame->seq, frame->cmd, (uint8_t)eCOMM_ERROR_OCUPADO, NULL, 0U,
@@ -446,7 +438,6 @@ static void CommTask_Responde(const commFrame_t *frame)
  **********************************************************************************************************************/
 static void CommTask_VerificaResultado(void)
 {
-	// static: ~245 bytes, fora da stack de 1 KB da task
 	static execResult_t resultado;
 	uint16_t txSize = 0;
 

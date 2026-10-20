@@ -7,6 +7,40 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.5.0] - 2026-10-20
+
+### Adicionado
+- Firmware: módulo `DigitalIo` (saídas GPIO1–4 com validação de pino 1–4 e nível 0/1, leitura das
+  entradas GPIO5–8 numa máscara com bit 0 = GPIO5, estado seguro em nível baixo) e `Bsp_Gpio` (HAL).
+  10 testes Unity com GPIO falso.
+- Firmware: módulo `AnalogIn` (canal 0–2, leitura de 12 bits; valor acima de 4095 vindo da BSP é tratado
+  como falha) e `Bsp_Adc` (uma conversão por polling no ADC1/ADC2/ADC3, com timeout). 6 testes Unity
+  com ADC falso.
+- Firmware: comandos `GPIO_SET` (0x20), `GPIO_READ` (0x21, ACK com a máscara) e `ADC_READ` (0x40, ACK com
+  canal e valor u16): os primeiros comandos com dados no ACK. Tamanho ou faixa inválidos → NACK
+  PARAMETRO_INVALIDO sem tocar no pino nem no ADC. 9 testes Unity novos no `Exec` (70 no total).
+- Software: `protocolo.py` conhece os três comandos (`montar_gpio_set`, `montar_gpio_read`,
+  `montar_adc_read`) e mostra a máscara e o valor do ADC (em V) nas respostas; a `JigaSimulada` simula
+  GPIOs e ADC, com opção de loopback (entradas = saídas, A0/A1 = DAC1/DAC2).
+- Software: casos de teste podem conferir respostas que variam (`conferir`, com o motivo da reprovação) e
+  ser marcados como "requer loopback". 12 casos novos (29 no total): `GPIO_SET`/`GPIO_READ`/`ADC_READ`
+  válidos e inválidos, **CT10** (DAC1 → A0 e DAC2 → A1, 11 pontos na faixa útil, ±41 códigos = 1 % do
+  fundo de escala) e **CT11** (GPIO1–4 → GPIO5–8, as 16 combinações).
+- Software: opção `--loopback` no `teste_protocolo.py`, caixa "Incluir loopback" na GUI e
+  `/teste loopback` no terminal; sem ela, os casos com jumper são pulados.
+- Software: `medir_loopback.py`, que faz a varredura DAC → ADC com várias leituras por ponto e salva um
+  CSV (média, mínimo, máximo, erro em códigos e em mV, reta ajustada por canal).
+- Software: 56 testes pytest novos (149 no total).
+
+### Alterado
+- Firmware: sampling time dos três ADCs de 3 para 480 ciclos (fonte do DUT com impedância de alguns kΩ).
+- Firmware: o `RESET_ALL` (`Exec_SafeState`) também leva GPIO1–4 a nível baixo e tenta todos os
+  periféricos mesmo que um falhe.
+- Software: o `teste_protocolo.py` lê o DebugLog e o USB durante o caso (e não só no fim), com buffer de
+  recepção maior: os casos longos geram dezenas de respostas.
+- Repositório: `projeto/Debug/` e `projeto/Test/` (artefatos de build) saíram do git e entraram no
+  `.gitignore`.
+
 ## [0.4.0] - 2026-10-13
 
 ### Adicionado
@@ -96,7 +130,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.4.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.1.0...v0.2.0
