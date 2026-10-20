@@ -54,6 +54,15 @@ void Test_Exec_ResetAllComPayload(void);
 void Test_Exec_CmdDesconhecido(void);
 void Test_Exec_DacSetFalhaPeriferico(void);
 void Test_Exec_ArgumentosInvalidos(void);
+void Test_Exec_GpioSetValido(void);
+void Test_Exec_GpioSetParametroInvalido(void);
+void Test_Exec_GpioSetTamanhoErrado(void);
+void Test_Exec_GpioReadValido(void);
+void Test_Exec_GpioReadComPayload(void);
+void Test_Exec_AdcReadValido(void);
+void Test_Exec_AdcReadCanalInvalido(void);
+void Test_Exec_AdcReadTamanhoErrado(void);
+void Test_Exec_AdcReadFalhaPeriferico(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -64,5 +73,25 @@ void Test_Comm_PendenteOcupado(void);
 void Test_Comm_PendentePingAtendido(void);
 void Test_Comm_ResultInesperado(void);
 void Test_Comm_ResultArgumentosInvalidos(void);
+
+// Testes das entradas e saidas digitais (DigitalIo)
+void Test_DigitalIo_SetValido(void);
+void Test_DigitalIo_SetLimites(void);
+void Test_DigitalIo_SetSaidaInvalida(void);
+void Test_DigitalIo_SetNivelInvalido(void);
+void Test_DigitalIo_ReadMascara(void);
+void Test_DigitalIo_ReadExtremos(void);
+void Test_DigitalIo_ReadFalha(void);
+void Test_DigitalIo_SafeState(void);
+void Test_DigitalIo_SafeStateComFalha(void);
+void Test_DigitalIo_ArgumentosInvalidos(void);
+
+// Testes das entradas analogicas (AnalogIn)
+void Test_AnalogIn_ReadValido(void);
+void Test_AnalogIn_ReadLimites(void);
+void Test_AnalogIn_ReadCanalInvalido(void);
+void Test_AnalogIn_ReadFalhaPeriferico(void);
+void Test_AnalogIn_ReadValorForaDaFaixa(void);
+void Test_AnalogIn_ArgumentosInvalidos(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
