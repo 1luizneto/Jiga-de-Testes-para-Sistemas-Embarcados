@@ -33,6 +33,9 @@ CRC_POLINOMIO = 0x1021
 CMD_PING = 0x01
 CMD_RESET_ALL = 0x02
 CMD_DAC_SET = 0x10
+CMD_GPIO_SET = 0x20
+CMD_GPIO_READ = 0x21
+CMD_ADC_READ = 0x40
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
 
@@ -40,7 +43,10 @@ FLAG_ACK = 0x80
 # Os casos de teste usam ele para nao mudar de resposta quando os comandos forem implementados.
 CMD_INEXISTENTE = 0x55
 
-NOMES_COMANDO = {CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_DAC_SET: "DAC_SET"}
+NOMES_COMANDO = {
+    CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_DAC_SET: "DAC_SET",
+    CMD_GPIO_SET: "GPIO_SET", CMD_GPIO_READ: "GPIO_READ", CMD_ADC_READ: "ADC_READ",
+}
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
 VERSAO_PROTOCOLO = 1
@@ -48,6 +54,26 @@ VERSAO_PROTOCOLO = 1
 # DAC (Apendice A): canal 1 = DAC1 (PA4), 2 = DAC2 (PA5); 12 bits
 DAC_CANAIS = (1, 2)
 DAC_VALOR_MAX = 4095
+
+# GPIO (Apendice A): saidas GPIO1 a GPIO4 (PC8 a PC11), nivel 0 ou 1. O GPIO_READ devolve as
+# entradas GPIO5 a GPIO8 (PC12, PD2, PG2, PG3) numa mascara: bit 0 = GPIO5 ... bit 3 = GPIO8
+GPIO_SAIDAS = (1, 2, 3, 4)
+GPIO_NIVEIS = (0, 1)
+GPIO_MASCARA_ENTRADAS = 0x0F
+
+# ADC (Apendice A): canal 0 = A0 (PA3), 1 = A1 (PC0), 2 = A2 (PC3); 12 bits, referencia de 3,3 V
+ADC_CANAIS = (0, 1, 2)
+ADC_VALOR_MAX = 4095
+TENSAO_REFERENCIA = 3.3
+
+# Loopback dos casos CT10 e CT11 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0)
+# e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3)
+LOOPBACK_DAC_ADC = {1: 0, 2: 1}
+
+# CT10: tolerancia de 1 % do fundo de escala (33 mV ~ 41 codigos) e faixa util do DAC com o buffer
+# de saida ligado (~0,1 a ~3,2 V; satura a ~50 mV dos trilhos, medido na v0.4.0)
+TOLERANCIA_ADC = round(0.01 * ADC_VALOR_MAX)
+DAC_FAIXA_UTIL = (124, 3971)
 
 # A CommTask le o USB em blocos de ate 64 bytes (rxBuffer) e so confere o resultado da TestExecTask
 # depois de processar o bloco inteiro: um comando que chega no mesmo bloco de outro pendente recebe
@@ -57,6 +83,7 @@ TAMANHO_BLOCO_RX = 64
 # Codigos de erro do NACK (Apendice A, commError_t no firmware)
 ERRO_CMD_DESCONHECIDO = 0x01
 ERRO_PARAMETRO_INVALIDO = 0x02
+ERRO_PERIFERICO = 0x06
 ERRO_OCUPADO = 0x07
 CODIGOS_ERRO = {
     0x01: "CMD_DESCONHECIDO",
@@ -215,6 +242,30 @@ def montar_dac_set(seq, canal, valor):
     return montar_quadro(seq, CMD_DAC_SET, bytes([canal]) + valor.to_bytes(2, "little"))
 
 
+def montar_gpio_set(seq, pino, nivel):
+    """GPIO_SET: payload [pino (u8)][nivel (u8)]. Aceita pino e nivel fora da faixa (casos invalidos)."""
+    if not 0 <= pino <= 0xFF or not 0 <= nivel <= 0xFF:
+        raise ValueError("pino e nivel precisam caber em 1 byte")
+    return montar_quadro(seq, CMD_GPIO_SET, bytes([pino, nivel]))
+
+
+def montar_gpio_read(seq):
+    """GPIO_READ: sem payload."""
+    return montar_quadro(seq, CMD_GPIO_READ)
+
+
+def montar_adc_read(seq, canal):
+    """ADC_READ: payload [canal (u8)]. Aceita canal fora da faixa (casos invalidos)."""
+    if not 0 <= canal <= 0xFF:
+        raise ValueError("canal precisa caber em 1 byte")
+    return montar_quadro(seq, CMD_ADC_READ, bytes([canal]))
+
+
+def codigo_para_tensao(valor):
+    """Codigo de 12 bits do ADC/DAC -> tensao em V (referencia de 3,3 V)."""
+    return valor * TENSAO_REFERENCIA / ADC_VALOR_MAX
+
+
 def nome_comando(cmd):
     return NOMES_COMANDO.get(cmd, f"0x{cmd:02X}")
 
@@ -237,6 +288,14 @@ class Resposta:
         if self.cmd == CMD_PING and len(self.dados) == 4:
             protocolo, maior, menor, correcao = self.dados
             texto += f" (protocolo {protocolo}, firmware {maior}.{menor}.{correcao})"
+        elif self.cmd == CMD_GPIO_READ and len(self.dados) == 1:
+            mascara = self.dados[0]
+            niveis = " ".join(f"GPIO{5 + bit}={(mascara >> bit) & 1}" for bit in range(4))
+            texto += f" mascara=0x{mascara:02X} ({niveis})"
+        elif self.cmd == CMD_ADC_READ and len(self.dados) == 3:
+            canal, valor = self.dados[0], int.from_bytes(self.dados[1:3], "little")
+            tensao = f"{codigo_para_tensao(valor):.3f}".replace(".", ",")
+            texto += f" canal {canal} = {valor} ({tensao} V)"
         elif self.dados:
             texto += f" dados={self.dados.hex(' ').upper()}"
         return texto
@@ -279,17 +338,25 @@ class JigaSimulada:
     - SEQ do ultimo quadro respondido -> reenvia a resposta guardada, sem executar;
     - PING -> ACK com as versoes, na hora (inclusive com um comando pendente);
     - outro comando com um pendente -> NACK OCUPADO, sem guardar no cache;
-    - demais -> executados: RESET_ALL, DAC_SET; codigo desconhecido -> NACK CMD_DESCONHECIDO.
+    - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ; codigo desconhecido
+      -> NACK CMD_DESCONHECIDO.
 
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
+
+    Sem loopback, as entradas leem 'entradas' (mascara) e o ADC le 'adc'. Com loopback=True, como
+    nos jumpers do CT10 e CT11, as entradas copiam as saidas GPIO1-4 e o A0/A1 leem o DAC1/DAC2.
     """
 
     receptor: ReceptorQuadros = field(default_factory=ReceptorQuadros)
     ultimo_seq: int = None
     ultima_resposta: bytes = b""
     pendente: Quadro = None
+    loopback: bool = False
     dac: dict = field(default_factory=lambda: {canal: 0 for canal in DAC_CANAIS})
+    gpio: dict = field(default_factory=lambda: {pino: 0 for pino in GPIO_SAIDAS})
+    entradas: int = 0
+    adc: dict = field(default_factory=lambda: {canal: 0 for canal in ADC_CANAIS})
 
     def nova_sessao(self):
         """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
@@ -315,30 +382,65 @@ class JigaSimulada:
         self.pendente = quadro
         return b""
 
+    def ler_entradas(self):
+        """Mascara do GPIO_READ (bit 0 = GPIO5): com loopback, GPIO1-4 ligados a GPIO5-8."""
+        if self.loopback:
+            return sum(nivel << (pino - 1) for pino, nivel in self.gpio.items())
+        return self.entradas & GPIO_MASCARA_ENTRADAS
+
+    def ler_adc(self, canal):
+        """Valor do ADC_READ: com loopback, A0/A1 leem o DAC1/DAC2 (sem erro de conversao)."""
+        if self.loopback:
+            for canal_dac, canal_adc in LOOPBACK_DAC_ADC.items():
+                if canal_adc == canal:
+                    return self.dac[canal_dac]
+        return self.adc[canal]
+
     def _executar(self, quadro):
-        """Equivale ao Exec_Process: 0 (ACK) ou codigo de erro (NACK). Comando invalido nao mexe no DAC."""
+        """Equivale ao Exec_Process: (0, dados) no ACK ou (codigo de erro, b"") no NACK.
+
+        Comando invalido nao mexe em nenhuma saida.
+        """
+        payload = quadro.payload
         if quadro.cmd == CMD_RESET_ALL:
-            if quadro.payload:
-                return ERRO_PARAMETRO_INVALIDO
+            if payload:
+                return ERRO_PARAMETRO_INVALIDO, b""
             self.dac = {canal: 0 for canal in DAC_CANAIS}
-            return 0
+            self.gpio = {pino: 0 for pino in GPIO_SAIDAS}
+            return 0, b""
         if quadro.cmd == CMD_DAC_SET:
-            if len(quadro.payload) != 3:
-                return ERRO_PARAMETRO_INVALIDO
-            canal, valor = quadro.payload[0], int.from_bytes(quadro.payload[1:3], "little")
+            if len(payload) != 3:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            canal, valor = payload[0], int.from_bytes(payload[1:3], "little")
             if canal not in DAC_CANAIS or valor > DAC_VALOR_MAX:
-                return ERRO_PARAMETRO_INVALIDO
+                return ERRO_PARAMETRO_INVALIDO, b""
             self.dac[canal] = valor
-            return 0
-        return ERRO_CMD_DESCONHECIDO
+            return 0, b""
+        if quadro.cmd == CMD_GPIO_SET:
+            if len(payload) != 2 or payload[0] not in GPIO_SAIDAS or payload[1] not in GPIO_NIVEIS:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.gpio[payload[0]] = payload[1]
+            return 0, b""
+        if quadro.cmd == CMD_GPIO_READ:
+            if payload:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            return 0, bytes([self.ler_entradas()])
+        if quadro.cmd == CMD_ADC_READ:
+            if len(payload) != 1 or payload[0] not in ADC_CANAIS:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            return 0, bytes([payload[0]]) + self.ler_adc(payload[0]).to_bytes(2, "little")
+        return ERRO_CMD_DESCONHECIDO, b""
 
     def _concluir_pendente(self):
         """Equivale ao CommTask_VerificaResultado + Comm_BuildResult."""
         if self.pendente is None:
             return b""
         quadro, self.pendente = self.pendente, None
-        erro = self._executar(quadro)
-        resposta = montar_ack(quadro.seq, quadro.cmd) if erro == 0 else montar_nack(quadro.seq, quadro.cmd, erro)
+        erro, dados = self._executar(quadro)
+        if erro == 0:
+            resposta = montar_ack(quadro.seq, quadro.cmd, dados)
+        else:
+            resposta = montar_nack(quadro.seq, quadro.cmd, erro)
         return self._guardar(quadro.seq, resposta)
 
     def processar(self, dados):
@@ -381,17 +483,184 @@ def _crc_trocado(quadro):
 
 @dataclass
 class CasoTeste:
+    """Caso de teste enviado a placa.
+
+    'respostas' sao os quadros nominais (os que a jiga simulada devolve). Quando a resposta da placa
+    varia (entrada solta, leitura do ADC), 'conferir' decide se ela esta certa: recebe os bytes do
+    USB e devolve None (certo) ou o motivo da falha. Sem 'conferir', a comparacao e exata.
+    """
+
     nome: str
     descricao: str
     passos: list
     esperado: list
     respostas: list
+    conferir: object = None
+    requer_loopback: bool = False   # so passa com os jumpers do CT10/CT11
+    resumo_esperado: str = ""       # texto do esperado quando a resposta varia ou tem muitos quadros
 
     def bytes_enviados(self):
         return b"".join(dados for tipo, dados in self.passos if tipo == "enviar")
 
     def resposta_esperada(self):
         return b"".join(self.respostas)
+
+    def conferir_resposta(self, dados):
+        """None se a resposta do USB esta certa; senao, o motivo."""
+        if self.conferir is not None:
+            return self.conferir(bytes(dados))
+        if bytes(dados) == self.resposta_esperada():
+            return None
+        return "resposta diferente da esperada"
+
+    def descrever_esperado(self):
+        return self.resumo_esperado or descrever_resposta(self.resposta_esperada())
+
+
+# --- verificacao de respostas que variam -------------------------------------
+
+def conferir_quadros(verificadores):
+    """Monta o 'conferir' de um caso: um verificador por quadro esperado, na ordem.
+
+    Cada verificador recebe o Quadro e devolve None (certo) ou o motivo.
+    """
+    def conferir(dados):
+        receptor = ReceptorQuadros()
+        eventos = receptor.processar(dados)
+        if any(resultado != QUADRO_OK for resultado, _ in eventos) or receptor.estado != "AGUARDA_SOF":
+            return "quadro invalido ou incompleto na resposta"
+        if len(eventos) != len(verificadores):
+            return f"{len(eventos)} resposta(s); esperado {len(verificadores)}"
+        for i, ((_, quadro), verificador) in enumerate(zip(eventos, verificadores), 1):
+            motivo = verificador(quadro)
+            if motivo:
+                return f"resposta {i}: {motivo}"
+        return None
+    return conferir
+
+
+def _igual(esperado):
+    """Verificador de um quadro exato."""
+    def verificar(quadro):
+        obtido = montar_quadro(quadro.seq, quadro.cmd, quadro.payload)
+        if obtido != esperado:
+            return f"{descrever_resposta(obtido)}; esperado {descrever_resposta(esperado)}"
+        return None
+    return verificar
+
+
+def _motivo_ack(quadro, seq, cmd, tamanho):
+    """Motivo se o quadro nao for o ACK de cmd, com o SEQ e o tamanho de dados certos."""
+    try:
+        resposta = interpretar_resposta(quadro)
+    except ValueError as e:
+        return str(e)
+    if not resposta.ack or resposta.cmd != cmd or resposta.seq != seq:
+        return f"{resposta.descrever()}; esperado ACK {nome_comando(cmd)} SEQ={seq}"
+    if len(resposta.dados) != tamanho:
+        return f"ACK com {len(resposta.dados)} B de dados; esperado {tamanho} B"
+    return None
+
+
+def _ack_gpio_read(seq, mascara=None):
+    """ACK do GPIO_READ com bits 4 a 7 em 0; com 'mascara', o valor tambem e conferido."""
+    def verificar(quadro):
+        motivo = _motivo_ack(quadro, seq, CMD_GPIO_READ, 1)
+        if motivo:
+            return motivo
+        obtida = quadro.payload[0]
+        if obtida & ~GPIO_MASCARA_ENTRADAS:
+            return f"mascara 0x{obtida:02X} com bits 4 a 7 ligados"
+        if mascara is not None and obtida != mascara:
+            return f"mascara 0x{obtida:02X}; esperado 0x{mascara:02X}"
+        return None
+    return verificar
+
+
+def _ack_adc_read(seq, canal, alvo=None):
+    """ACK do ADC_READ com o canal certo e 12 bits; com 'alvo', o valor fica a TOLERANCIA_ADC dele."""
+    def verificar(quadro):
+        motivo = _motivo_ack(quadro, seq, CMD_ADC_READ, 3)
+        if motivo:
+            return motivo
+        canal_obtido, valor = quadro.payload[0], int.from_bytes(quadro.payload[1:3], "little")
+        if canal_obtido != canal:
+            return f"canal {canal_obtido}; esperado {canal}"
+        if valor > ADC_VALOR_MAX:
+            return f"valor {valor} passa de 12 bits"
+        if alvo is not None and abs(valor - alvo) > TOLERANCIA_ADC:
+            return f"A{canal} leu {valor}; esperado {alvo} +/- {TOLERANCIA_ADC} (diferenca {valor - alvo:+d})"
+        return None
+    return verificar
+
+
+# --- casos com varios comandos (CT10 e CT11) ---------------------------------
+#
+# Um comando por vez: o proximo so sai depois de PAUSA_COMANDO, quando a resposta do anterior ja
+# voltou (senao ele recebe OCUPADO). A pausa passa do timeout entre bytes, mas nao ha quadro pela
+# metade, entao a CommTask nao loga timeout.
+
+PAUSA_COMANDO = 0.05
+
+
+def _sequencia(comandos):
+    """[(quadro, resposta nominal, verificador)] -> (passos, esperado, respostas, conferir)."""
+    passos = []
+    for i, (quadro, _, _) in enumerate(comandos):
+        if i:
+            passos.append(("esperar", PAUSA_COMANDO))
+        passos.append(("enviar", quadro))
+    return (passos, [QUADRO_OK] * len(comandos), [resposta for _, resposta, _ in comandos],
+            conferir_quadros([verificador for _, _, verificador in comandos]))
+
+
+def pontos_ct10(quantidade=11):
+    """Valores do DAC na varredura do CT10: igualmente espacados na faixa util."""
+    inicio, fim = DAC_FAIXA_UTIL
+    return [round(inicio + i * (fim - inicio) / (quantidade - 1)) for i in range(quantidade)]
+
+
+def _caso_ct10(canal_dac, seq):
+    """CT10: DAC_SET em cada ponto e ADC_READ no canal ligado a ele pelo jumper."""
+    canal_adc = LOOPBACK_DAC_ADC[canal_dac]
+    comandos = []
+    for valor in pontos_ct10():
+        ack_dac = montar_ack(seq, CMD_DAC_SET)
+        comandos.append((montar_dac_set(seq, canal_dac, valor), ack_dac, _igual(ack_dac)))
+        ack_adc = montar_ack(seq + 1, CMD_ADC_READ, bytes([canal_adc]) + valor.to_bytes(2, "little"))
+        comandos.append((montar_adc_read(seq + 1, canal_adc), ack_adc, _ack_adc_read(seq + 1, canal_adc, valor)))
+        seq += 2
+    passos, esperado, respostas, conferir = _sequencia(comandos)
+    inicio, fim = DAC_FAIXA_UTIL
+    return CasoTeste(
+        f"CT10 DAC{canal_dac} -> A{canal_adc}",
+        f"loopback DAC{canal_dac} -> A{canal_adc}: {len(pontos_ct10())} pontos de {inicio} a {fim}",
+        passos, esperado, respostas, conferir=conferir, requer_loopback=True,
+        resumo_esperado=f"{len(comandos)} ACKs; cada leitura a +/- {TOLERANCIA_ADC} codigos do DAC")
+
+
+def _caso_ct11(seq):
+    """CT11: as 16 combinacoes em GPIO1-4 e a mascara exata em GPIO5-8."""
+    comandos = []
+    for mascara in range(16):
+        for pino in GPIO_SAIDAS:
+            ack = montar_ack(seq, CMD_GPIO_SET)
+            comandos.append((montar_gpio_set(seq, pino, (mascara >> (pino - 1)) & 1), ack, _igual(ack)))
+            seq += 1
+        ack = montar_ack(seq, CMD_GPIO_READ, bytes([mascara]))
+        comandos.append((montar_gpio_read(seq), ack, _ack_gpio_read(seq, mascara)))
+        seq += 1
+    passos, esperado, respostas, conferir = _sequencia(comandos)
+    return CasoTeste(
+        "CT11 GPIO1-4 -> GPIO5-8", "loopback dos GPIOs: as 16 combinacoes, mascara exata",
+        passos, esperado, respostas, conferir=conferir, requer_loopback=True,
+        resumo_esperado=f"{len(comandos)} ACKs; mascara do GPIO_READ igual a combinacao aplicada")
+
+
+def _caso_variavel(nome, descricao, quadro, resposta_nominal, verificador, resumo):
+    """Caso de um comando so cuja resposta varia na placa."""
+    return CasoTeste(nome, descricao, [("enviar", quadro)], [QUADRO_OK], [resposta_nominal],
+                     conferir=conferir_quadros([verificador]), resumo_esperado=resumo)
 
 
 CASOS_TESTE = [
@@ -442,10 +711,48 @@ CASOS_TESTE = [
               [("enviar", montar_dac_set(18, 1, 1024) + montar_quadro(19, CMD_RESET_ALL))],
               [QUADRO_OK, QUADRO_OK],
               [montar_nack(19, CMD_RESET_ALL, ERRO_OCUPADO), montar_ack(18, CMD_DAC_SET)]),
+    # GPIO e ADC sem fio (v0.5.0): as entradas nao tem pull, entao o valor lido e indefinido e so o
+    # formato da resposta e conferido; os valores sao conferidos no CT10 e no CT11, com loopback
+    CasoTeste("GPIO_SET valido", "GPIO1 (PC8) em nivel alto: ACK",
+              [("enviar", montar_gpio_set(21, 1, 1))],
+              [QUADRO_OK], [montar_ack(21, CMD_GPIO_SET)]),
+    CasoTeste("GPIO_SET pino invalido", "GPIO5 e entrada: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_gpio_set(22, 5, 1))],
+              [QUADRO_OK], [montar_nack(22, CMD_GPIO_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("GPIO_SET nivel invalido", "nivel 2: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_gpio_set(23, 1, 2))],
+              [QUADRO_OK], [montar_nack(23, CMD_GPIO_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("GPIO_SET tamanho errado", "payload de 1 byte (esperado 2): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(24, CMD_GPIO_SET, bytes([0x01])))],
+              [QUADRO_OK], [montar_nack(24, CMD_GPIO_SET, ERRO_PARAMETRO_INVALIDO)]),
+    _caso_variavel("GPIO_READ", "le GPIO5-8: ACK com 1 byte (entradas soltas: so o formato e conferido)",
+                   montar_gpio_read(25), montar_ack(25, CMD_GPIO_READ, bytes([0])), _ack_gpio_read(25),
+                   "ACK GPIO_READ SEQ=25 com 1 byte, bits 4 a 7 em 0"),
+    CasoTeste("GPIO_READ com payload", "GPIO_READ nao tem payload: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(26, CMD_GPIO_READ, bytes([0x00])))],
+              [QUADRO_OK], [montar_nack(26, CMD_GPIO_READ, ERRO_PARAMETRO_INVALIDO)]),
+    _caso_variavel("ADC_READ", "le o A0 (PA3): ACK com canal e valor (pino solto: so o formato e conferido)",
+                   montar_adc_read(27, 0), montar_ack(27, CMD_ADC_READ, bytes([0, 0, 0])), _ack_adc_read(27, 0),
+                   "ACK ADC_READ SEQ=27 com canal 0 e valor de 0 a 4095"),
+    CasoTeste("ADC_READ canal invalido", "canal 3 nao existe: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_adc_read(28, 3))],
+              [QUADRO_OK], [montar_nack(28, CMD_ADC_READ, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("ADC_READ sem payload", "falta o canal: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(29, CMD_ADC_READ))],
+              [QUADRO_OK], [montar_nack(29, CMD_ADC_READ, ERRO_PARAMETRO_INVALIDO)]),
+    # Com os jumpers (opcao de loopback): CT10 e CT11 da monografia
+    _caso_ct10(1, 100),
+    _caso_ct10(2, 122),
+    _caso_ct11(150),
     CasoTeste("RESET_ALL no fim", "deixa a jiga no estado seguro depois da bateria: ACK",
               [("enviar", montar_quadro(20, CMD_RESET_ALL))],
               [QUADRO_OK], [montar_ack(20, CMD_RESET_ALL)]),
 ]
+
+
+def casos_a_executar(loopback=False):
+    """Casos do 'executar todos': os de loopback so entram com os jumpers ligados."""
+    return [caso for caso in CASOS_TESTE if loopback or not caso.requer_loopback]
 
 
 # Inicio das linhas que a CommTask escreve no DebugLog para cada resultado
@@ -466,8 +773,11 @@ def resultado_do_log(linha):
 
 
 def simular(caso, jiga=None):
-    """Roda o caso na jiga simulada; retorna (resultados do parser, bytes respondidos)."""
-    jiga = jiga or JigaSimulada()
+    """Roda o caso na jiga simulada; retorna (resultados do parser, bytes respondidos).
+
+    Sem 'jiga', usa uma nova, com loopback se o caso pedir.
+    """
+    jiga = jiga or JigaSimulada(loopback=caso.requer_loopback)
     resultados, respostas = [], b""
     for tipo, valor in caso.passos:
         if tipo == "enviar":
@@ -482,7 +792,8 @@ def simular(caso, jiga=None):
 
 def simular_caso(caso, receptor=None):
     """Resultados do parser para o caso (deve bater com 'esperado')."""
-    return simular(caso, JigaSimulada(receptor) if receptor else None)[0]
+    jiga = JigaSimulada(receptor, loopback=caso.requer_loopback) if receptor else None
+    return simular(caso, jiga)[0]
 
 
 @dataclass
@@ -494,6 +805,7 @@ class Avaliacao:
     resposta_obtida: bytes  # bytes recebidos pelo USB durante o caso
     log_ok: bool
     resposta_ok: bool
+    motivo: str = ""        # por que a resposta do USB foi reprovada
 
     @property
     def aprovado(self):
@@ -504,14 +816,25 @@ def avaliar_caso(caso, linhas_log, resposta_usb):
     """Compara o DebugLog e a resposta do USB com o esperado do caso."""
     do_parser = [linha for linha in linhas_log if resultado_do_log(linha)]
     obtido = [resultado_do_log(linha) for linha in do_parser]
+    motivo = caso.conferir_resposta(resposta_usb)
     return Avaliacao(log_obtido=obtido, linhas_log=do_parser, resposta_obtida=bytes(resposta_usb),
-                     log_ok=obtido == caso.esperado,
-                     resposta_ok=bytes(resposta_usb) == caso.resposta_esperada())
+                     log_ok=obtido == caso.esperado, resposta_ok=motivo is None, motivo=motivo or "")
 
 
 def descrever_log(resultados):
-    return ", ".join(LOG_FIRMWARE[r] for r in resultados) or "(nada)"
+    """Resultados do parser como no DebugLog; repeticoes seguidas viram 'Nx ...' (casos longos)."""
+    grupos = []
+    for resultado in resultados:
+        if grupos and grupos[-1][0] == resultado:
+            grupos[-1][1] += 1
+        else:
+            grupos.append([resultado, 1])
+    return ", ".join(LOG_FIRMWARE[r] if n == 1 else f"{n}x {LOG_FIRMWARE[r]}" for r, n in grupos) or "(nada)"
 
 
-def descrever_resposta(dados):
-    return "; ".join(descrever_respostas(dados)) or "(nenhuma)"
+def descrever_resposta(dados, maximo=None):
+    """Descreve as respostas; com 'maximo', mostra so as primeiras e quantas faltam."""
+    descricoes = descrever_respostas(dados)
+    if maximo is not None and len(descricoes) > maximo:
+        descricoes = descricoes[:maximo] + [f"... (+{len(descricoes) - maximo} respostas)"]
+    return "; ".join(descricoes) or "(nenhuma)"

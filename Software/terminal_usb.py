@@ -19,7 +19,8 @@ Comandos digitados durante a execucao:
     /quadro 01       envia um quadro do protocolo (CMD em hex; SEQ automatico)
     /quadro 10 AA BB quadro com payload em hex
     /teste           lista os casos de teste do protocolo
-    /teste 3         envia o caso 3 (/teste todos envia todos)
+    /teste 3         envia o caso 3 (/teste todos envia todos, menos os de loopback)
+    /teste loopback  envia todos, incluindo o CT10 e o CT11 (jumpers ligados)
     /modo            alterna entre hex e texto
     /ajuda           mostra os comandos
     /sair            encerra (Ctrl+C tambem)
@@ -35,7 +36,7 @@ import serial
 from serial.tools import list_ports
 
 from protocolo import (
-    CASOS_TESTE, QUADRO_OK, ReceptorQuadros, descrever_log, descrever_resposta, interpretar_resposta,
+    CASOS_TESTE, QUADRO_OK, ReceptorQuadros, casos_a_executar, descrever_log, interpretar_resposta,
     montar_quadro,
 )
 from versao import __version__
@@ -214,21 +215,25 @@ class Terminal:
         self.enviar(quadro)
 
     def executar_casos(self, argumento):
-        """'/teste': lista os casos; '/teste N' ou '/teste todos' envia."""
+        """'/teste': lista os casos; '/teste N', '/teste todos' ou '/teste loopback' envia.
+
+        'todos' pula os casos que precisam dos jumpers (CT10, CT11); 'loopback' inclui eles.
+        """
         if not argumento:
             for i, caso in enumerate(CASOS_TESTE, 1):
-                self.exibir(f"  {i:2d}. {caso.nome:22s} {caso.descricao}")
+                marca = " [loopback]" if caso.requer_loopback else ""
+                self.exibir(f"  {i:2d}. {caso.nome:24s} {caso.descricao}{marca}")
             return
-        if argumento == "todos":
-            casos = CASOS_TESTE
+        if argumento in ("todos", "loopback"):
+            casos = casos_a_executar(argumento == "loopback")
         elif argumento.isdigit() and 1 <= int(argumento) <= len(CASOS_TESTE):
             casos = [CASOS_TESTE[int(argumento) - 1]]
         else:
-            self.exibir(f"*** caso invalido; use 1 a {len(CASOS_TESTE)} ou 'todos' ***")
+            self.exibir(f"*** caso invalido; use 1 a {len(CASOS_TESTE)}, 'todos' ou 'loopback' ***")
             return
         for caso in casos:
             self.exibir(f"*** caso '{caso.nome}' | esperado: log {descrever_log(caso.esperado)}"
-                        f" | USB {descrever_resposta(caso.resposta_esperada())} ***")
+                        f" | USB {caso.descrever_esperado()} ***")
             for tipo, valor in caso.passos:
                 if tipo == "enviar":
                     self.enviar(valor)

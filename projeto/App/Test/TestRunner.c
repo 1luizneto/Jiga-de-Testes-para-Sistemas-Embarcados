@@ -62,6 +62,15 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_CmdDesconhecido);
 		RUN_TEST(Test_Exec_DacSetFalhaPeriferico);
 		RUN_TEST(Test_Exec_ArgumentosInvalidos);
+		RUN_TEST(Test_Exec_GpioSetValido);
+		RUN_TEST(Test_Exec_GpioSetParametroInvalido);
+		RUN_TEST(Test_Exec_GpioSetTamanhoErrado);
+		RUN_TEST(Test_Exec_GpioReadValido);
+		RUN_TEST(Test_Exec_GpioReadComPayload);
+		RUN_TEST(Test_Exec_AdcReadValido);
+		RUN_TEST(Test_Exec_AdcReadCanalInvalido);
+		RUN_TEST(Test_Exec_AdcReadTamanhoErrado);
+		RUN_TEST(Test_Exec_AdcReadFalhaPeriferico);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -71,6 +80,24 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_PendentePingAtendido);
 		RUN_TEST(Test_Comm_ResultInesperado);
 		RUN_TEST(Test_Comm_ResultArgumentosInvalidos);
+
+		RUN_TEST(Test_DigitalIo_SetValido);
+		RUN_TEST(Test_DigitalIo_SetLimites);
+		RUN_TEST(Test_DigitalIo_SetSaidaInvalida);
+		RUN_TEST(Test_DigitalIo_SetNivelInvalido);
+		RUN_TEST(Test_DigitalIo_ReadMascara);
+		RUN_TEST(Test_DigitalIo_ReadExtremos);
+		RUN_TEST(Test_DigitalIo_ReadFalha);
+		RUN_TEST(Test_DigitalIo_SafeState);
+		RUN_TEST(Test_DigitalIo_SafeStateComFalha);
+		RUN_TEST(Test_DigitalIo_ArgumentosInvalidos);
+
+		RUN_TEST(Test_AnalogIn_ReadValido);
+		RUN_TEST(Test_AnalogIn_ReadLimites);
+		RUN_TEST(Test_AnalogIn_ReadCanalInvalido);
+		RUN_TEST(Test_AnalogIn_ReadFalhaPeriferico);
+		RUN_TEST(Test_AnalogIn_ReadValorForaDaFaixa);
+		RUN_TEST(Test_AnalogIn_ArgumentosInvalidos);
 
 	UNITY_END();
 

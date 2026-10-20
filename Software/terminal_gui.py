@@ -28,14 +28,14 @@ from PySide6.QtWidgets import (
 )
 
 from protocolo import (
-    CASOS_TESTE, PAYLOAD_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, descrever_log,
+    CASOS_TESTE, PAYLOAD_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log,
     descrever_resposta, interpretar_resposta, montar_quadro,
 )
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, TEMPO_MAX_RAJADA, detectar_porta, formatar_hex,
     interpretar_hex,
 )
-from teste_protocolo import BAUD_LOG, ESPERA_LOG, detectar_porta_log
+from teste_protocolo import BAUD_LOG, ESPERA_LOG, MAXIMO_RESPOSTAS, detectar_porta_log
 from versao import __version__
 
 TAXAS_BAUD = ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"]
@@ -291,17 +291,24 @@ class JanelaTerminal(QMainWindow):
         linha_teste = QHBoxLayout()
         self.combo_caso = QComboBox()
         for i, caso in enumerate(CASOS_TESTE, 1):
-            self.combo_caso.addItem(f"{i}. {caso.nome}", caso)
+            marca = " [loopback]" if caso.requer_loopback else ""
+            self.combo_caso.addItem(f"{i}. {caso.nome}{marca}", caso)
         self.combo_caso.currentIndexChanged.connect(self._mudou_caso)
         self.lb_caso = QLabel()
         self.lb_caso.setStyleSheet("color: #555")
         self.bt_caso = QPushButton("Executar caso", clicked=lambda: self.executar_casos([self.combo_caso.currentData()]))
-        self.bt_todos = QPushButton("Executar todos", clicked=lambda: self.executar_casos(CASOS_TESTE))
+        self.bt_todos = QPushButton("Executar todos", clicked=lambda: self.executar_casos(
+            casos_a_executar(self.ck_loopback.isChecked())))
+        self.ck_loopback = QCheckBox("Incluir loopback")
+        self.ck_loopback.setToolTip("Inclui no 'Executar todos' o CT10 e o CT11, que precisam dos jumpers:\n"
+                                    "DAC1 (PA4) → A0 (PA3), DAC2 (PA5) → A1 (PC0)\n"
+                                    "GPIO1-4 (PC8-PC11) → GPIO5-8 (PC12, PD2, PG2, PG3)")
         linha_teste.addWidget(QLabel("Caso de teste:"))
         linha_teste.addWidget(self.combo_caso)
         linha_teste.addWidget(self.lb_caso, 1)
         linha_teste.addWidget(self.bt_caso)
         linha_teste.addWidget(self.bt_todos)
+        linha_teste.addWidget(self.ck_loopback)
         layout.addLayout(linha_teste)
 
         # Porta do DebugLog: e dela que sai o veredito de cada caso
@@ -349,8 +356,10 @@ class JanelaTerminal(QMainWindow):
         self.ck_horario.setChecked(self.config.value("horario", True, type=bool))
         self.ck_log_tela.setChecked(self.config.value("mostrar_log", True, type=bool))
         self.ck_interpretar.setChecked(self.config.value("interpretar", True, type=bool))
+        self.ck_loopback.setChecked(self.config.value("loopback", False, type=bool))
 
     def _salvar_config(self):
+        self.config.setValue("loopback", self.ck_loopback.isChecked())
         self.config.setValue("porta", self.porta_selecionada() or "")
         self.config.setValue("porta_log", self.combo_log.currentData() or "")
         self.config.setValue("mostrar_log", self.ck_log_tela.isChecked())
@@ -590,7 +599,7 @@ class JanelaTerminal(QMainWindow):
 
     def _mudou_caso(self, *_):
         caso = self.combo_caso.currentData()
-        self.lb_caso.setText(f"{caso.descricao}  →  USB: {descrever_resposta(caso.resposta_esperada())}")
+        self.lb_caso.setText(f"{caso.descricao}  →  USB: {caso.descrever_esperado()}")
         self.lb_caso.setToolTip(f"DebugLog: {descrever_log(caso.esperado)}")
 
     def executar_casos(self, casos):
@@ -633,7 +642,7 @@ class JanelaTerminal(QMainWindow):
                 return
             if tipo == "caso":
                 self._escrever_info(f"Caso '{valor.nome}' | esperado: log {descrever_log(valor.esperado)}"
-                                    f" | USB {descrever_resposta(valor.resposta_esperada())}")
+                                    f" | USB {valor.descrever_esperado()}")
                 self.linhas_caso = []
                 self.rx_caso = bytearray()
             elif tipo == "avaliar":
@@ -659,9 +668,11 @@ class JanelaTerminal(QMainWindow):
         self.aprovados += aprovado
 
         esperado = (f"log: {descrever_log(caso.esperado)}\n"
-                    f"USB: {descrever_resposta(caso.resposta_esperada())}")
+                    f"USB: {caso.descrever_esperado()}")
         log_obtido = descrever_log(avaliacao.log_obtido) if com_log else "(DebugLog não conectado)"
-        obtido = f"log: {log_obtido}\nUSB: {descrever_resposta(resposta)}"
+        obtido = f"log: {log_obtido}\nUSB: {descrever_resposta(resposta, MAXIMO_RESPOSTAS)}"
+        if avaliacao.motivo:
+            obtido += f"\nmotivo: {avaliacao.motivo}"
         detalhe = ("Linhas do DebugLog durante o caso:\n"
                    + ("\n".join(linhas) or "(nenhuma)")
                    + f"\n\nBytes recebidos pelo USB:\n{resposta.hex(' ').upper() or '(nenhum)'}")

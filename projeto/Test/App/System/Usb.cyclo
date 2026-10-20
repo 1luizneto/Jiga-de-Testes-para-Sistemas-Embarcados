@@ -1,4 +1,0 @@
-../App/System/Usb.c:70:13:Usb_Init	4
-../App/System/Usb.c:84:13:Usb_Write	3
-../App/System/Usb.c:94:13:Usb_Read	4
-../App/System/Usb.c:110:9:Usb_NewSession	2

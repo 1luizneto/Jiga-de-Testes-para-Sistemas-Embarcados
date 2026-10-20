@@ -7,9 +7,14 @@ parser; e no proprio USB-CDC, se a jiga devolveu a resposta (ACK/NACK) esperada.
 
 Precisa das duas portas: o CN13 (USB-CDC) e o USB do ST-Link (CN1).
 
+Os casos de loopback (CT10 e CT11) so passam com os jumpers DAC1 (PA4) -> A0 (PA3),
+DAC2 (PA5) -> A1 (PC0) e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3): sem
+--loopback eles sao pulados.
+
 Uso:
     python teste_protocolo.py                          # detecta as duas portas
     python teste_protocolo.py --porta COM14 --porta-log COM8
+    python teste_protocolo.py --loopback               # inclui o CT10 e o CT11 (jumpers ligados)
     python teste_protocolo.py --caso 1                 # so um caso (numero da lista)
     python teste_protocolo.py --listar                 # lista os casos e sai
 """
@@ -21,7 +26,7 @@ import time
 import serial
 from serial.tools import list_ports
 
-from protocolo import CASOS_TESTE, avaliar_caso, descrever_log, descrever_resposta
+from protocolo import CASOS_TESTE, avaliar_caso, casos_a_executar, descrever_log, descrever_resposta
 from terminal_usb import detectar_porta
 from versao import __version__
 
@@ -31,6 +36,8 @@ STLINK_PIDS = {0x374B, 0x374E, 0x374F, 0x3752, 0x3753}
 
 BAUD_LOG = 1_000_000   # huart3 (DebugLog)
 ESPERA_LOG = 0.3       # tempo para a CommTask logar e responder depois do ultimo passo (s)
+BUFFER_RX = 1 << 16    # buffer de recepcao do driver: o CT11 gera ~80 linhas de log
+MAXIMO_RESPOSTAS = 4   # respostas mostradas quando um caso falha (os casos longos tem dezenas)
 
 
 def detectar_porta_log():
@@ -40,41 +47,58 @@ def detectar_porta_log():
     return None
 
 
-def ler_linhas(porta_log):
-    dados = porta_log.read(porta_log.in_waiting or 1)
-    return dados.decode("utf-8", errors="replace").splitlines()
+def ler_disponivel(porta):
+    return porta.read(porta.in_waiting) if porta.in_waiting else b""
+
+
+def aumentar_buffer(porta):
+    # So existe no Windows; nos outros sistemas o buffer do driver ja e grande
+    if hasattr(porta, "set_buffer_size"):
+        porta.set_buffer_size(rx_size=BUFFER_RX)
 
 
 def executar_caso(caso, porta_usb, porta_log):
-    """Envia o caso e devolve a avaliacao (DebugLog + resposta do USB)."""
+    """Envia o caso e devolve a avaliacao (DebugLog + resposta do USB).
+
+    O log e o USB sao lidos a cada passo, e nao so no fim: nos casos longos (CT10, CT11) o que
+    chega durante o caso passaria do buffer da porta.
+    """
     porta_log.reset_input_buffer()
     porta_usb.reset_input_buffer()
+    log, resposta = bytearray(), bytearray()
     for tipo, valor in caso.passos:
         if tipo == "enviar":
             porta_usb.write(valor)
             porta_usb.flush()
         else:
             time.sleep(valor)
+        log += ler_disponivel(porta_log)
+        resposta += ler_disponivel(porta_usb)
     time.sleep(ESPERA_LOG)
+    log += ler_disponivel(porta_log)
+    resposta += ler_disponivel(porta_usb)
 
-    resposta = porta_usb.read(porta_usb.in_waiting)
-    return avaliar_caso(caso, ler_linhas(porta_log), resposta)
+    linhas = log.decode("utf-8", errors="replace").splitlines()
+    return avaliar_caso(caso, linhas, bytes(resposta))
 
 
 def main():
     parser = argparse.ArgumentParser(description="Teste automatico do protocolo com a placa.")
     parser.add_argument("--porta", help="porta do USB-CDC (CN13). Padrao: detecta")
     parser.add_argument("--porta-log", help="porta do ST-Link (DebugLog). Padrao: detecta")
-    parser.add_argument("--caso", type=int, help="numero do caso (ver --listar)")
+    parser.add_argument("--caso", type=int, help="numero do caso (ver --listar); roda mesmo se for de loopback")
+    parser.add_argument("--loopback", action="store_true",
+                        help="inclui os casos que precisam dos jumpers (CT10 e CT11)")
     parser.add_argument("--listar", action="store_true", help="lista os casos e sai")
     args = parser.parse_args()
 
     if args.listar:
         for i, caso in enumerate(CASOS_TESTE, 1):
-            print(f"{i:2d}. {caso.nome:22s} {caso.descricao}")
+            marca = " [loopback]" if caso.requer_loopback else ""
+            print(f"{i:2d}. {caso.nome:24s} {caso.descricao}{marca}")
         return 0
 
-    casos = CASOS_TESTE
+    casos = casos_a_executar(args.loopback)
     if args.caso is not None:
         if not 1 <= args.caso <= len(CASOS_TESTE):
             print(f"caso invalido; use 1 a {len(CASOS_TESTE)}")
@@ -92,6 +116,8 @@ def main():
     falhas = 0
     with serial.Serial(nome_usb, timeout=0.1) as porta_usb, \
             serial.Serial(nome_log, BAUD_LOG, timeout=0.1) as porta_log:
+        aumentar_buffer(porta_usb)
+        aumentar_buffer(porta_log)
         for caso in casos:
             avaliacao = executar_caso(caso, porta_usb, porta_log)
             falhas += not avaliacao.aprovado
@@ -100,11 +126,19 @@ def main():
                 print(f"        log esperado:      {descrever_log(caso.esperado)}")
                 print(f"        log obtido:        {avaliacao.linhas_log or '(nada)'}")
             if not avaliacao.resposta_ok:
-                print(f"        resposta esperada: {descrever_resposta(caso.resposta_esperada())}")
-                print(f"        resposta obtida:   {descrever_resposta(avaliacao.resposta_obtida)}")
-                print(f"                           {avaliacao.resposta_obtida.hex(' ').upper() or '(sem bytes)'}")
+                obtida = avaliacao.resposta_obtida
+                print(f"        motivo:            {avaliacao.motivo}")
+                print(f"        resposta esperada: {caso.descrever_esperado()}")
+                print(f"        resposta obtida:   {descrever_resposta(obtida, MAXIMO_RESPOSTAS)}")
+                if len(obtida) <= 64:
+                    print(f"                           {obtida.hex(' ').upper() or '(sem bytes)'}")
 
-    print(f"\n{len(casos) - falhas}/{len(casos)} casos passaram")
+    pulados = [] if args.caso is not None or args.loopback else [c for c in CASOS_TESTE if c.requer_loopback]
+    for caso in pulados:
+        print(f"[PULADO] {caso.nome} (requer loopback: use --loopback com os jumpers ligados)")
+
+    resumo = f"{len(casos) - falhas}/{len(casos)} casos passaram"
+    print(f"\n{resumo}" + (f", {len(pulados)} pulados" if pulados else ""))
     return 1 if falhas else 0
 
 
