@@ -272,10 +272,25 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
    percentual (CT12, osciloscópio). Sem loopback possível pela própria jiga ainda (a captura de entrada
    não existe); medir no osciloscópio
 
-### Medição do ADC (v0.5.0) — loopback DAC → ADC, `medir_loopback.py`
-A preencher com o resultado da medição: pior erro por canal (códigos e mV), reta ajustada (ganho e
-offset) e se algum ponto ficou fora de ±41 códigos. O erro medido junta DAC + ADC; para separar, medir
-alguns pontos do DAC no multímetro (a tabela da v0.4.0 já mostra o DAC com ±3 mV no meio da escala).
+### Medição do ADC (v0.5.0, 20/10/2026) — loopback DAC → ADC, `medir_loopback.py`
+33 pontos de 124 a 3971 por canal, 16 leituras por ponto (`medicao_faixa_util.csv`, fora do git).
+
+| Canal | Ajuste (leitura = ganho × DAC + offset) | Erro médio por ponto | Pior leitura isolada | Fora de ±41 |
+|---|---|---|---|---|
+| DAC1 → A0 | 1,00253 × DAC − 1,00 | −1,3 a +9,9 códigos (cresce com o código) | +19 códigos (+15,3 mV) | 0 de 528 |
+| DAC2 → A1 | 1,00042 × DAC − 1,99 | −3,1 a +1,6 códigos | −19 códigos (−15,3 mV) | 0 de 528 |
+
+- **Erro sistemático pequeno**: ganho de +0,25 % no canal 1 (≈ +10 códigos = 8 mV no topo da faixa) e
+  +0,04 % no canal 2; offset de −1 a −2 códigos nos dois.
+- **Quem causa a diferença entre os canais é o DAC**: na medição do multímetro (v0.4.0), o código 2048 deu
+  +3 mV (≈ +3,7 códigos) no DAC1 e −2 mV (≈ −2,5 códigos) no DAC2; o loopback deu +4,9 e −0,2 códigos.
+  Sobra ~1–2 códigos para o ADC. Para confirmar o ganho do DAC1, medir o PA4 no código 3971 (esperado
+  ~3,208 V se o erro for do DAC).
+- **Ruído**: a faixa mín–máx de 16 leituras fica em ~15–30 códigos (≈ ±10 códigos, ~8 mV); é ele que
+  define a pior leitura isolada (±19), não o erro médio. Margem para a tolerância: ~2×.
+- **Conclusão para o Cap. 4**: dentro da faixa útil o conjunto DAC + ADC atende o critério de 1 % do
+  fundo de escala com folga (pior caso 15 mV de 33 mV). Se um dia precisar de tolerância menor, o
+  caminho é média de N conversões no firmware (oversampling), não mudar o hardware.
 
 ### Medição do DAC (v0.4.0, 13/10/2026) — multímetro, sem carga, pino 3V3 = 3,300 V
 | Código | Ideal | PA4 (canal 1) | PA5 (canal 2) | Erro |
