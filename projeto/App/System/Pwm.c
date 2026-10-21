@@ -136,7 +136,7 @@ pwmReturn_t Pwm_Calcula(const pwmTimer_t *timer, uint32_t frequencia, uint16_t r
 	}
 	if (periodo < 2U)
 	{
-		ePWM_RETURN_INVALID_ARGUMENT;
+		return ePWM_RETURN_INVALID_ARGUMENT;
 	}
 
 	config->prescaler  = (uint32_t)(divisor - 1U);
@@ -175,7 +175,6 @@ pwmReturn_t Pwm_Set(uint8_t canal, uint32_t frequencia, uint16_t razao)
 	}
 
 	return Pwm_Aplica(canal, &config);
-
 }
 
 /***********************************************************************************************************************
@@ -215,6 +214,8 @@ pwmReturn_t Pwm_SafeState(void)
 			ret = ePWM_RETURN_ERROR;
 		}
 	}
+
+	return ret;
 }
 
 /***********************************************************************************************************************
