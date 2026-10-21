@@ -21,7 +21,7 @@
 #define dPWM_CANAL_MIN (1U)
 #define dPWM_CANAL_MAX (3U)
 
-// Faixa de frequencia aceita, em Hz: ate 100 khz o periodo tem >= 1080 contagens nos tres timers
+// Faixa de frequencia aceita, em Hz: ate 100 kHz o periodo tem >= 1080 contagens nos tres timers
 #define dPWM_FREQUENCIA_MIN (1U)
 #define dPWM_FREQUENCIA_MAX (100000U)
 
@@ -45,19 +45,19 @@ typedef enum pwmReturn
 	ePWM_RETURN_END_ENUM
 } pwmReturn_t;
 
-/// @brief Timer de um canal
+/// @brief Timer de um canal (fornecido pela BSP)
 typedef struct pwmTimer
 {
-	uint32_t clockHz;
-	uint32_t periodoMax;
+	uint32_t clockHz;      ///< Clock na entrada do timer
+	uint32_t periodoMax;   ///< Maior ARR: 0xFFFF (16 bits) ou 0xFFFFFFFF (32 bits)
 } pwmTimer_t;
 
 /// @brief Valores dos registradores de um canal
 typedef struct pwmConfig
 {
-	uint32_t prescaler;
-	uint32_t periodo;
-	uint32_t comparacao;
+	uint32_t prescaler;    ///< PSC: o clock e dividido por prescaler + 1
+	uint32_t periodo;      ///< ARR: o periodo tem periodo + 1 contagens
+	uint32_t comparacao;   ///< CCR: contagens em nivel alto (0 = sempre baixo, periodo + 1 = sempre alto)
 } pwmConfig_t;
 
 /// @brief Aplica a configuracao no timer do canal (fornecida pela BSP)

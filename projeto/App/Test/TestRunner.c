@@ -99,6 +99,20 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_AnalogIn_ReadValorForaDaFaixa);
 		RUN_TEST(Test_AnalogIn_ArgumentosInvalidos);
 
+		RUN_TEST(Test_Pwm_Calcula1kHzTim1);
+		RUN_TEST(Test_Pwm_Calcula100kHz);
+		RUN_TEST(Test_Pwm_Calcula1Hz);
+		RUN_TEST(Test_Pwm_CalculaFrequenciasTipicas);
+		RUN_TEST(Test_Pwm_CalculaRazaoLimites);
+		RUN_TEST(Test_Pwm_CalculaForaDaFaixa);
+		RUN_TEST(Test_Pwm_SetValido);
+		RUN_TEST(Test_Pwm_SetInvalido);
+		RUN_TEST(Test_Pwm_StopMantemFrequencia);
+		RUN_TEST(Test_Pwm_SafeState);
+		RUN_TEST(Test_Pwm_SafeStateComFalha);
+		RUN_TEST(Test_Pwm_FalhaNaoGuardaConfig);
+		RUN_TEST(Test_Pwm_ArgumentosInvalidos);
+
 	UNITY_END();
 
 	for (;;)
