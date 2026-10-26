@@ -7,7 +7,7 @@ A versão está em `versao.py` (ver [Versionamento](../README.md#versionamento))
 |---|---|
 | `terminal_gui.py` | Terminal gráfico (PySide6) |
 | `terminal_usb.py` | Terminal de linha de comando |
-| `protocolo.py` | Quadro, CRC-16/CCITT-FALSE, receptor (espelho do firmware) e casos de teste |
+| `protocolo.py` | Quadro, CRC-16/CCITT-FALSE, receptor e cálculo do PWM (espelhos do firmware) e casos de teste |
 | `teste_protocolo.py` | Teste automático com a placa |
 | `medir_loopback.py` | Medição do loopback DAC → ADC (dados do CT10), salva em CSV |
 | `tests/` | Testes do software (pytest) |
@@ -32,6 +32,9 @@ python terminal_gui.py
 - Painel **Protocolo**: monta um quadro (SEQ automático, CMD e payload em hex; SOF, LEN e CRC são
   calculados) e executa os casos de teste do parser, um ou todos. Cada caso mostra o que a placa
   deve logar; para ver o resultado, abra uma segunda janela na porta do ST-Link.
+- Linha **PWM**: canal, frequência (1 Hz a 100 kHz) e razão cíclica (0 a 100 %, passo de 0,01 %),
+  com "Aplicar PWM" (PWM_SET) e "Parar PWM" (PWM_STOP). Mostra o PSC, ARR e CCR que a jiga vai usar
+  e a forma de onda que sai de fato no pino: é o valor de referência para medir no osciloscópio (CT12).
 
 ## Terminal de linha de comando
 
@@ -52,6 +55,8 @@ Durante a execução:
 | `/hex 7E 01 02`  | envia os bytes em hexadecimal          |
 | `/quadro 01`     | envia um quadro (CMD em hex, SEQ automático) |
 | `/quadro 10 AA BB` | quadro com payload                   |
+| `/pwm 1 1000 50` | PWM1 (PE9) em 1000 Hz e 50 % (canal 1 a 3; razão aceita `12,34`) |
+| `/pwm_stop 1`    | para o PWM1 (razão 0, saída em nível baixo) |
 | `/teste`         | lista os casos de teste do protocolo   |
 | `/teste 3`, `/teste todos` | envia um caso / todos (menos os de loopback) |
 | `/teste loopback` | envia todos, incluindo o CT10 e o CT11 |
@@ -99,6 +104,6 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-Cobrem o CRC (com os mesmos vetores dos testes Unity do firmware), a montagem de quadros, o receptor,
-a coerência dos casos de teste e se firmware, software e CHANGELOG estão na mesma versão.
+Cobrem o CRC e o cálculo do PWM (com os mesmos vetores dos testes Unity do firmware), a montagem de
+quadros, o receptor, a jiga simulada, a coerência dos casos de teste e se firmware, software e CHANGELOG estão na mesma versão.
 Rodam também no GitHub Actions a cada push.

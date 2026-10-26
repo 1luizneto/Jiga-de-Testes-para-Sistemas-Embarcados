@@ -22,14 +22,16 @@ from serial.tools import list_ports
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QGroupBox,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from protocolo import (
-    CASOS_TESTE, PAYLOAD_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log,
-    descrever_resposta, interpretar_resposta, montar_quadro,
+    CASOS_TESTE, PAYLOAD_MAX, PWM_CANAIS, PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_PADRAO,
+    PWM_PINOS, PWM_RAZAO_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log,
+    descrever_pwm, descrever_resposta, interpretar_resposta, montar_pwm_set, montar_pwm_stop, montar_quadro,
+    porcento_para_razao,
 )
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, TEMPO_MAX_RAJADA, detectar_porta, formatar_hex,
@@ -287,6 +289,30 @@ class JanelaTerminal(QMainWindow):
         linha_quadro.addWidget(bt_quadro)
         layout.addLayout(linha_quadro)
 
+        # PWM: monta o PWM_SET/PWM_STOP e mostra o que o timer vai gerar (referencia para o CT12)
+        linha_pwm = QHBoxLayout()
+        self.combo_pwm = QComboBox()
+        for canal in PWM_CANAIS:
+            self.combo_pwm.addItem(f"PWM{canal} ({PWM_PINOS[canal]})", canal)
+        self.spin_freq = QSpinBox(suffix=" Hz", minimumWidth=110)
+        self.spin_freq.setRange(PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_MAX)
+        self.spin_freq.setValue(PWM_FREQUENCIA_PADRAO)
+        self.spin_razao = QDoubleSpinBox(suffix=" %", decimals=2)
+        self.spin_razao.setRange(0, PWM_RAZAO_MAX / 100)
+        self.spin_razao.setValue(50)
+        self.lb_pwm = QLabel()
+        self.lb_pwm.setStyleSheet("color: #555")
+        for sinal in (self.combo_pwm.currentIndexChanged, self.spin_freq.valueChanged, self.spin_razao.valueChanged):
+            sinal.connect(self._mudou_pwm)
+        linha_pwm.addWidget(QLabel("PWM:"))
+        linha_pwm.addWidget(self.combo_pwm)
+        linha_pwm.addWidget(self.spin_freq)
+        linha_pwm.addWidget(self.spin_razao)
+        linha_pwm.addWidget(self.lb_pwm, 1)
+        linha_pwm.addWidget(QPushButton("Aplicar PWM", clicked=self.enviar_pwm))
+        linha_pwm.addWidget(QPushButton("Parar PWM", clicked=self.parar_pwm))
+        layout.addLayout(linha_pwm)
+
         # Casos de teste prontos
         linha_teste = QHBoxLayout()
         self.combo_caso = QComboBox()
@@ -346,6 +372,7 @@ class JanelaTerminal(QMainWindow):
         layout.addWidget(self.lb_resumo)
 
         self._mudou_caso()
+        self._mudou_pwm()
         return grupo
 
     def _carregar_config(self):
@@ -590,12 +617,33 @@ class JanelaTerminal(QMainWindow):
         except ValueError as e:
             self._escrever_info(f"Quadro inválido: {e}")
             return
+        self._enviar_com_seq(quadro, f"CMD=0x{cmd[0]:02X}")
+
+    def _enviar_com_seq(self, quadro, rotulo):
+        """Envia um quadro montado com o SEQ do campo e avanca o SEQ (se 'auto')."""
         if self.leitor is None:
             self._escrever_info("Não conectado; nada enviado")
             return
-        self._enviar_bytes(quadro, f"TX quadro SEQ={self.spin_seq.value()} CMD=0x{cmd[0]:02X}")
+        self._enviar_bytes(quadro, f"TX quadro SEQ={self.spin_seq.value()} {rotulo}")
         if self.ck_seq_auto.isChecked():
             self.spin_seq.setValue((self.spin_seq.value() + 1) % 256)
+
+    def _pwm_escolhido(self):
+        """(canal, frequencia em Hz, razao em centesimos de %) dos campos de PWM."""
+        return (self.combo_pwm.currentData(), self.spin_freq.value(),
+                porcento_para_razao(self.spin_razao.value()))
+
+    def _mudou_pwm(self, *_):
+        self.lb_pwm.setText(descrever_pwm(*self._pwm_escolhido()))
+
+    def enviar_pwm(self):
+        canal, frequencia, razao = self._pwm_escolhido()
+        self._enviar_com_seq(montar_pwm_set(self.spin_seq.value(), canal, frequencia, razao),
+                             f"PWM_SET {descrever_pwm(canal, frequencia, razao)}")
+
+    def parar_pwm(self):
+        canal = self.combo_pwm.currentData()
+        self._enviar_com_seq(montar_pwm_stop(self.spin_seq.value(), canal), f"PWM_STOP PWM{canal}")
 
     def _mudou_caso(self, *_):
         caso = self.combo_caso.currentData()
