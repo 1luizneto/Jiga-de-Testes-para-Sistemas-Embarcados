@@ -8,7 +8,8 @@
  *   - Generic.
  *
  *   \n <b>Dependencias:</b>
- *   - Comm (commFrame_t, codigos de comando e de erro) e os modulos de periferico (AnalogOut, DigitalIo, AnalogIn).
+ *   - Comm (commFrame_t, codigos de comando e de erro) e os modulos de periferico (AnalogOut, DigitalIo, AnalogIn,
+ *     Pwm).
  *
  *   \n <b>Observacoes:</b>
  *   - Nao conhece USB, filas nem o formato da resposta: roda na TestExecTask e e testavel no Unity com
@@ -20,6 +21,7 @@
  *   @version      <b>1.1.0 - 16/10/2026</b> \n Luiz Neto \n GPIO_SET, GPIO_READ e ADC_READ; estado seguro inclui as
  *                                                          saidas digitais
  *   @version      <b>1.2.0 - 21/10/2026</b> \n Luiz Neto \n PWM_SET e PWM_STOP; estado seguro inclui o PWM
+ *
  *   @copyright
  *   @{
  **********************************************************************************************************************/
@@ -32,8 +34,8 @@
 #include "AnalogOut.h"
 #include "AnalogIn.h"
 #include "DigitalIo.h"
-#include "stddef.h"
 #include "Pwm.h"
+#include <stddef.h>
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -59,6 +61,7 @@
 
 /// Payload do PWM_STOP: canal (u8)
 #define dEXEC_PWM_STOP_SIZE (1U)
+
 /***********************************************************************************************************************
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
@@ -153,7 +156,7 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 
 
 /***********************************************************************************************************************
- * @brief      Leva todas as saidas ao estado seguro: DAC em 0 e GPIO1-4 em nivel baixo.
+ * @brief      Leva todas as saidas ao estado seguro: DAC em 0, GPIO1-4 em nivel baixo e PWM parado.
  * @details    Tenta todos os perifericos mesmo que um falhe, para nao deixar um estimulo aplicado.
  **********************************************************************************************************************/
 execReturn_t Exec_SafeState(void)
@@ -170,7 +173,7 @@ execReturn_t Exec_SafeState(void)
 		ret = eEXEC_RETURN_ERROR;
 	}
 
-	if (Pwm_SafeState() != eBSP_PWM_RETURN_OK)
+	if (Pwm_SafeState() != ePWM_RETURN_OK)
 	{
 		ret = eEXEC_RETURN_ERROR;
 	}
@@ -361,9 +364,9 @@ static uint8_t Exec_AdcRead(const commFrame_t *frame, execResult_t *result)
  **********************************************************************************************************************/
 static uint8_t Exec_PwmSet(const commFrame_t *frame)
 {
-	if (frame->size != dEXEC_DAC_SET_SIZE)
+	if (frame->size != dEXEC_PWM_SET_SIZE)
 	{
-		return (uint_8)eCOMM_ERROR_PARAMETRO_INVALIDO;
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
 	}
 
 	uint8_t  canal      = frame->payload[0];
