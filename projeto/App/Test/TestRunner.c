@@ -71,6 +71,13 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_AdcReadCanalInvalido);
 		RUN_TEST(Test_Exec_AdcReadTamanhoErrado);
 		RUN_TEST(Test_Exec_AdcReadFalhaPeriferico);
+		RUN_TEST(Test_Exec_PwmSetValido);
+		RUN_TEST(Test_Exec_PwmSetFrequenciaU32);
+		RUN_TEST(Test_Exec_PwmSetParametroInvalido);
+		RUN_TEST(Test_Exec_PwmSetTamanhoErrado);
+		RUN_TEST(Test_Exec_PwmStopValido);
+		RUN_TEST(Test_Exec_PwmStopInvalido);
+		RUN_TEST(Test_Exec_PwmSetFalhaPeriferico);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -98,6 +105,20 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_AnalogIn_ReadFalhaPeriferico);
 		RUN_TEST(Test_AnalogIn_ReadValorForaDaFaixa);
 		RUN_TEST(Test_AnalogIn_ArgumentosInvalidos);
+
+		RUN_TEST(Test_Pwm_Calcula1kHzTim1);
+		RUN_TEST(Test_Pwm_Calcula100kHz);
+		RUN_TEST(Test_Pwm_Calcula1Hz);
+		RUN_TEST(Test_Pwm_CalculaFrequenciasTipicas);
+		RUN_TEST(Test_Pwm_CalculaRazaoLimites);
+		RUN_TEST(Test_Pwm_CalculaForaDaFaixa);
+		RUN_TEST(Test_Pwm_SetValido);
+		RUN_TEST(Test_Pwm_SetInvalido);
+		RUN_TEST(Test_Pwm_StopMantemFrequencia);
+		RUN_TEST(Test_Pwm_SafeState);
+		RUN_TEST(Test_Pwm_SafeStateComFalha);
+		RUN_TEST(Test_Pwm_FalhaNaoGuardaConfig);
+		RUN_TEST(Test_Pwm_ArgumentosInvalidos);
 
 	UNITY_END();
 

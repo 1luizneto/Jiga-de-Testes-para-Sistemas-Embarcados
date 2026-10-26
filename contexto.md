@@ -1,4 +1,4 @@
-# Contexto: Jiga de Testes para Sistemas Embarcados (TCC) — atualizado em 20/10/2026
+# Contexto: Jiga de Testes para Sistemas Embarcados (TCC) — atualizado em 26/10/2026
 
 ## Forma de trabalho (IMPORTANTE)
 - Prefiro entender e implementar eu mesmo. Me oriente com perguntas, revisões e roteiros
@@ -24,16 +24,17 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   (firmware em `projeto/`, app Python em `Software/`)
 - A monografia (`Texto/TCC_Monografia`, raiz `documento.tex`) NÃO está no git: copiar à parte.
 
-## Estado do git/GitHub (20/10/2026)
+## Estado do git/GitHub (26/10/2026)
 - Tags/releases: **v0.1.0** (USB com stream buffer), **v0.2.0** (parser de quadros), **v0.3.0** (respostas
-  ACK/NACK), **v0.4.0** (fila CommTask ↔ TestExecTask, `RESET_ALL`, `DAC_SET`).
-- **v0.5.0** (`GPIO_SET`, `GPIO_READ`, `ADC_READ`, CT10 e CT11) fechada no branch **`feat_adc-gpio`**:
-  versão já em 0.5.0 nos 3 lugares; 29/29 casos HIL passaram com loopback (ainda com o firmware 0.4.0 no
-  PING). Falta: medição com o `medir_loopback.py` (dados do Cap. 4), validação final com a versão nova
-  gravada, PR → `main`, merge, `git tag -a v0.5.0` no `main`, push da tag e release (o notebook da empresa
-  não tem o `gh`; fazer pela página do GitHub).
-- Depois do merge: branch da v0.6.0 **a partir do `main` atualizado** (`git checkout main && git pull &&
-  git checkout -b feat_pwm`). Branch criado de `main` desatualizado já deu problema uma vez.
+  ACK/NACK), **v0.4.0** (fila CommTask ↔ TestExecTask, `RESET_ALL`, `DAC_SET`), **v0.5.0** (`GPIO_SET`,
+  `GPIO_READ`, `ADC_READ`, CT10 e CT11).
+- **v0.6.0** (`PWM_SET`, `PWM_STOP`, CT12) fechada no branch **`feat_pwm`**: versão em 0.6.0 nos 3 lugares;
+  90 Unity, 34/34 casos HIL sem loopback (com o firmware 0.5.0 no PING) e CT12 no osciloscópio passaram.
+  Falta: gravar Test e Debug com a versão nova, `teste_protocolo.py` (34/34 com `firmware 0.6.0`), PR →
+  `main`, merge, `git tag -a v0.6.0` no `main`, push da tag e release (pela página do GitHub, o notebook
+  da empresa não tem o `gh`).
+- Depois do merge: branch da v0.7.0 **a partir do `main` atualizado** (`git checkout main && git pull &&
+  git checkout -b feat_i2c`). Branch criado de `main` desatualizado já deu problema uma vez.
 - Mensagem de commit: só o texto entre aspas (o commit `ca7c6e9` saiu com `git commit -m "..."` dentro
   da mensagem; ficou assim porque já estava no `origin`).
 - Logs da CommTask usam o prefixo `[TASK -> COMM]`, os da TestExecTask `[TASK -> EXEC]`; o `LOG_FIRMWARE`
@@ -61,9 +62,12 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   desligado (DS11532, Tabela 14, nota 5). Sem resistor externo, entrada solta lê valor indefinido
 - ADC: canal 0 = A0 = PA3 (ADC1_IN3), canal 1 = A1 = PC0 (ADC2_IN10), canal 2 = A2 = PC3 (ADC3_IN13), um
   ADC por canal, 12 bits, **sampling time de 480 ciclos**, referência 3,3 V
-- PWM (v0.6.0, já no `.ioc`): PWM1 = PE9 (TIM1_CH1, 216 MHz, 16 bits), PWM2 = PA0 (TIM2_CH1, 108 MHz,
-  32 bits), PWM3 = PA6 (TIM3_CH1, 108 MHz, 16 bits)
-- Loopback dos testes (jumpers): PA4→PA3, PA5→PC0 (CT10); PC8→PC12, PC9→PD2, PC10→PG2, PC11→PG3 (CT11)
+- PWM: PWM1 = PE9 (TIM1_CH1, 216 MHz, 16 bits), PWM2 = PA0 (TIM2_CH1, 108 MHz, 32 bits), PWM3 = PA6
+  (TIM3_CH1, 108 MHz, 16 bits); PWM mode 1, preload do ARR ligado. Clock dos timers = 2 × PCLK (APB1 = /4,
+  APB2 = /2, TIMPRE = 0), lido do RCC pela `Bsp_Pwm` (log no boot)
+- Loopback dos testes (jumpers): PA4→PA3, PA5→PC0 (CT10); PC8→PC12, PC9→PD2, PC10→PG2, PC11→PG3 (CT11).
+  Planejado (opção G, ainda não montado): filtro RC PA6 → 10 kΩ → A2 (PC3) com 10 µF ao GND, para
+  conferir a razão cíclica do PWM3 pelo ADC (média = 3,3 V × razão; τ = 0,1 s, esperar ~0,5 s)
 - Timebase do HAL no TIM6; FPU habilitada; USE_NEWLIB_REENTRANT habilitado
 
 ## Tasks (FreeRTOS)
@@ -88,9 +92,12 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - PING SEQ=1: `7E 00 01 01 8C EF`; ACK do PING = [versão do protocolo (1), fw maior, menor, correção]
 - Comandos implementados: PING (0x01), RESET_ALL (0x02, sem payload), DAC_SET (0x10, [canal u8 1–2][valor
   u16 LE 0–4095]), GPIO_SET (0x20, [pino u8 1–4][nível u8 0/1]), GPIO_READ (0x21, sem payload → ACK
-  [máscara u8, bit 0 = GPIO5 … bit 3 = GPIO8, bits 4–7 em 0]), ADC_READ (0x40, [canal u8 0–2] → ACK
-  [canal u8][valor u16 LE]). Ex.: DAC_SET SEQ=20, canal 1, 2048 = `7E 03 14 10 01 00 08 33 E0`; ACK do
-  ADC_READ SEQ=3, canal 0, 2047 = `7E 03 03 C0 00 FF 07 9E EE` (Apêndice A)
+  [máscara u8, bit 0 = GPIO5 … bit 3 = GPIO8, bits 4–7 em 0]), PWM_SET (0x30, [canal u8 1–3][frequência
+  u32 LE, 1–100000 Hz][razão u16 LE, 0–10000 centésimos de %]), PWM_STOP (0x31, [canal u8 1–3]),
+  ADC_READ (0x40, [canal u8 0–2] → ACK [canal u8][valor u16 LE]). Ex.: DAC_SET SEQ=20, canal 1, 2048 =
+  `7E 03 14 10 01 00 08 33 E0`; ACK do ADC_READ SEQ=3, canal 0, 2047 = `7E 03 03 C0 00 FF 07 9E EE`;
+  PWM_SET SEQ=4, canal 1, 1 kHz, 50 % = `7E 07 04 30 01 E8 03 00 00 88 13 5A 47`; PWM_STOP SEQ=5, canal 1
+  = `7E 01 05 31 01 01 3F` (os dois validados na placa)
 - Códigos de erro do NACK (Apêndice A, `commError_t`): 0x01 CMD_DESCONHECIDO, 0x02 PARAMETRO_INVALIDO,
   0x03 NAO_CONFIGURADO, 0x04 CRC_INVALIDO, 0x05 TAMANHO_EXCEDIDO, 0x06 ERRO_PERIFERICO, 0x07 OCUPADO,
   0x08 ROTINA_INVALIDA, 0x09 SEM_RESULTADO
@@ -145,12 +152,24 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   começo de outro. O ZLP (resposta múltipla de 64 B) já é tratado pelo middleware da ST.
 - `CDC_Transmit_FS` copia os dados para o `UserTxBufferFS`: o buffer de quem chama fica livre ao retornar
   (seguro porque só a CommTask transmite e só copia com `TxState == 0`).
+- **Cálculo do PWM (v0.6.0)**: contagens = round(clock / f); divisor = ⌈contagens / (ARRmax + 1)⌉ (até
+  65536, o PSC é de 16 bits nos três); período = round(clock / (divisor × f)), limitado a ARRmax + 1 e no
+  mínimo 2; PSC = divisor − 1, ARR = período − 1, CCR = round(razão × período / 10000). O menor divisor
+  deixa o ARR o maior possível (melhor resolução da razão). Frequência não exata → **a mais próxima**
+  (erro < 0,05 % até 100 kHz; ex.: 50 Hz no TIM3 = 49,9997 Hz), não NACK. 10000 → CCR = ARR + 1 (sempre
+  alto). Só aritmética inteira (no Python, `(a + b // 2) // b`: o `round()` arredonda o meio para o par).
+- **PWM parado = razão 0 com o timer rodando** (saída conduzida em nível baixo, nunca flutuando);
+  `PWM_STOP`, `RESET_ALL` e o boot mantêm a frequência e zeram só a razão. A `Bsp_Pwm` aplica PSC/ARR/CCR,
+  força o update (`EGR = UG`) e só chama `HAL_TIM_PWM_Start` se o canal estiver READY. A configuração só
+  é guardada no `Pwm` se a BSP aplicou.
+- **Espelhos no Python conferidos pelos mesmos vetores do Unity**: CRC (`Test_Crc16.c`) e cálculo do PWM
+  (`Test_Pwm.c` ↔ `calcular_pwm`). Se o C e o Python divergirem, o pytest quebra.
 - **DebugLog com lock**: o `DebugLog_Init` recebe send/lock/unlock da BSP; o lock cobre a formatação no
   `printfBuffer` E o envio (antes, duas tasks podiam misturar mensagens). Não chamar de ISR.
 
 ## Organização do código (`projeto/`)
-- `App/Comm` (Comm, DebugLog), `App/System` (Crc16, Usb, AnalogOut, AnalogIn, DigitalIo, Version.h),
-  `App/Exec` (Exec), `App/Hal_Wrapper` (Bsp, Bsp_Crc, Bsp_Usb, Bsp_Uart, Bsp_Dac, Bsp_Gpio, Bsp_Adc),
+- `App/Comm` (Comm, DebugLog), `App/System` (Crc16, Usb, AnalogOut, AnalogIn, DigitalIo, Pwm, Version.h),
+  `App/Exec` (Exec), `App/Hal_Wrapper` (Bsp, Bsp_Crc, Bsp_Usb, Bsp_Uart, Bsp_Dac, Bsp_Gpio, Bsp_Adc, Bsp_Pwm),
   `App/Test` (Unity, TestRunner, Suites)
 - As funções do `DigitalIo` usam o prefixo `DigitalIO_` (O maiúsculo; escolha do Luiz), os tipos e enums
   `digitalIo…`/`eDIGITALIO_…`
@@ -161,7 +180,7 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   maiúsculas: `Dac.h` colidiu com `Core/Inc/dac.h`). Planejado: `AnalogOut` (DAC), `AnalogIn` (ADC),
   `DigitalIo` (GPIO), `Pwm`, `I2cSlave`, `SpiSlave`, `UartEmu`. `Bsp_Xxx` pode, o prefixo evita a colisão.
 - Código próprio fora de Core/Drivers/Middlewares; no código gerado, só dentro de USER CODE
-- `Bsp_Init()` é chamado no `main.c` antes do scheduler (UART, CRC, USB, DAC, GPIO, ADC)
+- `Bsp_Init()` é chamado no `main.c` antes do scheduler (UART, CRC, USB, DAC, GPIO, ADC, PWM)
 - Build configuration `Test`: Unity on-target, saída pela USART3, define `UNIT_TEST_ON_TARGET`;
   `App/Test` excluída das builds Debug/Release. Na build Test a CommTask fica em `osDelay` e a TestExecTask
   parada na fila (os testes chamam o `Exec_Process` direto)
@@ -229,6 +248,35 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 
 **Repositório**: `projeto/Debug/` e `projeto/Test/` fora do git (`.gitignore`)
 
+### v0.6.0 — PWM (26/10/2026)
+**Firmware**
+- CubeMX: preload do ARR ligado nos três timers
+- `Pwm` (System: `Pwm_Calcula`/`Set`/`Stop`/`SafeState`, timers recebidos no `Pwm_Init` como
+  `pwmTimer_t {clockHz, periodoMax}`) + `Bsp_Pwm` (clock pelo RCC, `BspPwm_Apply`, PWM parado no boot)
+- `Exec`: `PWM_SET` e `PWM_STOP`; `Exec_SafeState` com DAC, GPIO e PWM
+- **90 testes Unity** (70 + 13 Pwm com timer falso + 7 Exec); o `Test_Exec.c` registra também o timer falso
+
+**Software**
+- `protocolo.py`: os dois comandos, `calcular_pwm` (espelho), `pwm_gerado`/`descrever_pwm` (forma de onda
+  no pino), `porcento_para_razao`; `JigaSimulada` com os três PWMs
+- **37 casos HIL** (8 novos de PWM): **34/34 na placa sem jumpers**
+- `/pwm` e `/pwm_stop` no terminal; linha PWM na GUI com PSC/ARR/CCR e a forma de onda esperada
+- **208 testes pytest**
+- **CT12 atendido** (osciloscópio, `Software/medicoes/medicao_ct12_pwm.csv`):
+
+| Canal (pino) | Pedido | Esperado no pino | Medido |
+|---|---|---|---|
+| PWM1 (PE9) | 1 kHz, 50 % | 1000,0 Hz, 50,00 % | 1 kHz, 50 %, sem variação visível |
+| PWM1 (PE9) | 100 kHz, 90 % | 100 kHz, 90,00 % | 100 kHz ± 10 Hz, 90 % |
+| PWM2 (PA0) | 20 kHz, 12,34 % | 20 kHz, 12,33 % (CCR 666 de 5400) | 20 kHz ± 10 Hz, 12,34 % |
+| PWM2 (PA0) | 1 Hz, 50 % | 1,000 Hz, 50,00 % | 1 Hz, 50 %, sem variação visível |
+| PWM3 (PA6) | 50 Hz, 75 % | 49,9997 Hz, 75,00 % | 50 Hz, 75 %, sem variação visível |
+| PWM3 (PA6) | 100 kHz, 25 % | 100 kHz, 25,00 % | 100 kHz ± 10 Hz, 25 % |
+| — | Parar / 100 % | 0 V / 3,3 V contínuos | 0 V / 3,3 V contínuos |
+
+  A oscilação de ±10 Hz (0,01 % a 0,05 %) só aparece em 20 e 100 kHz: é a resolução da medida automática
+  do osciloscópio, não do PWM (o clock vem do cristal de 8 MHz do ST-Link). Tolerância: ±1 % e ±1 p.p.
+
 **Versionamento (SemVer)**
 - Versão única para firmware + software. MAJOR = incompatibilidade no protocolo; MINOR = funcionalidade
   compatível; PATCH = correção. `0.x.y` = desenvolvimento; `1.0.0` = jiga funcional com o protocolo completo
@@ -242,7 +290,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 |---|---|---|
 | ~~0.4.0~~ | CommTask ↔ TestExecTask, estado seguro, `RESET_ALL`, `DAC_SET`, OCUPADO, DebugLog com lock | CT09 ✅; DAC no multímetro |
 | ~~0.5.0~~ | `ADC_READ`, `GPIO_SET`, `GPIO_READ` | CT10 (DAC→ADC) ✅, CT11 (GPIO) ✅ |
-| 0.6.0 | `PWM_SET`, `PWM_STOP` | CT12 (osciloscópio) |
+| ~~0.6.0~~ | `PWM_SET`, `PWM_STOP` | CT12 (osciloscópio) ✅ |
 | 0.7.0 | Emulação de escravo I2C (I2CEmulationTask sob demanda, 0x50–0x53) | parte do CT20 |
 | 0.8.0 | Escravo SPI e UART (0x60–0x63, 0x70–0x72) | CT13, CT20 |
 | 0.9.0 | Rotinas: `RUN_ROUTINE`, `ROUTINE_STATUS`, `READ_RESULT`, `ABORT`, passos ESPERA/ESPERA_GPIO, base de tempo de 1 µs (TIM5), tempo máximo | CT14–CT19 |
@@ -256,24 +304,18 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
   `Exec_Process` + módulo do periférico + casos no `protocolo.py`/`JigaSimulada`).
 
 ## PRÓXIMOS PASSOS
-1. Fechar a v0.5.0:
-   - Medição: `python Software/medir_loopback.py --pontos 33 --amostras 16` (faixa útil) e, se quiser
-     mostrar a saturação, `--de 0 --ate 4095 --pontos 41`; guardar os CSVs para o Cap. 4 e anotar o
-     resultado em "Medição do ADC" abaixo
-   - Gravar Test (70 Unity) e Debug (ACK do PING com `firmware 0.5.0`); `teste_protocolo.py` sem jumpers
-     (26/26, 3 pulados) e com `--loopback` (29/29); `pytest` (149)
-   - PR, merge, tag `v0.5.0`, release
-2. v0.6.0: `PWM_SET` (0x30, [canal u8 1–3][frequência u32 Hz][razão cíclica u16 em centésimos de %,
-   0–10000]) e `PWM_STOP` (0x31, [canal u8 1–3]); exemplo do Apêndice A: PWM_SET SEQ=4, canal 1, 1 kHz,
-   50 % = `7E 07 04 30 01 E8 03 00 00 88 13 5A 47`. Módulo `Pwm` + `Bsp_Pwm` (cálculo de PSC/ARR/CCR por
-   canal: TIM1 a 216 MHz e TIM3 a 108 MHz são de 16 bits, TIM2 a 108 MHz é de 32 bits), PWM parado no
-   estado seguro. Decidir: faixa de frequência aceita (RF03), arredondamento e o que fazer quando a
-   frequência pedida não é exata (NACK ou mais próxima). Critério: frequência ±1 %, razão cíclica ±1 ponto
-   percentual (CT12, osciloscópio). Sem loopback possível pela própria jiga ainda (a captura de entrada
-   não existe); medir no osciloscópio
+1. Fechar a v0.6.0:
+   - Gravar Test (90 Unity) e Debug (ACK do PING com `firmware 0.6.0`); `teste_protocolo.py` sem jumpers
+     (34/34, 3 pulados); `pytest` (208)
+   - PR `feat_pwm` → `main`, merge, tag `v0.6.0`, release
+2. Opcional, quando montar o filtro RC (opção G, ver Hardware): caso de loopback do PWM só no Python
+   (`PWM_SET` 25/50/75 % no PWM3, esperar ~0,5 s, `ADC_READ` do A2, conferir razão × 4095 ± 41)
+3. v0.7.0: emulação de escravo I2C (I2CEmulationTask sob demanda, comandos 0x50–0x53, parte do CT20).
+   Antes de começar: habilitar a IRQ do I2C2 (prioridade ≥ 5), ver no Apêndice A o formato dos comandos
+   e decidir como a task é criada e encerrada (alocação estática, handshake com a TestExecTask)
 
 ### Medição do ADC (v0.5.0, 20/10/2026) — loopback DAC → ADC, `medir_loopback.py`
-33 pontos de 124 a 3971 por canal, 16 leituras por ponto (`medicao_faixa_util.csv`, fora do git).
+33 pontos de 124 a 3971 por canal, 16 leituras por ponto (`Software/medicoes/medicao_faixa_util.csv`).
 
 | Canal | Ajuste (leitura = ganho × DAC + offset) | Erro médio por ponto | Pior leitura isolada | Fora de ±41 |
 |---|---|---|---|---|
@@ -352,10 +394,24 @@ faixa útil, sim. Firmware não muda.
 - **CT10 e CT11** (quadro de casos de teste): descrever a ligação por jumpers (PA4→PA3, PA5→PC0,
   PC8–PC11→PC12/PD2/PG2/PG3), os 11 pontos de 124 a 3971 (faixa útil do DAC) e o critério de ±41 códigos;
   no Cap. 4, a tabela/gráfico do `medir_loopback.py` (erro por ponto, reta ajustada) e o 29/29
+- **PWM (v0.6.0)**:
+  - **RF03**: faixa de 1 Hz a 100 kHz, razão cíclica de 0 a 100 % em passos de 0,01 % (a resolução real
+    depende do período: a 100 kHz no TIM3 são 1080 contagens, ~0,09 %); frequência não exata → a mais
+    próxima, não NACK; justificar o menor prescaler (melhor resolução da razão)
+  - **Apêndice A**: `PWM_STOP` = razão 0 com o timer rodando (saída em nível baixo); estado seguro idem
+  - **CT12**: a tabela medida (6 pontos, 3 canais, 1 Hz a 100 kHz, 0 % e 100 %), o critério (±1 %, ±1 p.p.)
+    e a observação da resolução do osciloscópio (±10 Hz em 20/100 kHz). Faltam o **modelo do
+    osciloscópio** (instrumentos de medição) e, se possível, capturas de tela das formas de onda
+  - Arredondamento dos registradores como exemplo (20 kHz a 12,34 % sai 12,33 %; 50 Hz no TIM3 sai
+    49,9997 Hz): a GUI mostra o valor esperado no pino
 - **Verificação automática com tolerância**: os casos do PC conferem leituras analógicas por faixa e não
   byte a byte (é o mesmo critério do `qua:criterios`); vale citar na seção do app/casos de teste
 
 ## Pendências menores (código)
+- **USB travada em BUSY** (visto em 26/10/2026): depois de algum envio que o PC não buscou, toda resposta
+  dá `Resposta nao enviada (3)` (3 = `eUSB_RETURN_BUSY`, o `TxState` do CDC fica preso) até resetar a
+  placa. Se repetir, liberar o envio pendente quando o PC reabre a porta (borda do DTR, onde o
+  `Comm_Init()` já é chamado) e anotar o que foi feito antes para reproduzir
 - Cast `(void *)` no `BspCrc_Init` esconde assinatura incompatível — corrigir como foi feito no `BspUart_Init`
 - Ramo de software do `Crc16.c` implementa CRC-16/Modbus (e `dCRC_POLINOMIO 0xA001`, `dCRC_LOW/HIGH`
   usam tipo `u8` inexistente, `dFALSE` não definido); trocar para CCITT-FALSE
@@ -403,7 +459,7 @@ faixa útil, sim. Firmware não muda.
 
 ## Setup no notebook novo
 - `git fetch` e checkout do branch atual (ver "Estado do git")
-- `cd Software && pip install -r requirements-dev.txt && pytest` (149 testes)
+- `cd Software && pip install -r requirements-dev.txt && pytest` (208 testes)
 - CubeIDE: importar `projeto/`; as configurações `projeto Debug` e `projeto Test` vêm do git; se o debug
   falhar, porta 61234 (ver armadilhas)
 - Terminal do DebugLog: porta do ST-Link a 1000000 baud

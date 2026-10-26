@@ -2,7 +2,7 @@
 
 import pytest
 
-from terminal_usb import formatar_hex, interpretar_hex
+from terminal_usb import formatar_hex, interpretar_hex, interpretar_pwm
 
 
 @pytest.mark.parametrize("texto, esperado", [
@@ -29,3 +29,19 @@ def test_formatar_hex_quebra_em_16_bytes():
 
 def test_formatar_hex_ascii():
     assert formatar_hex(b"Jiga\x00").endswith("|Jiga.|")
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("1 1000 50", (1, 1000, 5000)),
+    ("3 20000 12,34", (3, 20000, 1234)),
+    ("2 1 0.5", (2, 1, 50)),
+    ("4 0 200", (4, 0, 20000)),   # fora da faixa: vai para a jiga, que responde NACK
+])
+def test_interpretar_pwm(texto, esperado):
+    assert interpretar_pwm(texto) == esperado
+
+
+@pytest.mark.parametrize("texto", ["", "1 1000", "1 1000 50 9", "um 1000 50", "1 1k 50"])
+def test_interpretar_pwm_invalido(texto):
+    with pytest.raises(ValueError):
+        interpretar_pwm(texto)

@@ -7,13 +7,14 @@ import pytest
 
 from protocolo import (
     CASOS_TESTE, CMD_ADC_READ, CMD_DAC_SET, CMD_GPIO_READ, CMD_GPIO_SET, CMD_INEXISTENTE, CMD_PING,
-    CMD_RESET_ALL, DAC_FAIXA_UTIL, DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO, ERRO_CRC, ERRO_LEN,
-    ERRO_OCUPADO, ERRO_PARAMETRO_INVALIDO, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX, QUADRO_OK, SOF,
-    TAMANHO_QUADRO_MAX, TIMEOUT, TOLERANCIA_ADC, JigaSimulada, Quadro, ReceptorQuadros, avaliar_caso,
-    casos_a_executar, crc16_ccitt, descrever_log, descrever_resposta, descrever_respostas,
-    interpretar_resposta, montar_ack, montar_ack_ping, montar_adc_read, montar_dac_set,
-    montar_gpio_read, montar_gpio_set, montar_nack, montar_quadro, pontos_ct10, resultado_do_log,
-    simular, simular_caso,
+    CMD_PWM_SET, CMD_PWM_STOP, CMD_RESET_ALL, DAC_FAIXA_UTIL, DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO,
+    ERRO_CRC, ERRO_LEN, ERRO_OCUPADO, ERRO_PARAMETRO_INVALIDO, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX,
+    PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_PADRAO, PWM_RAZAO_MAX, QUADRO_OK, SOF, TAMANHO_QUADRO_MAX, TIMEOUT,
+    TOLERANCIA_ADC, JigaSimulada, Quadro, ReceptorQuadros, avaliar_caso, calcular_pwm, casos_a_executar,
+    crc16_ccitt, descrever_log, descrever_pwm, descrever_resposta, descrever_respostas, interpretar_resposta,
+    montar_ack, montar_ack_ping, montar_adc_read, montar_dac_set, montar_gpio_read, montar_gpio_set, montar_nack,
+    montar_pwm_set, montar_pwm_stop, montar_quadro, pontos_ct10, porcento_para_razao, pwm_gerado,
+    resultado_do_log, simular, simular_caso,
 )
 from versao import __version__
 
@@ -215,6 +216,79 @@ def test_descrever_gpio_read_e_adc_read():
     assert interpretar_resposta(adc).descrever() == "ACK ADC_READ SEQ=3 canal 0 = 2047 (1,650 V)"
 
 
+def test_pwm_set_igual_ao_apendice_a():
+    """Canal 1, 1 kHz, 50 %: o quadro do Apendice A, validado na placa (ACK e 1,65 V no PE9)."""
+    assert montar_pwm_set(4, 1, 1000, 5000) == bytes.fromhex("7E 07 04 30 01 E8 03 00 00 88 13 5A 47")
+
+
+def test_pwm_stop_igual_ao_validado_na_placa():
+    assert montar_pwm_stop(5, 1) == bytes.fromhex("7E 01 05 31 01 01 3F")
+
+
+def test_pwm_set_frequencia_u32_little_endian():
+    assert montar_pwm_set(1, 2, 0x0001_86A0, 0x1234)[4:11] == bytes([0x02, 0xA0, 0x86, 0x01, 0x00, 0x34, 0x12])
+
+
+@pytest.mark.parametrize("montar", [
+    lambda: montar_pwm_set(1, 256, 1000, 0), lambda: montar_pwm_set(1, 1, 1 << 32, 0),
+    lambda: montar_pwm_set(1, 1, -1, 0), lambda: montar_pwm_set(1, 1, 1000, 0x10000),
+    lambda: montar_pwm_stop(1, 256), lambda: montar_pwm_stop(1, -1),
+], ids=["canal 256", "freq 2^32", "freq -1", "razao 2^16", "stop canal 256", "stop canal -1"])
+def test_pwm_fora_de_u8_u32_u16(montar):
+    with pytest.raises(ValueError):
+        montar()
+
+
+# Mesmos vetores dos testes Unity do Pwm_Calcula (projeto/App/Test/Suites/Test_Pwm.c): canal 1 = TIM1
+# (216 MHz, 16 bits), 2 = TIM2 (108 MHz, 32 bits), 3 = TIM3 (108 MHz, 16 bits)
+@pytest.mark.parametrize("canal, frequencia, razao, esperado", [
+    (1, 1000, 5000, (3, 53999, 27000)),
+    (3, 100_000, 2500, (0, 1079, 270)),
+    (1, 100_000, 9000, (0, 2159, 1944)),
+    (1, 1, 5000, (3295, 65533, 32767)),
+    (2, 1, 5000, (0, 107999999, 54000000)),
+    (3, 1, 5000, (1647, 65533, 32767)),
+    (3, 50, 5000, (32, 65454, 32728)),
+    (2, 20_000, 1234, (0, 5399, 666)),
+    (1, 1000, 0, (3, 53999, 0)),
+    (1, 1000, 1, (3, 53999, 5)),
+    (2, 1000, 0, (0, 107999, 0)),
+    (3, 1000, 0, (1, 53999, 0)),
+])
+def test_calcular_pwm_igual_ao_firmware(canal, frequencia, razao, esperado):
+    assert calcular_pwm(canal, frequencia, razao) == esperado
+
+
+def test_calcular_pwm_100_porcento_fica_sempre_alto():
+    """CCR = ARR + 1: o comparador nunca dispara e a saida fica em nivel alto."""
+    _, arr, ccr = calcular_pwm(1, 1000, PWM_RAZAO_MAX)
+    assert ccr == arr + 1
+
+
+@pytest.mark.parametrize("canal, frequencia, razao", [
+    (0, 1000, 5000), (4, 1000, 5000), (1, 0, 5000), (1, PWM_FREQUENCIA_MAX + 1, 5000), (1, 1000, PWM_RAZAO_MAX + 1),
+], ids=["canal 0", "canal 4", "0 Hz", "100001 Hz", "razao 10001"])
+def test_calcular_pwm_fora_da_faixa(canal, frequencia, razao):
+    with pytest.raises(ValueError):
+        calcular_pwm(canal, frequencia, razao)
+
+
+@pytest.mark.parametrize("porcento, razao", [(50, 5000), ("12.34", 1234), (0.01, 1), (100, 10000)])
+def test_porcento_para_razao(porcento, razao):
+    assert porcento_para_razao(porcento) == razao
+
+
+def test_pwm_gerado_mostra_o_arredondamento_dos_registradores():
+    """O que o CT12 mede: 50 Hz no TIM3 sai 49,9997 Hz e 12,34 % a 100 kHz sai 12,31 % (CCR = 133 de 1080)."""
+    assert pwm_gerado(1, 1000, 5000) == (pytest.approx(1000), pytest.approx(50))
+    assert pwm_gerado(3, 50, 5000)[0] == pytest.approx(49.9997, abs=1e-4)
+    assert pwm_gerado(3, 100_000, 1234)[1] == pytest.approx(100 * 133 / 1080)
+
+
+def test_descrever_pwm():
+    assert descrever_pwm(1, 1000, 5000) == "PWM1 (PE9): PSC=3 ARR=53999 CCR=27000 -> 1000,0000 Hz, 50,00 %"
+
+
 def test_interpretar_quadro_que_nao_e_resposta():
     with pytest.raises(ValueError):
         interpretar_resposta(Quadro(seq=1, cmd=CMD_PING))
@@ -336,6 +410,41 @@ def test_jiga_gpio_adc_parametro_invalido_nao_altera_saida(quadro):
     [(_, nack)] = ReceptorQuadros().processar(resposta)
     assert interpretar_resposta(nack).erro == ERRO_PARAMETRO_INVALIDO
     assert jiga.gpio == {1: 0, 2: 1, 3: 0, 4: 0}
+
+
+def test_jiga_pwm_set_stop_e_reset_all():
+    """PWM_STOP e RESET_ALL zeram a razao e mantem a frequencia (espelho do Pwm_Stop/Pwm_SafeState)."""
+    jiga = JigaSimulada()
+    padrao = (PWM_FREQUENCIA_PADRAO, 0)
+    assert jiga.pwm == {1: padrao, 2: padrao, 3: padrao}
+    assert jiga.processar(montar_pwm_set(1, 1, 1000, 5000))[1] == montar_ack(1, CMD_PWM_SET)
+    assert jiga.processar(montar_pwm_set(2, 3, 50, 7500))[1] == montar_ack(2, CMD_PWM_SET)
+    assert jiga.pwm == {1: (1000, 5000), 2: padrao, 3: (50, 7500)}
+    assert jiga.processar(montar_pwm_stop(3, 1))[1] == montar_ack(3, CMD_PWM_STOP)
+    assert jiga.pwm == {1: (1000, 0), 2: padrao, 3: (50, 7500)}
+    assert jiga.processar(montar_quadro(4, CMD_RESET_ALL))[1] == montar_ack(4, CMD_RESET_ALL)
+    assert jiga.pwm == {1: (1000, 0), 2: padrao, 3: (50, 0)}
+
+
+@pytest.mark.parametrize("quadro", [
+    montar_pwm_set(1, 0, 1000, 5000),                       # canal 0
+    montar_pwm_set(1, 4, 1000, 5000),                       # canal inexistente
+    montar_pwm_set(1, 2, 0, 5000),                          # 0 Hz
+    montar_pwm_set(1, 2, PWM_FREQUENCIA_MAX + 1, 5000),     # acima de 100 kHz
+    montar_pwm_set(1, 2, 1000, PWM_RAZAO_MAX + 1),          # acima de 100 %
+    montar_quadro(1, CMD_PWM_SET, bytes([0x02, 0xE8, 0x03])),  # payload curto
+    montar_pwm_stop(1, 4),                                  # canal inexistente
+    montar_quadro(1, CMD_PWM_STOP),                         # PWM_STOP sem canal
+], ids=["canal 0", "canal 4", "0 Hz", "100001 Hz", "razao 10001", "set tamanho 3", "stop canal 4",
+        "stop sem canal"])
+def test_jiga_pwm_parametro_invalido_nao_altera_saida(quadro):
+    """CT09 com o PWM: NACK PARAMETRO_INVALIDO e nenhuma saida alterada."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_pwm_set(9, 2, 20_000, 1234))
+    _, resposta = jiga.processar(quadro)
+    [(_, nack)] = ReceptorQuadros().processar(resposta)
+    assert interpretar_resposta(nack).erro == ERRO_PARAMETRO_INVALIDO
+    assert jiga.pwm == {1: (PWM_FREQUENCIA_PADRAO, 0), 2: (20_000, 1234), 3: (PWM_FREQUENCIA_PADRAO, 0)}
 
 
 def test_jiga_ocupado_no_mesmo_bloco():
