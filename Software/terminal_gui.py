@@ -28,10 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from protocolo import (
-    CASOS_TESTE, PAYLOAD_MAX, PWM_CANAIS, PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_PADRAO,
-    PWM_PINOS, PWM_RAZAO_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log,
-    descrever_pwm, descrever_resposta, interpretar_resposta, montar_pwm_set, montar_pwm_stop, montar_quadro,
-    porcento_para_razao,
+    CASOS_TESTE, I2C_PAPEL_ESCRAVO, I2C_PAPEL_MESTRE, I2C_VELOCIDADES, PAYLOAD_MAX, PWM_CANAIS, PWM_FREQUENCIA_MAX,
+    PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_PADRAO, PWM_PINOS, PWM_RAZAO_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log,
+    descrever_pwm, descrever_resposta, interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load,
+    montar_pwm_set, montar_pwm_stop, montar_quadro, porcento_para_razao,
 )
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, TEMPO_MAX_RAJADA, detectar_porta, formatar_hex,
@@ -312,6 +312,38 @@ class JanelaTerminal(QMainWindow):
         linha_pwm.addWidget(QPushButton("Aplicar PWM", clicked=self.enviar_pwm))
         linha_pwm.addWidget(QPushButton("Parar PWM", clicked=self.parar_pwm))
         layout.addLayout(linha_pwm)
+
+        # I2C: papel da jiga no barramento e o mapa de registradores da jiga escrava (I2C_SLAVE_LOAD/DUMP)
+        linha_i2c = QHBoxLayout()
+        self.combo_i2c_papel = QComboBox()
+        self.combo_i2c_papel.addItem("Escrava", I2C_PAPEL_ESCRAVO)
+        self.combo_i2c_papel.addItem("Mestre", I2C_PAPEL_MESTRE)
+        self.campo_i2c_endereco = QLineEdit("50", maximumWidth=40)
+        self.campo_i2c_endereco.setToolTip("Endereço de 7 bits da jiga escrava, em hex (08 a 77)")
+        self.combo_i2c_velocidade = QComboBox()
+        for velocidade, hz in I2C_VELOCIDADES.items():
+            self.combo_i2c_velocidade.addItem(f"{hz // 1000} kHz", velocidade)
+        self.campo_i2c_offset = QLineEdit("00", maximumWidth=40)
+        self.campo_i2c_offset.setToolTip("Primeiro registrador do mapa, em hex")
+        self.campo_i2c_dados = QLineEdit()
+        self.campo_i2c_dados.setFont(QFont("Consolas", 10))
+        self.campo_i2c_dados.setPlaceholderText("Dados para carregar, em hex, ex.: DE AD BE EF")
+        self.spin_i2c_qtd = QSpinBox(minimum=1, maximum=PAYLOAD_MAX, value=16)
+        self.spin_i2c_qtd.setToolTip("Quantidade de registradores lidos pelo 'Ler mapa'")
+        linha_i2c.addWidget(QLabel("I2C:"))
+        linha_i2c.addWidget(self.combo_i2c_papel)
+        linha_i2c.addWidget(QLabel("0x"))
+        linha_i2c.addWidget(self.campo_i2c_endereco)
+        linha_i2c.addWidget(self.combo_i2c_velocidade)
+        linha_i2c.addWidget(QPushButton("Configurar", clicked=self.configurar_i2c))
+        linha_i2c.addSpacing(12)
+        linha_i2c.addWidget(QLabel("Reg. 0x"))
+        linha_i2c.addWidget(self.campo_i2c_offset)
+        linha_i2c.addWidget(self.campo_i2c_dados, 1)
+        linha_i2c.addWidget(QPushButton("Carregar", clicked=self.carregar_i2c))
+        linha_i2c.addWidget(self.spin_i2c_qtd)
+        linha_i2c.addWidget(QPushButton("Ler mapa", clicked=self.ler_i2c))
+        layout.addLayout(linha_i2c)
 
         # Casos de teste prontos
         linha_teste = QHBoxLayout()
@@ -644,6 +676,36 @@ class JanelaTerminal(QMainWindow):
     def parar_pwm(self):
         canal = self.combo_pwm.currentData()
         self._enviar_com_seq(montar_pwm_stop(self.spin_seq.value(), canal), f"PWM_STOP PWM{canal}")
+
+    def configurar_i2c(self):
+        try:
+            endereco = int(self.campo_i2c_endereco.text(), 16)
+            quadro = montar_i2c_config(self.spin_seq.value(), self.combo_i2c_papel.currentData(), endereco,
+                                       self.combo_i2c_velocidade.currentData())
+        except ValueError as e:
+            self._escrever_info(f"I2C_CONFIG inválido: {e}")
+            return
+        self._enviar_com_seq(quadro, f"I2C_CONFIG {self.combo_i2c_papel.currentText()} 0x{endereco:02X} "
+                                     f"{self.combo_i2c_velocidade.currentText()}")
+
+    def carregar_i2c(self):
+        try:
+            offset = int(self.campo_i2c_offset.text(), 16)
+            dados = interpretar_hex(self.campo_i2c_dados.text())
+            quadro = montar_i2c_load(self.spin_seq.value(), offset, dados)
+        except ValueError as e:
+            self._escrever_info(f"I2C_SLAVE_LOAD inválido: {e}")
+            return
+        self._enviar_com_seq(quadro, f"I2C_SLAVE_LOAD {len(dados)} B em 0x{offset:02X}")
+
+    def ler_i2c(self):
+        try:
+            offset = int(self.campo_i2c_offset.text(), 16)
+            quadro = montar_i2c_dump(self.spin_seq.value(), offset, self.spin_i2c_qtd.value())
+        except ValueError as e:
+            self._escrever_info(f"I2C_SLAVE_DUMP inválido: {e}")
+            return
+        self._enviar_com_seq(quadro, f"I2C_SLAVE_DUMP {self.spin_i2c_qtd.value()} B de 0x{offset:02X}")
 
     def _mudou_caso(self, *_):
         caso = self.combo_caso.currentData()
