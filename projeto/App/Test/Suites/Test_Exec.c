@@ -1,7 +1,7 @@
 /*
  * Test_Exec.c
  *
- * Testes do Exec com um DAC falso: conferem o resultado (ACK/NACK) e, principalmente, se o
+ * Testes do Exec com DAC, GPIO, ADC e timer falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
  * periferico foi ou nao acionado ("nenhuma saida alterada" do CT09), sem multimetro.
  */
 
@@ -11,6 +11,10 @@
 #include "AnalogOut.h"
 #include "AnalogIn.h"
 #include "DigitalIo.h"
+#include "Pwm.h"
+
+/// Payload do PWM_SET: canal + frequencia (u32) + razao ciclica (u16)
+#define dEXEC_TESTE_PWM_SET_SIZE (7U)
 
 /// Registro das chamadas ao DAC falso
 static struct dacFalso
@@ -81,6 +85,35 @@ static analogInReturn_t AdcFalso_Read(uint8_t canal, uint16_t *valor)
 	return adcFalso.retorno;
 }
 
+/// Timers da placa (os mesmos do Test_Pwm.c): TIM1 216 MHz 16 bits, TIM2 108 MHz 32 bits, TIM3 108 MHz 16 bits
+static const pwmTimer_t timersExec[dPWM_CANAL_MAX] =
+{
+	{216000000U, 0xFFFFU},
+	{108000000U, 0xFFFFFFFFU},
+	{108000000U, 0xFFFFU},
+};
+
+/// Registro das chamadas ao timer falso
+static struct timerFalso
+{
+	uint8_t     chamadas;
+	uint8_t     canal[4];
+	pwmConfig_t config[4];
+	pwmReturn_t retorno;   ///< simula falha do HAL
+} timerFalso;
+
+static pwmReturn_t TimerFalso_Apply(uint8_t canal, const pwmConfig_t *config)
+{
+	if (timerFalso.chamadas < 4U)
+	{
+		timerFalso.canal[timerFalso.chamadas]  = canal;
+		timerFalso.config[timerFalso.chamadas] = *config;
+	}
+	timerFalso.chamadas++;
+
+	return timerFalso.retorno;
+}
+
 // Os modulos de periferico passam a usar os falsos. Na build Test nada mais usa o hardware, entao nao precisa restaurar.
 static void IniciaExec(void)
 {
@@ -92,6 +125,10 @@ static void IniciaExec(void)
 	AnalogOut_Init(DacFalso_Set);
 	DigitalIO_Init(GpioFalso_Write, GpioFalso_Read);
 	AnalogIn_Init(AdcFalso_Read);
+
+	memset(&timerFalso, 0, sizeof(timerFalso));
+	timerFalso.retorno = ePWM_RETURN_OK;
+	Pwm_Init(TimerFalso_Apply, timersExec);
 }
 
 static void MontaComando(commFrame_t *frame, uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t size)
@@ -182,7 +219,7 @@ void Test_Exec_DacSetTamanhoErrado(void)
 	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
 }
 
-// 6. RESET_ALL: ACK, as duas saidas analogicas vao para 0 e as quatro digitais para nivel baixo
+// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo e os tres PWM parados
 void Test_Exec_ResetAll(void)
 {
 	commFrame_t frame;
@@ -204,6 +241,13 @@ void Test_Exec_ResetAll(void)
 		TEST_ASSERT_EQUAL_UINT8(i + 1U, gpioFalso.saida[i]);
 		TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.nivel[i]);
 	}
+
+	TEST_ASSERT_EQUAL_UINT8(3, timerFalso.chamadas);
+	for (uint8_t i = 0; i < 3U; i++)
+	{
+		TEST_ASSERT_EQUAL_UINT8(i + 1U, timerFalso.canal[i]);
+		TEST_ASSERT_EQUAL_UINT32(0, timerFalso.config[i].comparacao);
+	}
 }
 
 // 7. RESET_ALL com payload: NACK PARAMETRO_INVALIDO e nada e acionado
@@ -219,6 +263,7 @@ void Test_Exec_ResetAllComPayload(void)
 	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
 	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
 	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
+	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
 }
 
 // 8. Comando desconhecido: NACK CMD_DESCONHECIDO e nada e acionado
@@ -403,4 +448,129 @@ void Test_Exec_AdcReadFalhaPeriferico(void)
 	Exec_Process(&frame, &result);
 	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PERIFERICO, result.erro);
 	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+}
+
+// 20. PWM_SET com o exemplo do Apendice A: canal 1, 1 kHz (u32 LE), 50 % (u16 LE) -> PSC 3, ARR 53999, CCR 27000
+void Test_Exec_PwmSetValido(void)
+{
+	const uint8_t payload[] = {0x01, 0xE8, 0x03, 0x00, 0x00, 0x88, 0x13};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x20, dCOMM_CMD_PWM_SET, payload, sizeof(payload));
+
+	TEST_ASSERT_EQUAL(eEXEC_RETURN_OK, Exec_Process(&frame, &result));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, timerFalso.chamadas);
+	TEST_ASSERT_EQUAL_UINT8(1, timerFalso.canal[0]);
+	TEST_ASSERT_EQUAL_UINT32(3, timerFalso.config[0].prescaler);
+	TEST_ASSERT_EQUAL_UINT32(53999, timerFalso.config[0].periodo);
+	TEST_ASSERT_EQUAL_UINT32(27000, timerFalso.config[0].comparacao);
+}
+
+// 21. Frequencia usando 3 bytes do u32 (100 kHz = A0 86 01 00) no canal 2 (32 bits), 25 % (C4 09)
+void Test_Exec_PwmSetFrequenciaU32(void)
+{
+	const uint8_t payload[] = {0x02, 0xA0, 0x86, 0x01, 0x00, 0xC4, 0x09};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x21, dCOMM_CMD_PWM_SET, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(2, timerFalso.canal[0]);
+	TEST_ASSERT_EQUAL_UINT32(0, timerFalso.config[0].prescaler);
+	TEST_ASSERT_EQUAL_UINT32(1079, timerFalso.config[0].periodo);
+	TEST_ASSERT_EQUAL_UINT32(270, timerFalso.config[0].comparacao);
+}
+
+// 22. PWM_SET fora da faixa (canal 4, frequencia 0 e 100001, razao 10001): NACK e nenhum timer tocado
+void Test_Exec_PwmSetParametroInvalido(void)
+{
+	const uint8_t canal4[]        = {0x04, 0xE8, 0x03, 0x00, 0x00, 0x88, 0x13};
+	const uint8_t frequencia0[]   = {0x01, 0x00, 0x00, 0x00, 0x00, 0x88, 0x13};
+	const uint8_t frequenciaMax[] = {0x01, 0xA1, 0x86, 0x01, 0x00, 0x88, 0x13};   // 100001 Hz
+	const uint8_t razaoMax[]      = {0x01, 0xE8, 0x03, 0x00, 0x00, 0x11, 0x27};   // 10001
+	const uint8_t *payloads[]     = {canal4, frequencia0, frequenciaMax, razaoMax};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	for (uint8_t i = 0; i < 4U; i++)
+	{
+		MontaComando(&frame, (uint8_t)(0x22 + i), dCOMM_CMD_PWM_SET, payloads[i], dEXEC_TESTE_PWM_SET_SIZE);
+		Exec_Process(&frame, &result);
+		TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	}
+	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
+}
+
+// 23. PWM_SET com tamanho errado (6 e 3 bytes): NACK PARAMETRO_INVALIDO e nenhum timer tocado
+void Test_Exec_PwmSetTamanhoErrado(void)
+{
+	const uint8_t payload[] = {0x01, 0xE8, 0x03, 0x00, 0x00, 0x88};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x26, dCOMM_CMD_PWM_SET, payload, sizeof(payload));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x2B, dCOMM_CMD_PWM_SET, payload, 3U);   // tamanho do DAC_SET
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
+}
+
+// 24. PWM_STOP: ACK e o canal fica com razao ciclica 0 (mantendo a frequencia)
+void Test_Exec_PwmStopValido(void)
+{
+	const uint8_t payload[] = {0x03};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x27, dCOMM_CMD_PWM_STOP, payload, sizeof(payload));
+
+	TEST_ASSERT_EQUAL(eEXEC_RETURN_OK, Exec_Process(&frame, &result));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, timerFalso.chamadas);
+	TEST_ASSERT_EQUAL_UINT8(3, timerFalso.canal[0]);
+	TEST_ASSERT_EQUAL_UINT32(0, timerFalso.config[0].comparacao);
+}
+
+// 25. PWM_STOP com canal 0 ou sem payload: NACK PARAMETRO_INVALIDO e nenhum timer tocado
+void Test_Exec_PwmStopInvalido(void)
+{
+	const uint8_t canal0[] = {0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x28, dCOMM_CMD_PWM_STOP, canal0, sizeof(canal0));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x29, dCOMM_CMD_PWM_STOP, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
+}
+
+// 26. PWM_SET com falha do periferico: NACK ERRO_PERIFERICO
+void Test_Exec_PwmSetFalhaPeriferico(void)
+{
+	const uint8_t payload[] = {0x01, 0xE8, 0x03, 0x00, 0x00, 0x88, 0x13};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	timerFalso.retorno = ePWM_RETURN_ERROR;
+	MontaComando(&frame, 0x2A, dCOMM_CMD_PWM_SET, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PERIFERICO, result.erro);
 }

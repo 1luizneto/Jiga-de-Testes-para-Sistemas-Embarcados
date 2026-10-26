@@ -7,6 +7,34 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.6.0] - 2026-10-26
+
+### Adicionado
+- Firmware: módulo `Pwm` (canal 1–3, frequência de 1 Hz a 100 kHz, razão cíclica de 0 a 10000 centésimos
+  de %). O `Pwm_Calcula` escolhe o menor prescaler que faz o período caber no contador (melhor resolução
+  da razão) e arredonda para a frequência mais próxima; 10000 = sempre alto. `Pwm_Stop` = razão 0 com o
+  timer rodando (saída em nível baixo); estado seguro = os três parados. 13 testes Unity com timer falso.
+- Firmware: `Bsp_Pwm` (PWM1 = PE9/TIM1, PWM2 = PA0/TIM2, PWM3 = PA6/TIM3): clock de cada timer lido do
+  RCC, aplica PSC/ARR/CCR com update forçado e inicia o canal só na primeira vez; PWM parado no boot.
+- Firmware: comandos `PWM_SET` (0x30, [canal u8][frequência u32 LE][razão u16 LE]) e `PWM_STOP` (0x31,
+  [canal u8]). Tamanho ou faixa inválidos → NACK PARAMETRO_INVALIDO sem tocar no timer. 7 testes Unity
+  novos no `Exec` (90 no total).
+- Software: `protocolo.py` conhece os dois comandos (`montar_pwm_set`, `montar_pwm_stop`) e tem o espelho
+  do cálculo do firmware (`calcular_pwm`, testado com os mesmos vetores do Unity) e a forma de onda que
+  sai no pino (`pwm_gerado`, `descrever_pwm`); a `JigaSimulada` simula os três canais.
+- Software: 8 casos de teste novos (37 no total, 34 sem loopback): `PWM_SET` válido, canal, frequência
+  (0 e 100001 Hz), razão e tamanho inválidos, `PWM_STOP` válido e com canal inválido.
+- Software: `/pwm canal frequência razão` e `/pwm_stop canal` no terminal; linha PWM na GUI (canal,
+  frequência, razão, "Aplicar PWM"/"Parar PWM"), que mostra PSC/ARR/CCR e a forma de onda esperada no pino.
+- Software: medição do **CT12** no osciloscópio (`medicoes/medicao_ct12_pwm.csv`): 6 pontos nos três
+  canais, de 1 Hz a 100 kHz, todos dentro de ±1 % na frequência e ±1 ponto percentual na razão.
+- Software: 59 testes pytest novos (208 no total).
+
+### Alterado
+- Firmware: preload do ARR ligado nos timers do PWM (a troca de período só vale no próximo ciclo, sem
+  pulso cortado).
+- Firmware: o `RESET_ALL` (`Exec_SafeState`) também para os três PWMs.
+
 ## [0.5.0] - 2026-10-20
 
 ### Adicionado
@@ -130,7 +158,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.5.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.2.0...v0.3.0

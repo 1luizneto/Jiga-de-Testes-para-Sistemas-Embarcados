@@ -38,6 +38,8 @@
 #define dCOMM_CMD_GPIO_SET  (0x20U)
 #define dCOMM_CMD_GPIO_READ (0x21U)
 #define dCOMM_CMD_ADC_READ  (0x40U)
+#define dCOMM_CMD_PWM_SET   (0x30U)
+#define dCOMM_CMD_PWM_STOP  (0x31U)
 
 // ACK: CMD de requisicao com o bit 7 ligado
 #define dCOMM_ACK_FLAG (0x80U)

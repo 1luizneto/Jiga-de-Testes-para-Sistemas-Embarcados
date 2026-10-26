@@ -63,6 +63,13 @@ void Test_Exec_AdcReadValido(void);
 void Test_Exec_AdcReadCanalInvalido(void);
 void Test_Exec_AdcReadTamanhoErrado(void);
 void Test_Exec_AdcReadFalhaPeriferico(void);
+void Test_Exec_PwmSetValido(void);
+void Test_Exec_PwmSetFrequenciaU32(void);
+void Test_Exec_PwmSetParametroInvalido(void);
+void Test_Exec_PwmSetTamanhoErrado(void);
+void Test_Exec_PwmStopValido(void);
+void Test_Exec_PwmStopInvalido(void);
+void Test_Exec_PwmSetFalhaPeriferico(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -93,5 +100,20 @@ void Test_AnalogIn_ReadCanalInvalido(void);
 void Test_AnalogIn_ReadFalhaPeriferico(void);
 void Test_AnalogIn_ReadValorForaDaFaixa(void);
 void Test_AnalogIn_ArgumentosInvalidos(void);
+
+// Testes das saidas PWM (Pwm)
+void Test_Pwm_Calcula1kHzTim1(void);
+void Test_Pwm_Calcula100kHz(void);
+void Test_Pwm_Calcula1Hz(void);
+void Test_Pwm_CalculaFrequenciasTipicas(void);
+void Test_Pwm_CalculaRazaoLimites(void);
+void Test_Pwm_CalculaForaDaFaixa(void);
+void Test_Pwm_SetValido(void);
+void Test_Pwm_SetInvalido(void);
+void Test_Pwm_StopMantemFrequencia(void);
+void Test_Pwm_SafeState(void);
+void Test_Pwm_SafeStateComFalha(void);
+void Test_Pwm_FalhaNaoGuardaConfig(void);
+void Test_Pwm_ArgumentosInvalidos(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

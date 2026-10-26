@@ -35,6 +35,8 @@ CMD_RESET_ALL = 0x02
 CMD_DAC_SET = 0x10
 CMD_GPIO_SET = 0x20
 CMD_GPIO_READ = 0x21
+CMD_PWM_SET = 0x30
+CMD_PWM_STOP = 0x31
 CMD_ADC_READ = 0x40
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
@@ -45,7 +47,8 @@ CMD_INEXISTENTE = 0x55
 
 NOMES_COMANDO = {
     CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_DAC_SET: "DAC_SET",
-    CMD_GPIO_SET: "GPIO_SET", CMD_GPIO_READ: "GPIO_READ", CMD_ADC_READ: "ADC_READ",
+    CMD_GPIO_SET: "GPIO_SET", CMD_GPIO_READ: "GPIO_READ", CMD_PWM_SET: "PWM_SET",
+    CMD_PWM_STOP: "PWM_STOP", CMD_ADC_READ: "ADC_READ",
 }
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
@@ -65,6 +68,21 @@ GPIO_MASCARA_ENTRADAS = 0x0F
 ADC_CANAIS = (0, 1, 2)
 ADC_VALOR_MAX = 4095
 TENSAO_REFERENCIA = 3.3
+
+# PWM (Apendice A): canal 1 = PE9 (TIM1), 2 = PA0 (TIM2), 3 = PA6 (TIM3). Frequencia em Hz (u32) e
+# razao ciclica em centesimos de por cento (u16: 5000 = 50 %, 10000 = sempre alto). O PWM_STOP (e o
+# RESET_ALL) zera a razao e mantem a frequencia: o timer segue rodando com a saida em nivel baixo
+PWM_CANAIS = (1, 2, 3)
+PWM_FREQUENCIA_MIN = 1
+PWM_FREQUENCIA_MAX = 100_000
+PWM_RAZAO_MAX = 10_000
+PWM_FREQUENCIA_PADRAO = 1000
+
+# Clock e ARR maximo do timer de cada canal (pwmTimer_t da BSP): APB2 = 108 MHz e APB1 = 54 MHz,
+# com o clock dos timers = 2 x PCLK. O prescaler e de 16 bits em todos (divisor ate 65536)
+PWM_TIMERS = {1: (216_000_000, 0xFFFF), 2: (108_000_000, 0xFFFF_FFFF), 3: (108_000_000, 0xFFFF)}
+PWM_DIVISOR_MAX = 65536
+PWM_PINOS = {1: "PE9", 2: "PA0", 3: "PA6"}
 
 # Loopback dos casos CT10 e CT11 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0)
 # e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3)
@@ -261,6 +279,74 @@ def montar_adc_read(seq, canal):
     return montar_quadro(seq, CMD_ADC_READ, bytes([canal]))
 
 
+def montar_pwm_set(seq, canal, frequencia, razao):
+    """PWM_SET: payload [canal (u8)][frequencia em Hz (u32, LE)][razao em centesimos de % (u16, LE)].
+
+    Aceita valores fora da faixa do PWM (so precisam caber em u8/u32/u16), para os casos invalidos.
+    """
+    if not 0 <= canal <= 0xFF or not 0 <= frequencia <= 0xFFFF_FFFF or not 0 <= razao <= 0xFFFF:
+        raise ValueError("canal precisa caber em 1 byte, frequencia em 4 bytes e razao em 2 bytes")
+    payload = bytes([canal]) + frequencia.to_bytes(4, "little") + razao.to_bytes(2, "little")
+    return montar_quadro(seq, CMD_PWM_SET, payload)
+
+
+def montar_pwm_stop(seq, canal):
+    """PWM_STOP: payload [canal (u8)]. Aceita canal fora da faixa (casos invalidos)."""
+    if not 0 <= canal <= 0xFF:
+        raise ValueError("canal precisa caber em 1 byte")
+    return montar_quadro(seq, CMD_PWM_STOP, bytes([canal]))
+
+
+def calcular_pwm(canal, frequencia, razao):
+    """Espelho do Pwm_Calcula: (PSC, ARR, CCR) que a jiga aplica no timer do canal.
+
+    So aritmetica inteira, como no C: (a + b // 2) // b arredonda o meio para cima (o round() do
+    Python arredonda o meio para o par) e -(-a // b) e a divisao com teto. Fora da faixa: ValueError.
+    """
+    if canal not in PWM_CANAIS:
+        raise ValueError(f"canal {canal} nao existe (use {PWM_CANAIS})")
+    if not PWM_FREQUENCIA_MIN <= frequencia <= PWM_FREQUENCIA_MAX:
+        raise ValueError(f"frequencia fora de {PWM_FREQUENCIA_MIN} a {PWM_FREQUENCIA_MAX} Hz")
+    if not 0 <= razao <= PWM_RAZAO_MAX:
+        raise ValueError(f"razao fora de 0 a {PWM_RAZAO_MAX} (centesimos de %)")
+
+    clock, arr_max = PWM_TIMERS[canal]
+    periodo_max = arr_max + 1
+    contagens = (clock + frequencia // 2) // frequencia
+    divisor = max(1, -(-contagens // periodo_max))
+    if divisor > PWM_DIVISOR_MAX:
+        raise ValueError("frequencia baixa demais para o timer")
+    passo = divisor * frequencia
+    periodo = min((clock + passo // 2) // passo, periodo_max)
+    if periodo < 2:
+        raise ValueError("frequencia alta demais para o timer")
+    return divisor - 1, periodo - 1, (razao * periodo + PWM_RAZAO_MAX // 2) // PWM_RAZAO_MAX
+
+
+def porcento_para_razao(porcento):
+    """Razao ciclica em % (ex.: 12.34) -> centesimos de % do PWM_SET (1234)."""
+    return round(float(porcento) * 100)
+
+
+def pwm_gerado(canal, frequencia, razao):
+    """Frequencia (Hz) e razao ciclica (%) que o timer gera de fato: e o que o CT12 mede no pino.
+
+    A frequencia sai do clock dividido por (PSC + 1) x (ARR + 1) e a razao de CCR / (ARR + 1); as
+    duas diferem da pedida pelo arredondamento dos registradores (ex.: 50 Hz no TIM3 -> 49,9997 Hz).
+    """
+    psc, arr, ccr = calcular_pwm(canal, frequencia, razao)
+    clock, _ = PWM_TIMERS[canal]
+    return clock / ((psc + 1) * (arr + 1)), 100 * ccr / (arr + 1)
+
+
+def descrever_pwm(canal, frequencia, razao):
+    """Texto com os registradores e a forma de onda gerada, ex.: para mostrar antes de medir."""
+    psc, arr, ccr = calcular_pwm(canal, frequencia, razao)
+    gerada, porcento = pwm_gerado(canal, frequencia, razao)
+    return (f"PWM{canal} ({PWM_PINOS[canal]}): PSC={psc} ARR={arr} CCR={ccr} -> "
+            f"{gerada:.4f} Hz, {porcento:.2f} %".replace(".", ","))
+
+
 def codigo_para_tensao(valor):
     """Codigo de 12 bits do ADC/DAC -> tensao em V (referencia de 3,3 V)."""
     return valor * TENSAO_REFERENCIA / ADC_VALOR_MAX
@@ -338,8 +424,8 @@ class JigaSimulada:
     - SEQ do ultimo quadro respondido -> reenvia a resposta guardada, sem executar;
     - PING -> ACK com as versoes, na hora (inclusive com um comando pendente);
     - outro comando com um pendente -> NACK OCUPADO, sem guardar no cache;
-    - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ; codigo desconhecido
-      -> NACK CMD_DESCONHECIDO.
+    - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ, PWM_SET, PWM_STOP;
+      codigo desconhecido -> NACK CMD_DESCONHECIDO.
 
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
@@ -357,6 +443,7 @@ class JigaSimulada:
     gpio: dict = field(default_factory=lambda: {pino: 0 for pino in GPIO_SAIDAS})
     entradas: int = 0
     adc: dict = field(default_factory=lambda: {canal: 0 for canal in ADC_CANAIS})
+    pwm: dict = field(default_factory=lambda: {canal: (PWM_FREQUENCIA_PADRAO, 0) for canal in PWM_CANAIS})
 
     def nova_sessao(self):
         """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
@@ -407,6 +494,7 @@ class JigaSimulada:
                 return ERRO_PARAMETRO_INVALIDO, b""
             self.dac = {canal: 0 for canal in DAC_CANAIS}
             self.gpio = {pino: 0 for pino in GPIO_SAIDAS}
+            self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
             return 0, b""
         if quadro.cmd == CMD_DAC_SET:
             if len(payload) != 3:
@@ -429,6 +517,23 @@ class JigaSimulada:
             if len(payload) != 1 or payload[0] not in ADC_CANAIS:
                 return ERRO_PARAMETRO_INVALIDO, b""
             return 0, bytes([payload[0]]) + self.ler_adc(payload[0]).to_bytes(2, "little")
+        if quadro.cmd == CMD_PWM_SET:
+            if len(payload) != 7:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            canal = payload[0]
+            frequencia, razao = int.from_bytes(payload[1:5], "little"), int.from_bytes(payload[5:7], "little")
+            try:
+                calcular_pwm(canal, frequencia, razao)
+            except ValueError:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.pwm[canal] = (frequencia, razao)
+            return 0, b""
+        if quadro.cmd == CMD_PWM_STOP:
+            if len(payload) != 1 or payload[0] not in PWM_CANAIS:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            frequencia, _ = self.pwm[payload[0]]
+            self.pwm[payload[0]] = (frequencia, 0)
+            return 0, b""
         return ERRO_CMD_DESCONHECIDO, b""
 
     def _concluir_pendente(self):
@@ -740,6 +845,31 @@ CASOS_TESTE = [
     CasoTeste("ADC_READ sem payload", "falta o canal: NACK PARAMETRO_INVALIDO",
               [("enviar", montar_quadro(29, CMD_ADC_READ))],
               [QUADRO_OK], [montar_nack(29, CMD_ADC_READ, ERRO_PARAMETRO_INVALIDO)]),
+    # PWM (v0.6.0): a forma de onda e conferida no CT12 (multimetro ou osciloscopio no pino)
+    CasoTeste("PWM_SET valido", "PWM1 (PE9) em 1 kHz e 50 %: ACK",
+              [("enviar", montar_pwm_set(30, 1, 1000, 5000))],
+              [QUADRO_OK], [montar_ack(30, CMD_PWM_SET)]),
+    CasoTeste("PWM_SET canal invalido", "canal 4 nao existe: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_pwm_set(31, 4, 1000, 5000))],
+              [QUADRO_OK], [montar_nack(31, CMD_PWM_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("PWM_SET frequencia 0", "0 Hz (minimo 1 Hz): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_pwm_set(32, 1, 0, 5000))],
+              [QUADRO_OK], [montar_nack(32, CMD_PWM_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("PWM_SET frequencia alta", "100001 Hz (maximo 100 kHz): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_pwm_set(33, 1, PWM_FREQUENCIA_MAX + 1, 5000))],
+              [QUADRO_OK], [montar_nack(33, CMD_PWM_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("PWM_SET razao invalida", "razao 10001 (maximo 10000 = 100 %): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_pwm_set(34, 1, 1000, PWM_RAZAO_MAX + 1))],
+              [QUADRO_OK], [montar_nack(34, CMD_PWM_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("PWM_SET tamanho errado", "payload de 3 bytes (esperado 7): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(35, CMD_PWM_SET, bytes([0x01, 0xE8, 0x03])))],
+              [QUADRO_OK], [montar_nack(35, CMD_PWM_SET, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("PWM_STOP valido", "para o PWM1 (razao 0, PE9 em nivel baixo): ACK",
+              [("enviar", montar_pwm_stop(36, 1))],
+              [QUADRO_OK], [montar_ack(36, CMD_PWM_STOP)]),
+    CasoTeste("PWM_STOP canal invalido", "canal 0 nao existe: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_pwm_stop(37, 0))],
+              [QUADRO_OK], [montar_nack(37, CMD_PWM_STOP, ERRO_PARAMETRO_INVALIDO)]),
     # Com os jumpers (opcao de loopback): CT10 e CT11 da monografia
     _caso_ct10(1, 100),
     _caso_ct10(2, 122),
