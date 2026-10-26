@@ -32,6 +32,9 @@ python terminal_gui.py
 - Painel **Protocolo**: monta um quadro (SEQ automático, CMD e payload em hex; SOF, LEN e CRC são
   calculados) e executa os casos de teste do parser, um ou todos. Cada caso mostra o que a placa
   deve logar; para ver o resultado, abra uma segunda janela na porta do ST-Link.
+- Linha **I2C**: papel (escrava/mestre), endereço e velocidade com "Configurar" (I2C_CONFIG); registrador
+  inicial e dados em hex com "Carregar" (I2C_SLAVE_LOAD) e "Ler mapa" (I2C_SLAVE_DUMP), para preparar o
+  que o DUT vai ler e conferir o que ele escreveu. A transferência como mestre fica no terminal (`/i2c_xfer`).
 - Linha **PWM**: canal, frequência (1 Hz a 100 kHz) e razão cíclica (0 a 100 %, passo de 0,01 %),
   com "Aplicar PWM" (PWM_SET) e "Parar PWM" (PWM_STOP). Mostra o PSC, ARR e CCR que a jiga vai usar
   e a forma de onda que sai de fato no pino: é o valor de referência para medir no osciloscópio (CT12).
@@ -57,6 +60,10 @@ Durante a execução:
 | `/quadro 10 AA BB` | quadro com payload                   |
 | `/pwm 1 1000 50` | PWM1 (PE9) em 1000 Hz e 50 % (canal 1 a 3; razão aceita `12,34`) |
 | `/pwm_stop 1`    | para o PWM1 (razão 0, saída em nível baixo) |
+| `/i2c_config 0 50 0` | jiga escrava no 0x50 a 100 kHz (papel 0/1, endereço em hex, velocidade 0 = 100 kHz, 1 = 400 kHz) |
+| `/i2c_load 10 DE AD` | carrega `DE AD` no mapa a partir do registrador 0x10 |
+| `/i2c_dump 10 4` | lê 4 registradores do mapa a partir de 0x10 |
+| `/i2c_xfer 68 2 0F` | como mestre: escreve `0F` no dispositivo 0x68 e lê 2 bytes |
 | `/teste`         | lista os casos de teste do protocolo   |
 | `/teste 3`, `/teste todos` | envia um caso / todos (menos os de loopback) |
 | `/teste loopback` | envia todos, incluindo o CT10 e o CT11 |
