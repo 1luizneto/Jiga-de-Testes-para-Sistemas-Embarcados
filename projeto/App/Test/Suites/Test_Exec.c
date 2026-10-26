@@ -1,7 +1,7 @@
 /*
  * Test_Exec.c
  *
- * Testes do Exec com DAC, GPIO, ADC e timer falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
+ * Testes do Exec com DAC, GPIO, ADC, timer e barramento I2C falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
  * periferico foi ou nao acionado ("nenhuma saida alterada" do CT09), sem multimetro.
  */
 
@@ -12,6 +12,7 @@
 #include "AnalogIn.h"
 #include "DigitalIo.h"
 #include "Pwm.h"
+#include "I2cBus.h"
 
 /// Payload do PWM_SET: canal + frequencia (u32) + razao ciclica (u16)
 #define dEXEC_TESTE_PWM_SET_SIZE (7U)
@@ -114,6 +115,69 @@ static pwmReturn_t TimerFalso_Apply(uint8_t canal, const pwmConfig_t *config)
 	return timerFalso.retorno;
 }
 
+/// Registro das chamadas ao barramento I2C falso
+static struct i2cFalso
+{
+	uint8_t        configChamadas;
+	uint8_t        offChamadas;
+	uint8_t        xferChamadas;
+	uint8_t        papel;
+	uint8_t        endereco;
+	uint8_t        velocidade;
+	uint8_t        xferEndereco;
+	uint8_t        xferEscrita;   ///< 1o byte escrito
+	uint8_t        xferNw;
+	uint8_t        xferNr;
+	i2cBusReturn_t retornoXfer;   ///< simula falta de ACK do dispositivo
+} i2cFalso;
+
+static i2cBusReturn_t I2cFalso_Config(uint8_t papel, uint8_t endereco, uint8_t velocidade)
+{
+	i2cFalso.configChamadas++;
+	i2cFalso.papel      = papel;
+	i2cFalso.endereco   = endereco;
+	i2cFalso.velocidade = velocidade;
+
+	return eI2CBUS_RETURN_OK;
+}
+
+static i2cBusReturn_t I2cFalso_Off(void)
+{
+	i2cFalso.offChamadas++;
+
+	return eI2CBUS_RETURN_OK;
+}
+
+// Le 0xA0, 0xA1, ... do dispositivo
+static i2cBusReturn_t I2cFalso_Xfer(uint8_t endereco, const uint8_t *escrita, uint8_t nw, uint8_t *leitura, uint8_t nr)
+{
+	i2cFalso.xferChamadas++;
+	i2cFalso.xferEndereco = endereco;
+	i2cFalso.xferEscrita  = (nw > 0U) ? escrita[0] : 0U;
+	i2cFalso.xferNw       = nw;
+	i2cFalso.xferNr       = nr;
+
+	for (uint8_t i = 0U; i < nr; i++)
+	{
+		leitura[i] = (uint8_t)(0xA0U + i);
+	}
+
+	return i2cFalso.retornoXfer;
+}
+
+static void I2cFalso_Lock(void)
+{
+}
+
+static void I2cFalso_Unlock(void)
+{
+}
+
+static const i2cBusFunc_t i2cFalsoFunc =
+{
+	I2cFalso_Config, I2cFalso_Off, I2cFalso_Xfer, I2cFalso_Lock, I2cFalso_Unlock,
+};
+
 // Os modulos de periferico passam a usar os falsos. Na build Test nada mais usa o hardware, entao nao precisa restaurar.
 static void IniciaExec(void)
 {
@@ -129,6 +193,10 @@ static void IniciaExec(void)
 	memset(&timerFalso, 0, sizeof(timerFalso));
 	timerFalso.retorno = ePWM_RETURN_OK;
 	Pwm_Init(TimerFalso_Apply, timersExec);
+
+	memset(&i2cFalso, 0, sizeof(i2cFalso));
+	i2cFalso.retornoXfer = eI2CBUS_RETURN_OK;
+	I2cBus_Init(&i2cFalsoFunc);
 }
 
 static void MontaComando(commFrame_t *frame, uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t size)
@@ -219,7 +287,7 @@ void Test_Exec_DacSetTamanhoErrado(void)
 	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
 }
 
-// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo e os tres PWM parados
+// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo, os tres PWM parados e o I2C desligado
 void Test_Exec_ResetAll(void)
 {
 	commFrame_t frame;
@@ -248,6 +316,8 @@ void Test_Exec_ResetAll(void)
 		TEST_ASSERT_EQUAL_UINT8(i + 1U, timerFalso.canal[i]);
 		TEST_ASSERT_EQUAL_UINT32(0, timerFalso.config[i].comparacao);
 	}
+
+	TEST_ASSERT_EQUAL_UINT8(1, i2cFalso.offChamadas);
 }
 
 // 7. RESET_ALL com payload: NACK PARAMETRO_INVALIDO e nada e acionado
@@ -264,6 +334,7 @@ void Test_Exec_ResetAllComPayload(void)
 	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
 	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
 	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
+	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.offChamadas);
 }
 
 // 8. Comando desconhecido: NACK CMD_DESCONHECIDO e nada e acionado
@@ -573,4 +644,219 @@ void Test_Exec_PwmSetFalhaPeriferico(void)
 
 	Exec_Process(&frame, &result);
 	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PERIFERICO, result.erro);
+}
+
+// 27. I2C_CONFIG como escravo no 0x50 a 100 kHz: ACK e o barramento recebe os parametros
+void Test_Exec_I2cConfigValido(void)
+{
+	const uint8_t payload[] = {0x00, 0x50, 0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x30, dCOMM_CMD_I2C_CONFIG, payload, sizeof(payload));
+
+	TEST_ASSERT_EQUAL(eEXEC_RETURN_OK, Exec_Process(&frame, &result));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, i2cFalso.configChamadas);
+	TEST_ASSERT_EQUAL_UINT8(dI2CBUS_PAPEL_ESCRAVO, i2cFalso.papel);
+	TEST_ASSERT_EQUAL_HEX8(0x50, i2cFalso.endereco);
+	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.velocidade);
+}
+
+// 28. I2C_CONFIG com endereco reservado ou tamanho errado: NACK PARAMETRO_INVALIDO e o I2C nao e tocado
+void Test_Exec_I2cConfigInvalido(void)
+{
+	const uint8_t reservado[] = {0x00, 0x78, 0x00};
+	const uint8_t curto[]     = {0x00, 0x50};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x31, dCOMM_CMD_I2C_CONFIG, reservado, sizeof(reservado));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x32, dCOMM_CMD_I2C_CONFIG, curto, sizeof(curto));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.configChamadas);
+}
+
+// 29. I2C_SLAVE_LOAD de 3 bytes em 0x10 e I2C_SLAVE_DUMP de volta: ACK com os mesmos bytes
+void Test_Exec_I2cLoadDump(void)
+{
+	const uint8_t load[]     = {0x10, 0x03, 0x11, 0x22, 0x33};
+	const uint8_t dump[]     = {0x10, 0x03};
+	const uint8_t esperado[] = {0x11, 0x22, 0x33};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x33, dCOMM_CMD_I2C_SLAVE_LOAD, load, sizeof(load));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+
+	MontaComando(&frame, 0x34, dCOMM_CMD_I2C_SLAVE_DUMP, dump, sizeof(dump));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(3, result.size);
+	TEST_ASSERT_EQUAL_UINT8_ARRAY(esperado, result.dados, 3);
+}
+
+// 30. I2C_SLAVE_LOAD com quantidade que nao bate com o payload, sem quantidade ou alem do mapa: NACK, mapa intacto
+void Test_Exec_I2cLoadInvalido(void)
+{
+	const uint8_t faltaByte[] = {0x00, 0x03, 0xAA, 0xBB};   // diz 3, manda 2
+	const uint8_t semQtd[]    = {0x00};
+	const uint8_t alemMapa[]  = {0xFF, 0x02, 0xAA, 0xBB};   // 0xFF + 2 passa do fim do mapa
+	const uint8_t dump[]      = {0x00, 0x02};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x35, dCOMM_CMD_I2C_SLAVE_LOAD, faltaByte, sizeof(faltaByte));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x36, dCOMM_CMD_I2C_SLAVE_LOAD, semQtd, sizeof(semQtd));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x37, dCOMM_CMD_I2C_SLAVE_LOAD, alemMapa, sizeof(alemMapa));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x38, dCOMM_CMD_I2C_SLAVE_DUMP, dump, sizeof(dump));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[1]);
+}
+
+// 31. I2C_SLAVE_DUMP de 241 bytes (nao cabe na resposta), alem do fim do mapa ou sem quantidade: NACK sem dados
+void Test_Exec_I2cDumpInvalido(void)
+{
+	const uint8_t grande[]   = {0x00, 241};
+	const uint8_t alemMapa[] = {0xFF, 0x02};
+	const uint8_t semQtd[]   = {0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x39, dCOMM_CMD_I2C_SLAVE_DUMP, grande, sizeof(grande));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+
+	MontaComando(&frame, 0x3A, dCOMM_CMD_I2C_SLAVE_DUMP, alemMapa, sizeof(alemMapa));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+
+	MontaComando(&frame, 0x3B, dCOMM_CMD_I2C_SLAVE_DUMP, semQtd, sizeof(semQtd));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+}
+
+// 32. I2C_MASTER_XFER sem I2C_CONFIG de mestre: NACK NAO_CONFIGURADO e o barramento nao e tocado
+void Test_Exec_I2cXferNaoConfigurado(void)
+{
+	const uint8_t payload[] = {0x68, 0x01, 0x02, 0x0F};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x3C, dCOMM_CMD_I2C_MASTER_XFER, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.xferChamadas);
+}
+
+// 33. Como mestre, escreve o registrador 0x0F do 0x68 e le 2 bytes: ACK com os bytes lidos
+void Test_Exec_I2cXferValido(void)
+{
+	const uint8_t config[]  = {0x01, 0x00, 0x01};
+	const uint8_t payload[] = {0x68, 0x01, 0x02, 0x0F};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x3D, dCOMM_CMD_I2C_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+
+	MontaComando(&frame, 0x3E, dCOMM_CMD_I2C_MASTER_XFER, payload, sizeof(payload));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(2, result.size);
+	TEST_ASSERT_EQUAL_HEX8(0xA0, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8(0xA1, result.dados[1]);
+	TEST_ASSERT_EQUAL_HEX8(0x68, i2cFalso.xferEndereco);
+	TEST_ASSERT_EQUAL_HEX8(0x0F, i2cFalso.xferEscrita);
+	TEST_ASSERT_EQUAL_UINT8(1, i2cFalso.xferNw);
+	TEST_ASSERT_EQUAL_UINT8(2, i2cFalso.xferNr);
+}
+
+// 34. I2C_MASTER_XFER com nw que nao bate com o payload ou nr de 241: NACK e o barramento nao e tocado
+void Test_Exec_I2cXferInvalido(void)
+{
+	const uint8_t config[]    = {0x01, 0x00, 0x00};
+	const uint8_t faltaByte[] = {0x68, 0x02, 0x01, 0x0F};   // diz nw = 2, manda 1
+	const uint8_t nrGrande[]  = {0x68, 0x00, 241};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x3F, dCOMM_CMD_I2C_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+
+	MontaComando(&frame, 0x40, dCOMM_CMD_I2C_MASTER_XFER, faltaByte, sizeof(faltaByte));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x41, dCOMM_CMD_I2C_MASTER_XFER, nrGrande, sizeof(nrGrande));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.xferChamadas);
+}
+
+// 35. Dispositivo que nao responde (falta de ACK): NACK ERRO_PERIFERICO e sem dados
+void Test_Exec_I2cXferSemAck(void)
+{
+	const uint8_t config[]  = {0x01, 0x00, 0x00};
+	const uint8_t payload[] = {0x68, 0x00, 0x01};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x42, dCOMM_CMD_I2C_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+	i2cFalso.retornoXfer = eI2CBUS_RETURN_NACK;
+
+	MontaComando(&frame, 0x43, dCOMM_CMD_I2C_MASTER_XFER, payload, sizeof(payload));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PERIFERICO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+}
+
+// 36. RESET_ALL zera o mapa do escravo: um teste nao herda os registradores do anterior
+void Test_Exec_ResetAllZeraMapaI2c(void)
+{
+	const uint8_t load[] = {0x00, 0x01, 0x5A};
+	const uint8_t dump[] = {0x00, 0x01};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x44, dCOMM_CMD_I2C_SLAVE_LOAD, load, sizeof(load));
+	Exec_Process(&frame, &result);
+	MontaComando(&frame, 0x45, dCOMM_CMD_RESET_ALL, NULL, 0);
+	Exec_Process(&frame, &result);
+	MontaComando(&frame, 0x46, dCOMM_CMD_I2C_SLAVE_DUMP, dump, sizeof(dump));
+	Exec_Process(&frame, &result);
+
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_HEX8(0x00, result.dados[0]);
 }
