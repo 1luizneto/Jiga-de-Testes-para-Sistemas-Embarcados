@@ -18,6 +18,8 @@ Comandos digitados durante a execucao:
     /hex 7E 01 02    envia os bytes em hexadecimal
     /quadro 01       envia um quadro do protocolo (CMD em hex; SEQ automatico)
     /quadro 10 AA BB quadro com payload em hex
+    /pwm 1 1000 50   PWM1 (PE9) em 1000 Hz e 50 % (canal 1 a 3; razao aceita 12,34)
+    /pwm_stop 1      para o PWM1 (razao 0, saida em nivel baixo)
     /teste           lista os casos de teste do protocolo
     /teste 3         envia o caso 3 (/teste todos envia todos, menos os de loopback)
     /teste loopback  envia todos, incluindo o CT10 e o CT11 (jumpers ligados)
@@ -36,8 +38,8 @@ import serial
 from serial.tools import list_ports
 
 from protocolo import (
-    CASOS_TESTE, QUADRO_OK, ReceptorQuadros, casos_a_executar, descrever_log, interpretar_resposta,
-    montar_quadro,
+    CASOS_TESTE, QUADRO_OK, ReceptorQuadros, casos_a_executar, descrever_log, descrever_pwm,
+    interpretar_resposta, montar_pwm_set, montar_pwm_stop, montar_quadro, porcento_para_razao,
 )
 from versao import __version__
 
@@ -87,6 +89,17 @@ def formatar_hex(dados):
 def interpretar_hex(texto):
     """Converte '7E 01 0a' ou '7E010A' em bytes."""
     return bytes.fromhex(texto.replace(",", " ").replace("0x", "").replace("0X", ""))
+
+
+def interpretar_pwm(texto):
+    """'1 1000 12,5' -> (canal, frequencia em Hz, razao em centesimos de %): (1, 1000, 1250).
+
+    Nao confere a faixa do PWM: um valor invalido vai para a jiga, que responde NACK.
+    """
+    campos = texto.split()
+    if len(campos) != 3:
+        raise ValueError("uso: /pwm canal frequencia razao")
+    return int(campos[0]), int(campos[1]), porcento_para_razao(campos[2].replace(",", "."))
 
 
 class Terminal:
@@ -214,6 +227,27 @@ class Terminal:
         self.seq = (self.seq + 1) & 0xFF
         self.enviar(quadro)
 
+    def enviar_pwm(self, argumentos, parar=False):
+        """'/pwm canal frequencia razao' ou '/pwm_stop canal': monta o quadro com SEQ automatico."""
+        try:
+            if parar:
+                canal = int(argumentos)
+                quadro = montar_pwm_stop(self.seq, canal)
+                descricao = f"PWM{canal} parado"
+            else:
+                canal, frequencia, razao = interpretar_pwm(argumentos)
+                quadro = montar_pwm_set(self.seq, canal, frequencia, razao)
+                try:
+                    descricao = descrever_pwm(canal, frequencia, razao)
+                except ValueError as e:
+                    descricao = f"fora da faixa ({e}): a jiga deve responder NACK"
+        except ValueError:
+            self.exibir("*** uso: /pwm canal frequencia razao (ex.: /pwm 1 1000 50) ou /pwm_stop canal ***")
+            return
+        self.exibir(f"*** SEQ={self.seq} {descricao} ***")
+        self.seq = (self.seq + 1) & 0xFF
+        self.enviar(quadro)
+
     def executar_casos(self, argumento):
         """'/teste': lista os casos; '/teste N', '/teste todos' ou '/teste loopback' envia.
 
@@ -251,6 +285,10 @@ class Terminal:
             self.exibir(f"*** modo: {self.modo} ***")
         elif linha.startswith("/quadro"):
             self.enviar_quadro(linha[7:])
+        elif linha.startswith("/pwm_stop"):
+            self.enviar_pwm(linha[9:].strip(), parar=True)
+        elif linha.startswith("/pwm"):
+            self.enviar_pwm(linha[4:].strip())
         elif linha.startswith("/teste"):
             self.executar_casos(linha[6:].strip())
         elif linha.startswith("/hex"):
