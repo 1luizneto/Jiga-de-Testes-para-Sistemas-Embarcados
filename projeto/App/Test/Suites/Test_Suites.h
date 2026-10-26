@@ -63,6 +63,13 @@ void Test_Exec_AdcReadValido(void);
 void Test_Exec_AdcReadCanalInvalido(void);
 void Test_Exec_AdcReadTamanhoErrado(void);
 void Test_Exec_AdcReadFalhaPeriferico(void);
+void Test_Exec_PwmSetValido(void);
+void Test_Exec_PwmSetFrequenciaU32(void);
+void Test_Exec_PwmSetParametroInvalido(void);
+void Test_Exec_PwmSetTamanhoErrado(void);
+void Test_Exec_PwmStopValido(void);
+void Test_Exec_PwmStopInvalido(void);
+void Test_Exec_PwmSetFalhaPeriferico(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);

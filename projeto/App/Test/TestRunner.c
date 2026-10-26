@@ -71,6 +71,13 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_AdcReadCanalInvalido);
 		RUN_TEST(Test_Exec_AdcReadTamanhoErrado);
 		RUN_TEST(Test_Exec_AdcReadFalhaPeriferico);
+		RUN_TEST(Test_Exec_PwmSetValido);
+		RUN_TEST(Test_Exec_PwmSetFrequenciaU32);
+		RUN_TEST(Test_Exec_PwmSetParametroInvalido);
+		RUN_TEST(Test_Exec_PwmSetTamanhoErrado);
+		RUN_TEST(Test_Exec_PwmStopValido);
+		RUN_TEST(Test_Exec_PwmStopInvalido);
+		RUN_TEST(Test_Exec_PwmSetFalhaPeriferico);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
