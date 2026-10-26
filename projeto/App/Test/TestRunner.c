@@ -78,6 +78,16 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_PwmStopValido);
 		RUN_TEST(Test_Exec_PwmStopInvalido);
 		RUN_TEST(Test_Exec_PwmSetFalhaPeriferico);
+		RUN_TEST(Test_Exec_I2cConfigValido);
+		RUN_TEST(Test_Exec_I2cConfigInvalido);
+		RUN_TEST(Test_Exec_I2cLoadDump);
+		RUN_TEST(Test_Exec_I2cLoadInvalido);
+		RUN_TEST(Test_Exec_I2cDumpInvalido);
+		RUN_TEST(Test_Exec_I2cXferNaoConfigurado);
+		RUN_TEST(Test_Exec_I2cXferValido);
+		RUN_TEST(Test_Exec_I2cXferInvalido);
+		RUN_TEST(Test_Exec_I2cXferSemAck);
+		RUN_TEST(Test_Exec_ResetAllZeraMapaI2c);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -119,6 +129,24 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Pwm_SafeStateComFalha);
 		RUN_TEST(Test_Pwm_FalhaNaoGuardaConfig);
 		RUN_TEST(Test_Pwm_ArgumentosInvalidos);
+
+		RUN_TEST(Test_I2cBus_InitInvalido);
+		RUN_TEST(Test_I2cBus_ConfigEscravo);
+		RUN_TEST(Test_I2cBus_ConfigInvalido);
+		RUN_TEST(Test_I2cBus_ConfigMestreIgnoraEndereco);
+		RUN_TEST(Test_I2cBus_ConfigFalhaBsp);
+		RUN_TEST(Test_I2cBus_LoadDump);
+		RUN_TEST(Test_I2cBus_LoadDumpInvalido);
+		RUN_TEST(Test_I2cBus_LoadSemConfigTrava);
+		RUN_TEST(Test_I2cBus_EscritaDoDut);
+		RUN_TEST(Test_I2cBus_LeituraDoDut);
+		RUN_TEST(Test_I2cBus_PonteiroEntreLeituras);
+		RUN_TEST(Test_I2cBus_FimLeituraDevolveByte);
+		RUN_TEST(Test_I2cBus_PonteiroVolta);
+		RUN_TEST(Test_I2cBus_MasterXferNaoConfigurado);
+		RUN_TEST(Test_I2cBus_MasterXfer);
+		RUN_TEST(Test_I2cBus_SafeState);
+		RUN_TEST(Test_I2cBus_SafeStateComFalha);
 
 	UNITY_END();
 

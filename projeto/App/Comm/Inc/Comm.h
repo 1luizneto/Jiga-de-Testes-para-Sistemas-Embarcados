@@ -32,14 +32,18 @@
 
 // Codigos de comando
 // Codigos de comando
-#define dCOMM_CMD_PING      (0x01U)
-#define dCOMM_CMD_RESET_ALL (0x02U)
-#define dCOMM_CMD_DAC_SET   (0x10U)
-#define dCOMM_CMD_GPIO_SET  (0x20U)
-#define dCOMM_CMD_GPIO_READ (0x21U)
-#define dCOMM_CMD_ADC_READ  (0x40U)
-#define dCOMM_CMD_PWM_SET   (0x30U)
-#define dCOMM_CMD_PWM_STOP  (0x31U)
+#define dCOMM_CMD_PING            (0x01U)
+#define dCOMM_CMD_RESET_ALL       (0x02U)
+#define dCOMM_CMD_DAC_SET         (0x10U)
+#define dCOMM_CMD_GPIO_SET        (0x20U)
+#define dCOMM_CMD_GPIO_READ       (0x21U)
+#define dCOMM_CMD_ADC_READ        (0x40U)
+#define dCOMM_CMD_PWM_SET         (0x30U)
+#define dCOMM_CMD_PWM_STOP        (0x31U)
+#define dCOMM_CMD_I2C_CONFIG      (0x50U)
+#define dCOMM_CMD_I2C_SLAVE_LOAD  (0x51U)
+#define dCOMM_CMD_I2C_SLAVE_DUMP  (0x52U)
+#define dCOMM_CMD_I2C_MASTER_XFER (0x53U)
 
 // ACK: CMD de requisicao com o bit 7 ligado
 #define dCOMM_ACK_FLAG (0x80U)
