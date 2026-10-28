@@ -7,12 +7,15 @@ import pytest
 
 from protocolo import (
     CASOS_TESTE, CMD_ADC_READ, CMD_DAC_SET, CMD_GPIO_READ, CMD_GPIO_SET, CMD_INEXISTENTE, CMD_PING,
-    CMD_PWM_SET, CMD_PWM_STOP, CMD_RESET_ALL, DAC_FAIXA_UTIL, DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO,
-    ERRO_CRC, ERRO_LEN, ERRO_OCUPADO, ERRO_PARAMETRO_INVALIDO, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX,
+    CMD_I2C_CONFIG, CMD_I2C_MASTER_XFER, CMD_I2C_SLAVE_DUMP, CMD_I2C_SLAVE_LOAD, CMD_PWM_SET, CMD_PWM_STOP,
+    CMD_RESET_ALL, DAC_FAIXA_UTIL, DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO,
+    ERRO_CRC, ERRO_LEN, ERRO_NAO_CONFIGURADO, ERRO_OCUPADO, ERRO_PERIFERICO, I2C_PAPEL_ESCRAVO,
+    I2C_PAPEL_MESTRE, ERRO_PARAMETRO_INVALIDO, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX,
     PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_PADRAO, PWM_RAZAO_MAX, QUADRO_OK, SOF, TAMANHO_QUADRO_MAX, TIMEOUT,
     TOLERANCIA_ADC, JigaSimulada, Quadro, ReceptorQuadros, avaliar_caso, calcular_pwm, casos_a_executar,
     crc16_ccitt, descrever_log, descrever_pwm, descrever_resposta, descrever_respostas, interpretar_resposta,
-    montar_ack, montar_ack_ping, montar_adc_read, montar_dac_set, montar_gpio_read, montar_gpio_set, montar_nack,
+    montar_ack, montar_ack_ping, montar_adc_read, montar_dac_set, montar_gpio_read, montar_gpio_set,
+    montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_nack,
     montar_pwm_set, montar_pwm_stop, montar_quadro, pontos_ct10, porcento_para_razao, pwm_gerado,
     resultado_do_log, simular, simular_caso,
 )
@@ -445,6 +448,76 @@ def test_jiga_pwm_parametro_invalido_nao_altera_saida(quadro):
     [(_, nack)] = ReceptorQuadros().processar(resposta)
     assert interpretar_resposta(nack).erro == ERRO_PARAMETRO_INVALIDO
     assert jiga.pwm == {1: (PWM_FREQUENCIA_PADRAO, 0), 2: (20_000, 1234), 3: (PWM_FREQUENCIA_PADRAO, 0)}
+
+
+# --- I2C ----------------------------------------------------------------------
+
+def test_quadros_i2c():
+    assert montar_i2c_config(1, I2C_PAPEL_ESCRAVO, 0x50, 1)[1:7] == bytes([3, 1, CMD_I2C_CONFIG, 0x00, 0x50, 0x01])
+    assert montar_i2c_load(2, 0x10, b"\xde\xad")[1:8] == bytes([4, 2, CMD_I2C_SLAVE_LOAD, 0x10, 2, 0xDE, 0xAD])
+    assert montar_i2c_dump(3, 0xFE, 2)[1:6] == bytes([2, 3, CMD_I2C_SLAVE_DUMP, 0xFE, 2])
+    assert montar_i2c_xfer(4, 0x68, b"\x0f", 6)[1:8] == bytes([4, 4, CMD_I2C_MASTER_XFER, 0x68, 1, 6, 0x0F])
+
+
+@pytest.mark.parametrize("montar", [
+    lambda: montar_i2c_config(1, 256, 0x50, 0), lambda: montar_i2c_load(1, 0, bytes(256)),
+    lambda: montar_i2c_dump(1, -1, 1), lambda: montar_i2c_xfer(1, 0x68, b"", 256),
+], ids=["papel 256", "load 256 bytes", "dump offset -1", "xfer nr 256"])
+def test_i2c_fora_de_u8(montar):
+    with pytest.raises(ValueError):
+        montar()
+
+
+def _resposta(jiga, quadro):
+    _, resposta = jiga.processar(quadro)
+    [(_, recebido)] = ReceptorQuadros().processar(resposta)
+    return interpretar_resposta(recebido)
+
+
+def test_jiga_i2c_load_dump_sem_config_e_reset_all():
+    """O mapa funciona com o barramento desligado; o RESET_ALL desliga e zera."""
+    jiga = JigaSimulada()
+    assert jiga.processar(montar_i2c_load(1, 0xFC, b"\x01\x02\x03\x04"))[1] == montar_ack(1, CMD_I2C_SLAVE_LOAD)
+    assert _resposta(jiga, montar_i2c_dump(2, 0xFB, 5)).dados == b"\x00\x01\x02\x03\x04"
+    jiga.processar(montar_i2c_config(3, I2C_PAPEL_ESCRAVO, 0x50, 0))
+    assert jiga.i2c_papel == I2C_PAPEL_ESCRAVO
+    jiga.processar(montar_quadro(4, CMD_RESET_ALL))
+    assert jiga.i2c_papel is None
+    assert jiga.i2c_mapa == bytearray(256)
+
+
+@pytest.mark.parametrize("quadro", [
+    montar_i2c_config(1, 2, 0x50, 0),                               # papel 2
+    montar_i2c_config(1, I2C_PAPEL_ESCRAVO, 0x07, 0),               # endereco reservado
+    montar_i2c_config(1, I2C_PAPEL_ESCRAVO, 0x50, 2),               # velocidade 2
+    montar_quadro(1, CMD_I2C_CONFIG, bytes([0, 0x50])),             # tamanho 2
+    montar_i2c_load(1, 0xFF, b"\x01\x02"),                          # alem do mapa
+    montar_quadro(1, CMD_I2C_SLAVE_LOAD, bytes([0, 3, 0xAA])),      # quantidade nao bate
+    montar_quadro(1, CMD_I2C_SLAVE_LOAD, bytes([0, 0])),            # quantidade 0
+    montar_i2c_dump(1, 0, 241),                                     # nao cabe na resposta
+    montar_i2c_dump(1, 0xFF, 2),                                    # alem do mapa
+    montar_quadro(1, CMD_I2C_MASTER_XFER, bytes([0x68, 2, 0, 1])),  # nw nao bate
+    montar_i2c_xfer(1, 0x68, b"", 0),                               # nw + nr = 0
+], ids=["papel 2", "endereco 0x07", "velocidade 2", "config tamanho 2", "load alem do mapa", "load qtd errada",
+        "load qtd 0", "dump 241", "dump alem do mapa", "xfer nw errado", "xfer vazio"])
+def test_jiga_i2c_parametro_invalido_nao_altera(quadro):
+    """CT09 com o I2C: NACK PARAMETRO_INVALIDO, mapa e papel intactos."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_i2c_load(9, 0x00, b"\x77"))
+    assert _resposta(jiga, quadro).erro == ERRO_PARAMETRO_INVALIDO
+    assert jiga.i2c_mapa[0] == 0x77 and jiga.i2c_papel is None
+
+
+def test_jiga_i2c_mestre():
+    """Sem mestre: NAO_CONFIGURADO; endereco sem dispositivo: falta de ACK; com dispositivo: le e escreve."""
+    jiga = JigaSimulada()
+    assert _resposta(jiga, montar_i2c_xfer(1, 0x68, b"\x0f", 1)).erro == ERRO_NAO_CONFIGURADO
+    jiga.processar(montar_i2c_config(2, I2C_PAPEL_MESTRE, 0, 1))
+    assert _resposta(jiga, montar_i2c_xfer(3, 0x68, b"\x0f", 1)).erro == ERRO_PERIFERICO
+    jiga.i2c_dispositivos[0x68] = bytearray(range(256))
+    assert _resposta(jiga, montar_i2c_xfer(4, 0x68, b"\x0f", 2)).dados == b"\x0f\x10"
+    assert _resposta(jiga, montar_i2c_xfer(5, 0x68, b"\x20\xaa\xbb")).dados == b""
+    assert jiga.i2c_dispositivos[0x68][0x20:0x22] == b"\xaa\xbb"
 
 
 def test_jiga_ocupado_no_mesmo_bloco():
