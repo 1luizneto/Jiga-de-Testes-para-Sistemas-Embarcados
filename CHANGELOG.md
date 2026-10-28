@@ -7,6 +7,36 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.7.0] - 2026-10-28
+
+Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação no barramento**: o CT20
+(DUT de referência lendo a jiga escrava) fica para a 0.8.1, junto com o escravo SPI.
+
+### Adicionado
+- Firmware: módulo `I2cBus` (sem HAL): mapa de 256 registradores no padrão de uma EEPROM 24C02 (na escrita
+  do DUT, o 1º byte é o ponteiro e os seguintes são gravados com auto-incremento; a leitura sai a partir
+  do ponteiro; depois de 0xFF volta a 0x00), configuração (papel, endereço de 0x08 a 0x77, 100/400 kHz),
+  carga e leitura do mapa, transferência como mestre e estado seguro. 17 testes Unity com barramento falso.
+- Firmware: `Bsp_I2c` (I2C2, PF0 = SDA, PF1 = SCL): escravo byte a byte pelos callbacks do HAL, na ISR,
+  sem task (`I2CEmulationTask` dispensada); mestre por polling, com repeated start em leitura de
+  registrador. Na leitura do DUT, devolve ao mapa o byte que o F7 busca a mais (descartado no NACK final).
+- Firmware: comandos `I2C_CONFIG` (0x50), `I2C_SLAVE_LOAD` (0x51), `I2C_SLAVE_DUMP` (0x52) e
+  `I2C_MASTER_XFER` (0x53). O mapa funciona sem `I2C_CONFIG` (o PC carrega antes de ligar o escravo);
+  transferência sem papel de mestre → NACK NAO_CONFIGURADO; dispositivo sem ACK → NACK ERRO_PERIFERICO.
+  10 testes Unity novos no `Exec` (117 no total).
+- Software: `protocolo.py` conhece os quatro comandos (`montar_i2c_config`, `_load`, `_dump`, `_xfer`); a
+  `JigaSimulada` simula o mapa, o papel e dispositivos escravos no barramento.
+- Software: 9 casos de teste novos (46 no total, 43 sem loopback): configuração válida e inválida, LOAD e
+  DUMP de ida e volta, limites do mapa e da resposta, transferência sem mestre e RESET_ALL zerando o mapa.
+- Software: `/i2c_config`, `/i2c_load`, `/i2c_dump` e `/i2c_xfer` no terminal; linha I2C na GUI
+  (Configurar, Carregar e Ler mapa).
+- Software: 38 testes pytest novos (246 no total).
+
+### Alterado
+- Firmware: interrupções de evento e de erro do I2C2 habilitadas (prioridade 5).
+- Firmware: o `RESET_ALL` (`Exec_SafeState`) também desliga o I2C e zera o mapa; no boot o I2C fica
+  desligado (PF0/PF1 soltos) até o `I2C_CONFIG`.
+
 ## [0.6.0] - 2026-10-26
 
 ### Adicionado
@@ -158,7 +188,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.6.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.3.0...v0.4.0

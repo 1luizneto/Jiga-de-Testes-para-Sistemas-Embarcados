@@ -1,4 +1,4 @@
-# Contexto: Jiga de Testes para Sistemas Embarcados (TCC) — atualizado em 26/10/2026
+# Contexto: Jiga de Testes para Sistemas Embarcados (TCC) — atualizado em 28/10/2026
 
 ## Forma de trabalho (IMPORTANTE)
 - Prefiro entender e implementar eu mesmo. Me oriente com perguntas, revisões e roteiros
@@ -24,17 +24,17 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   (firmware em `projeto/`, app Python em `Software/`)
 - A monografia (`Texto/TCC_Monografia`, raiz `documento.tex`) NÃO está no git: copiar à parte.
 
-## Estado do git/GitHub (26/10/2026)
+## Estado do git/GitHub (28/10/2026)
 - Tags/releases: **v0.1.0** (USB com stream buffer), **v0.2.0** (parser de quadros), **v0.3.0** (respostas
   ACK/NACK), **v0.4.0** (fila CommTask ↔ TestExecTask, `RESET_ALL`, `DAC_SET`), **v0.5.0** (`GPIO_SET`,
-  `GPIO_READ`, `ADC_READ`, CT10 e CT11).
-- **v0.6.0** (`PWM_SET`, `PWM_STOP`, CT12) fechada no branch **`feat_pwm`**: versão em 0.6.0 nos 3 lugares;
-  90 Unity, 34/34 casos HIL sem loopback (com o firmware 0.5.0 no PING) e CT12 no osciloscópio passaram.
-  Falta: gravar Test e Debug com a versão nova, `teste_protocolo.py` (34/34 com `firmware 0.6.0`), PR →
-  `main`, merge, `git tag -a v0.6.0` no `main`, push da tag e release (pela página do GitHub, o notebook
-  da empresa não tem o `gh`).
-- Depois do merge: branch da v0.7.0 **a partir do `main` atualizado** (`git checkout main && git pull &&
-  git checkout -b feat_i2c`). Branch criado de `main` desatualizado já deu problema uma vez.
+  `GPIO_READ`, `ADC_READ`, CT10 e CT11), **v0.6.0** (`PWM_SET`, `PWM_STOP`, CT12).
+- **v0.7.0** (I2C escravo e mestre, 0x50–0x53, sem validação no barramento) fechada no branch
+  **`feat_i2c`**: versão em 0.7.0 nos 3 lugares; 117 Unity e 43/43 casos HIL (com o firmware 0.6.0 no
+  PING) passaram. Falta: gravar Test e Debug com a versão nova, `teste_protocolo.py` (43/43 com
+  `firmware 0.7.0`), PR → `main`, merge, `git tag -a v0.7.0` no `main`, push da tag e release (pela página
+  do GitHub, o notebook da empresa não tem o `gh`).
+- Depois do merge: branch da v0.8.0 **a partir do `main` atualizado** (`git checkout main && git pull &&
+  git checkout -b feat_spi-uart`). Branch criado de `main` desatualizado já deu problema uma vez.
 - Mensagem de commit: só o texto entre aspas (o commit `ca7c6e9` saiu com `git commit -m "..."` dentro
   da mensagem; ficou assim porque já estava no `origin`).
 - Logs da CommTask usam o prefixo `[TASK -> COMM]`, os da TestExecTask `[TASK -> EXEC]`; o `LOG_FIRMWARE`
@@ -65,6 +65,9 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - PWM: PWM1 = PE9 (TIM1_CH1, 216 MHz, 16 bits), PWM2 = PA0 (TIM2_CH1, 108 MHz, 32 bits), PWM3 = PA6
   (TIM3_CH1, 108 MHz, 16 bits); PWM mode 1, preload do ARR ligado. Clock dos timers = 2 × PCLK (APB1 = /4,
   APB2 = /2, TIMPRE = 0), lido do RCC pela `Bsp_Pwm` (log no boot)
+- I2C2: PF0 = SDA, PF1 = SCL (CN9), open-drain **sem pull interno**: pull-ups externos de ~4,7 kΩ para o
+  3V3 da Nucleo. IRQs de evento e de erro na prioridade 5. Timing (clock de 54 MHz): `0x20404768` = 100 kHz
+  (o do `.ioc`), `0x6000030D` = 400 kHz (calculado pelo CubeMX, fica na tabela da `Bsp_I2c`)
 - Loopback dos testes (jumpers): PA4→PA3, PA5→PC0 (CT10); PC8→PC12, PC9→PD2, PC10→PG2, PC11→PG3 (CT11).
   Planejado (opção G, ainda não montado): filtro RC PA6 → 10 kΩ → A2 (PC3) com 10 µF ao GND, para
   conferir a razão cíclica do PWM3 pelo ADC (média = 3,3 V × razão; τ = 0,1 s, esperar ~0,5 s)
@@ -78,6 +81,9 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 | TestExecTask | Executa os comandos (`Exec_Process`): bloqueada na `comandoQueue`, devolve na `resultadoQueue` | AboveNormal | Permanente |
 | I2C/SPI/UARTEmulationTask | Emulação de escravos | High | Sob demanda, alocação estática, auto-encerram com handshake |
 
+- **I2C sem task (v0.7.0)**: o escravo I2C roda nos callbacks do HAL (ISR do I2C2), byte a byte; uma task
+  só poria uma troca de contexto no meio de cada byte. A `I2CEmulationTask` foi dispensada (mudar o texto
+  da monografia). Decidir o mesmo para o SPI e a UART na v0.8.0
 - As prioridades já seguem a monografia (3.5.2): emulações > TestExecTask > CommTask
 - Filas de 1 elemento, criadas no `.ioc` (Tasks and Queues), alocação **estática**: `comandoQueue`
   (`commFrame_t`) e `resultadoQueue` (`execResult_t`)
@@ -98,6 +104,11 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   `7E 03 14 10 01 00 08 33 E0`; ACK do ADC_READ SEQ=3, canal 0, 2047 = `7E 03 03 C0 00 FF 07 9E EE`;
   PWM_SET SEQ=4, canal 1, 1 kHz, 50 % = `7E 07 04 30 01 E8 03 00 00 88 13 5A 47`; PWM_STOP SEQ=5, canal 1
   = `7E 01 05 31 01 01 3F` (os dois validados na placa)
+- I2C (v0.7.0): I2C_CONFIG (0x50, [papel u8 0 escravo/1 mestre][endereço de 7 bits u8, 0x08–0x77, ignorado
+  como mestre][velocidade u8 0 = 100 kHz/1 = 400 kHz]), I2C_SLAVE_LOAD (0x51, [offset u8][quantidade
+  u8][dados]), I2C_SLAVE_DUMP (0x52, [offset u8][quantidade u8, até 240] → ACK com os bytes),
+  I2C_MASTER_XFER (0x53, [endereço u8][nw u8][nr u8, até 240][nw bytes] → ACK com os nr bytes lidos).
+  Ex.: I2C_CONFIG SEQ=0, escravo 0x50, 100 kHz = `7E 03 00 50 00 50 00 74 BB`
 - Códigos de erro do NACK (Apêndice A, `commError_t`): 0x01 CMD_DESCONHECIDO, 0x02 PARAMETRO_INVALIDO,
   0x03 NAO_CONFIGURADO, 0x04 CRC_INVALIDO, 0x05 TAMANHO_EXCEDIDO, 0x06 ERRO_PERIFERICO, 0x07 OCUPADO,
   0x08 ROTINA_INVALIDA, 0x09 SEM_RESULTADO
@@ -164,12 +175,26 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   é guardada no `Pwm` se a BSP aplicou.
 - **Espelhos no Python conferidos pelos mesmos vetores do Unity**: CRC (`Test_Crc16.c`) e cálculo do PWM
   (`Test_Pwm.c` ↔ `calcular_pwm`). Se o C e o Python divergirem, o pytest quebra.
+- **Escravo I2C (v0.7.0)**: mapa de 256 registradores no padrão de uma EEPROM 24C02 (na escrita do DUT,
+  o 1º byte é o ponteiro e os seguintes são gravados com auto-incremento; a leitura sai a partir do
+  ponteiro; depois de 0xFF volta a 0x00; leitura sem escrita continua de onde parou). `LOAD`/`DUMP`
+  funcionam **sem `I2C_CONFIG`** (o PC carrega antes de ligar o escravo e o DUT nunca lê lixo). Estado seguro
+  (boot e `RESET_ALL`): I2C desligado (`HAL_I2C_DeInit`, pinos soltos) e **mapa zerado**. A task copia o
+  mapa com a IRQ de evento do I2C2 desligada (lock da BSP); o DUT espera com o SCL segurado.
+- **Byte a mais na leitura do DUT (F7)**: o TXDR é recarregado assim que o byte anterior começa a sair;
+  no NACK final o HAL descarta o recarregado e chama o `SlaveTxCpltCallback` com o `TXIS` apagado. A
+  `Bsp_I2c` distingue os dois casos pelo `TXIS` e chama `I2cBus_FimLeitura()` (devolve o ponteiro) uma vez
+  por leitura. **Ponto mais arriscado da versão: só se confirma com o DUT (CT20)**.
+- **Mestre I2C por polling** na TestExecTask: escrita de 1 ou 2 bytes + leitura = `HAL_I2C_Mem_Read` (com
+  repeated start); escrita maior + leitura = duas transações, com STOP entre elas. Timeout de 50 ms;
+  falta de ACK → NACK ERRO_PERIFERICO; sem papel de mestre → NAO_CONFIGURADO.
 - **DebugLog com lock**: o `DebugLog_Init` recebe send/lock/unlock da BSP; o lock cobre a formatação no
   `printfBuffer` E o envio (antes, duas tasks podiam misturar mensagens). Não chamar de ISR.
 
 ## Organização do código (`projeto/`)
-- `App/Comm` (Comm, DebugLog), `App/System` (Crc16, Usb, AnalogOut, AnalogIn, DigitalIo, Pwm, Version.h),
-  `App/Exec` (Exec), `App/Hal_Wrapper` (Bsp, Bsp_Crc, Bsp_Usb, Bsp_Uart, Bsp_Dac, Bsp_Gpio, Bsp_Adc, Bsp_Pwm),
+- `App/Comm` (Comm, DebugLog), `App/System` (Crc16, Usb, AnalogOut, AnalogIn, DigitalIo, Pwm, I2cBus,
+  Version.h), `App/Exec` (Exec), `App/Hal_Wrapper` (Bsp, Bsp_Crc, Bsp_Usb, Bsp_Uart, Bsp_Dac, Bsp_Gpio,
+  Bsp_Adc, Bsp_Pwm, Bsp_I2c),
   `App/Test` (Unity, TestRunner, Suites)
 - As funções do `DigitalIo` usam o prefixo `DigitalIO_` (O maiúsculo; escolha do Luiz), os tipos e enums
   `digitalIo…`/`eDIGITALIO_…`
@@ -178,9 +203,10 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   pelo mesmo `_Init` (ex.: DAC falso no `Test_Exec.c`).
 - **Nomes de módulo de `App` não podem repetir um periférico do CubeMX** (Windows não diferencia
   maiúsculas: `Dac.h` colidiu com `Core/Inc/dac.h`). Planejado: `AnalogOut` (DAC), `AnalogIn` (ADC),
-  `DigitalIo` (GPIO), `Pwm`, `I2cSlave`, `SpiSlave`, `UartEmu`. `Bsp_Xxx` pode, o prefixo evita a colisão.
+  `DigitalIo` (GPIO), `Pwm`, `I2cBus` (escravo e mestre; `I2c.h` colidiria com `i2c.h`), `SpiBus`, `UartEmu`.
+  `Bsp_Xxx` pode, o prefixo evita a colisão.
 - Código próprio fora de Core/Drivers/Middlewares; no código gerado, só dentro de USER CODE
-- `Bsp_Init()` é chamado no `main.c` antes do scheduler (UART, CRC, USB, DAC, GPIO, ADC, PWM)
+- `Bsp_Init()` é chamado no `main.c` antes do scheduler (UART, CRC, USB, DAC, GPIO, ADC, PWM, I2C)
 - Build configuration `Test`: Unity on-target, saída pela USART3, define `UNIT_TEST_ON_TARGET`;
   `App/Test` excluída das builds Debug/Release. Na build Test a CommTask fica em `osDelay` e a TestExecTask
   parada na fila (os testes chamam o `Exec_Process` direto)
@@ -277,6 +303,23 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   A oscilação de ±10 Hz (0,01 % a 0,05 %) só aparece em 20 e 100 kHz: é a resolução da medida automática
   do osciloscópio, não do PWM (o clock vem do cristal de 8 MHz do ST-Link). Tolerância: ±1 % e ±1 p.p.
 
+### v0.7.0 — I2C, sem validação no barramento (28/10/2026)
+**Firmware**
+- CubeMX: IRQs de evento e de erro do I2C2 (prioridade 5)
+- `I2cBus` (System: `Config`/`Load`/`Dump`/`MasterXfer`/`SafeState` e os eventos `InicioEscrita`,
+  `ByteRecebido`, `ProximoByte`, `FimLeitura`, chamados pela ISR) + `Bsp_I2c` (callbacks do HAL, mestre por
+  polling, lock pela IRQ de evento, I2C desligado no boot)
+- `Exec`: os 4 comandos; `Exec_SafeState` com DAC, GPIO, PWM e I2C
+- **117 testes Unity** (90 + 17 I2cBus com barramento falso + 10 Exec); o `Test_Exec.c` registra também o
+  barramento I2C falso
+
+**Software**
+- `protocolo.py`: os 4 comandos; `JigaSimulada` com o mapa, o papel e `i2c_dispositivos` (escravos
+  simulados para o papel de mestre)
+- **46 casos HIL** (9 novos de I2C, SEQ 40–51): **43/43 na placa sem jumpers** (só comandos e mapa, sem DUT)
+- `/i2c_config`, `/i2c_load`, `/i2c_dump`, `/i2c_xfer` no terminal; linha I2C na GUI
+- **246 testes pytest**
+
 **Versionamento (SemVer)**
 - Versão única para firmware + software. MAJOR = incompatibilidade no protocolo; MINOR = funcionalidade
   compatível; PATCH = correção. `0.x.y` = desenvolvimento; `1.0.0` = jiga funcional com o protocolo completo
@@ -291,8 +334,9 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 | ~~0.4.0~~ | CommTask ↔ TestExecTask, estado seguro, `RESET_ALL`, `DAC_SET`, OCUPADO, DebugLog com lock | CT09 ✅; DAC no multímetro |
 | ~~0.5.0~~ | `ADC_READ`, `GPIO_SET`, `GPIO_READ` | CT10 (DAC→ADC) ✅, CT11 (GPIO) ✅ |
 | ~~0.6.0~~ | `PWM_SET`, `PWM_STOP` | CT12 (osciloscópio) ✅ |
-| 0.7.0 | Emulação de escravo I2C (I2CEmulationTask sob demanda, 0x50–0x53) | parte do CT20 |
-| 0.8.0 | Escravo SPI e UART (0x60–0x63, 0x70–0x72) | CT13, CT20 |
+| ~~0.7.0~~ | I2C escravo e mestre (0x50–0x53), sem task, sem validação no barramento | — (CT20 na 0.8.1) |
+| 0.8.0 | SPI (escravo e mestre, 0x60–0x63) e UART (0x70–0x72) | CT13 (loopback MOSI→MISO e TX→RX) |
+| 0.8.1 | Correções que o DUT revelar | **CT20** com o ESP32: I2C e SPI escravos, I2C mestre |
 | 0.9.0 | Rotinas: `RUN_ROUTINE`, `ROUTINE_STATUS`, `READ_RESULT`, `ABORT`, passos ESPERA/ESPERA_GPIO, base de tempo de 1 µs (TIM5), tempo máximo | CT14–CT19 |
 | 0.10.0 | App desktop da seção 3.6: `ClienteJiga` com retransmissão (100 ms, 3 tentativas), baterias YAML → rotinas, veredito, relatório | CT02–CT07, CT21 |
 | 0.11.0 | Validação com DUTs (ESP32, Arduino Uno) e desempenho | CT22–CT24 |
@@ -304,15 +348,23 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
   `Exec_Process` + módulo do periférico + casos no `protocolo.py`/`JigaSimulada`).
 
 ## PRÓXIMOS PASSOS
-1. Fechar a v0.6.0:
-   - Gravar Test (90 Unity) e Debug (ACK do PING com `firmware 0.6.0`); `teste_protocolo.py` sem jumpers
-     (34/34, 3 pulados); `pytest` (208)
-   - PR `feat_pwm` → `main`, merge, tag `v0.6.0`, release
-2. Opcional, quando montar o filtro RC (opção G, ver Hardware): caso de loopback do PWM só no Python
+1. Fechar a v0.7.0:
+   - Gravar Test (117 Unity) e Debug (ACK do PING com `firmware 0.7.0`); `teste_protocolo.py` sem jumpers
+     (43/43, 3 pulados); `pytest` (246)
+   - PR `feat_i2c` → `main`, merge, tag `v0.7.0`, release
+2. Opcional, antes do CT20: teste de fumaça do escravo I2C com o ESP32 rodando o exemplo "I2C scanner" do
+   Arduino (SDA/SCL em PF0/PF1, pull-ups de 4,7 kΩ para o 3V3, GND comum, `I2C_CONFIG` escravo 0x50): se
+   listar o 0x50, o ACK de endereço funciona. Não vai para a monografia
+3. v0.8.0: SPI e UART. CT13 em loopback, **sem DUT**: jumpers MOSI→MISO (PB15→PC2, jiga mestra) e UART4
+   TX→RX (PD1→PD0). O escravo SPI precisa de mestre externo: fica para o CT20. Antes de começar: IRQs do
+   SPI2 e da UART4 (prioridade ≥ 5), formato dos comandos no Apêndice A (0x60–0x63, 0x70–0x72), CS do
+   mestre em PD7, e decidir task × ISR como no I2C
+4. v0.8.1: **CT20** com o ESP32 (DUT de referência): lê a jiga escrava por I2C e por SPI e informa o valor
+   pela UART. Ideia: ligar a UART do ESP32 na UART4 da jiga (TX do ESP32 → PD0), assim o PC lê o relato
+   pelo `UART_READ` e o CT20 roda inteiro pela jiga. Conferir também o byte a mais da leitura (ver Decisões)
+   e o I2C mestre com o ESP32 como escravo
+5. Opcional, quando montar o filtro RC (opção G, ver Hardware): caso de loopback do PWM só no Python
    (`PWM_SET` 25/50/75 % no PWM3, esperar ~0,5 s, `ADC_READ` do A2, conferir razão × 4095 ± 41)
-3. v0.7.0: emulação de escravo I2C (I2CEmulationTask sob demanda, comandos 0x50–0x53, parte do CT20).
-   Antes de começar: habilitar a IRQ do I2C2 (prioridade ≥ 5), ver no Apêndice A o formato dos comandos
-   e decidir como a task é criada e encerrada (alocação estática, handshake com a TestExecTask)
 
 ### Medição do ADC (v0.5.0, 20/10/2026) — loopback DAC → ADC, `medir_loopback.py`
 33 pontos de 124 a 3971 por canal, 16 leituras por ponto (`Software/medicoes/medicao_faixa_util.csv`).
@@ -404,6 +456,16 @@ faixa útil, sim. Firmware não muda.
     osciloscópio** (instrumentos de medição) e, se possível, capturas de tela das formas de onda
   - Arredondamento dos registradores como exemplo (20 kHz a 12,34 % sai 12,33 %; 50 Hz no TIM3 sai
     49,9997 Hz): a GUI mostra o valor esperado no pino
+- **I2C (v0.7.0)**:
+  - **Seção do firmware (tasks, 3.5.2)**: a `I2CEmulationTask` não existe; o escravo roda na ISR do I2C2
+    (callbacks do HAL), byte a byte. Justificar: o mestre dita o tempo de cada byte e uma task só
+    acrescentaria troca de contexto. Revisar a tabela de tasks e a figura, se houver
+  - **Apêndice A**: endereços válidos 0x08–0x77 (os outros são reservados pelo padrão); mapa no padrão
+    24C02 (1º byte escrito = ponteiro, auto-incremento, volta de 0xFF para 0x00); `LOAD`/`DUMP` sem
+    `I2C_CONFIG`; `DUMP` e `nr` até 240 (limite do payload do ACK); estado seguro desliga o I2C e zera o mapa;
+    XFER sem papel de mestre → NAO_CONFIGURADO; falta de ACK → ERRO_PERIFERICO (o texto já diz isso)
+  - **CT20**: ligação (PF0/PF1, pull-ups de 4,7 kΩ para o 3V3, GND comum) e como o DUT informa o valor
+    (UART do DUT → UART4 da jiga, se for essa a decisão)
 - **Verificação automática com tolerância**: os casos do PC conferem leituras analógicas por faixa e não
   byte a byte (é o mesmo critério do `qua:criterios`); vale citar na seção do app/casos de teste
 
@@ -416,13 +478,20 @@ faixa útil, sim. Firmware não muda.
 - Ramo de software do `Crc16.c` implementa CRC-16/Modbus (e `dCRC_POLINOMIO 0xA001`, `dCRC_LOW/HIGH`
   usam tipo `u8` inexistente, `dFALSE` não definido); trocar para CCITT-FALSE
 - Desativar a Ethernet no CubeMX (inicializada sem uso)
-- Habilitar IRQs de I2C2/SPI2/UART4 (prioridade ≥ 5) quando chegar nas emulações (v0.7.0/v0.8.0)
+- Habilitar IRQs do SPI2 e da UART4 (prioridade ≥ 5) na v0.8.0 (as do I2C2 já estão, desde a v0.7.0)
+- Escravo I2C com PF0/PF1 soltos (sem pull-ups): ruído pode gerar eventos espúrios até o `RESET_ALL`; a
+  `Bsp_I2c` religa a escuta depois de erro, então não trava. Montar os pull-ups de 4,7 kΩ de vez
 - Limitação conhecida: um quadro manual na GUI com o mesmo SEQ de um caso de teste faz o caso receber a
   resposta guardada (é o cache funcionando); reconectar a porta (sessão nova) ou usar outro SEQ
 - Pergunta aberta (USB): `rxCallback` precisa ser volatile? `rxDroppedBytes` sim (alterado na ISR, lido
   na task), `rxStream` não (escrito uma vez no init, antes da ISR existir) — fechar o raciocínio
 
 ## Armadilhas já resolvidas
+- **CubeMX criando arquivos ao gerar código**: `Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/
+  system_stm32f7xx.c` (cópia do `Core/Src/system_stm32f7xx.c`: daria `multiple definition of SystemInit`
+  no link) e `mx.scratch` (temporário). Apagar os dois e não commitar
+- **Commit errado ainda não enviado**: `git reset --soft HEAD~1` desfaz o último commit e mantém as
+  mudanças no stage (`git reset` tira do stage). Depois do `push`, não usar `reset` nem `--amend`
 - Debug falhando com "TCP port 51234 not available" / "Error initializing ST-LINK": o Windows (WinNAT,
   usado por Docker/Hyper-V/WSL) reserva faixas de porta (`netsh interface ipv4 show excludedportrange protocol=tcp`).
   Solução: Debug Configurations → Debugger → Port number 61234 (refazer na máquina nova se acontecer)
@@ -459,7 +528,7 @@ faixa útil, sim. Firmware não muda.
 
 ## Setup no notebook novo
 - `git fetch` e checkout do branch atual (ver "Estado do git")
-- `cd Software && pip install -r requirements-dev.txt && pytest` (208 testes)
+- `cd Software && pip install -r requirements-dev.txt && pytest` (246 testes)
 - CubeIDE: importar `projeto/`; as configurações `projeto Debug` e `projeto Test` vêm do git; se o debug
   falhar, porta 61234 (ver armadilhas)
 - Terminal do DebugLog: porta do ST-Link a 1000000 baud
