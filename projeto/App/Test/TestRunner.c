@@ -148,6 +148,24 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_I2cBus_SafeState);
 		RUN_TEST(Test_I2cBus_SafeStateComFalha);
 
+		RUN_TEST(Test_SpiBus_InitInvalido);
+		RUN_TEST(Test_SpiBus_Divisor);
+		RUN_TEST(Test_SpiBus_DivisorForaDaFaixa);
+		RUN_TEST(Test_SpiBus_ConfigMestre);
+		RUN_TEST(Test_SpiBus_ConfigEscravoIgnoraFrequencia);
+		RUN_TEST(Test_SpiBus_ConfigInvalido);
+		RUN_TEST(Test_SpiBus_ConfigFalhaBsp);
+		RUN_TEST(Test_SpiBus_LoadPreparaTx);
+		RUN_TEST(Test_SpiBus_LoadLimites);
+		RUN_TEST(Test_SpiBus_LoadInvalido);
+		RUN_TEST(Test_SpiBus_FimTransacaoERead);
+		RUN_TEST(Test_SpiBus_RecepcaoCheia);
+		RUN_TEST(Test_SpiBus_LoadReadSemConfigTravam);
+		RUN_TEST(Test_SpiBus_MasterXferNaoConfigurado);
+		RUN_TEST(Test_SpiBus_MasterXfer);
+		RUN_TEST(Test_SpiBus_SafeState);
+		RUN_TEST(Test_SpiBus_SafeStateComFalha);
+
 	UNITY_END();
 
 	for (;;)

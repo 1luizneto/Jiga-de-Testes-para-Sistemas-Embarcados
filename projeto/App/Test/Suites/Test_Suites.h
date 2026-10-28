@@ -145,4 +145,23 @@ void Test_I2cBus_MasterXfer(void);
 void Test_I2cBus_SafeState(void);
 void Test_I2cBus_SafeStateComFalha(void);
 
+// Testes do barramento SPI (SpiBus)
+void Test_SpiBus_InitInvalido(void);
+void Test_SpiBus_Divisor(void);
+void Test_SpiBus_DivisorForaDaFaixa(void);
+void Test_SpiBus_ConfigMestre(void);
+void Test_SpiBus_ConfigEscravoIgnoraFrequencia(void);
+void Test_SpiBus_ConfigInvalido(void);
+void Test_SpiBus_ConfigFalhaBsp(void);
+void Test_SpiBus_LoadPreparaTx(void);
+void Test_SpiBus_LoadLimites(void);
+void Test_SpiBus_LoadInvalido(void);
+void Test_SpiBus_FimTransacaoERead(void);
+void Test_SpiBus_RecepcaoCheia(void);
+void Test_SpiBus_LoadReadSemConfigTravam(void);
+void Test_SpiBus_MasterXferNaoConfigurado(void);
+void Test_SpiBus_MasterXfer(void);
+void Test_SpiBus_SafeState(void);
+void Test_SpiBus_SafeStateComFalha(void);
+
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
