@@ -166,6 +166,22 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_SpiBus_SafeState);
 		RUN_TEST(Test_SpiBus_SafeStateComFalha);
 
+		RUN_TEST(Test_UartBus_InitInvalido);
+		RUN_TEST(Test_UartBus_ConfigValido);
+		RUN_TEST(Test_UartBus_ConfigInvalido);
+		RUN_TEST(Test_UartBus_ConfigFalhaBsp);
+		RUN_TEST(Test_UartBus_SemConfig);
+		RUN_TEST(Test_UartBus_Write);
+		RUN_TEST(Test_UartBus_RecebeERead);
+		RUN_TEST(Test_UartBus_ReadParcial);
+		RUN_TEST(Test_UartBus_ReadLimitado);
+		RUN_TEST(Test_UartBus_BufferCircularVolta);
+		RUN_TEST(Test_UartBus_BufferCheio);
+		RUN_TEST(Test_UartBus_ConfigEsvazia);
+		RUN_TEST(Test_UartBus_ReadTrava);
+		RUN_TEST(Test_UartBus_SafeState);
+		RUN_TEST(Test_UartBus_SafeStateComFalha);
+
 	UNITY_END();
 
 	for (;;)

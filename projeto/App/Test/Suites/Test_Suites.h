@@ -164,4 +164,21 @@ void Test_SpiBus_MasterXfer(void);
 void Test_SpiBus_SafeState(void);
 void Test_SpiBus_SafeStateComFalha(void);
 
+// Testes da UART do DUT (UartBus)
+void Test_UartBus_InitInvalido(void);
+void Test_UartBus_ConfigValido(void);
+void Test_UartBus_ConfigInvalido(void);
+void Test_UartBus_ConfigFalhaBsp(void);
+void Test_UartBus_SemConfig(void);
+void Test_UartBus_Write(void);
+void Test_UartBus_RecebeERead(void);
+void Test_UartBus_ReadParcial(void);
+void Test_UartBus_ReadLimitado(void);
+void Test_UartBus_BufferCircularVolta(void);
+void Test_UartBus_BufferCheio(void);
+void Test_UartBus_ConfigEsvazia(void);
+void Test_UartBus_ReadTrava(void);
+void Test_UartBus_SafeState(void);
+void Test_UartBus_SafeStateComFalha(void);
+
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */
