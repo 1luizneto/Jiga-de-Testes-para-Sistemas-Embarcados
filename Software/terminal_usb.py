@@ -20,6 +20,10 @@ Comandos digitados durante a execucao:
     /quadro 10 AA BB quadro com payload em hex
     /pwm 1 1000 50   PWM1 (PE9) em 1000 Hz e 50 % (canal 1 a 3; razao aceita 12,34)
     /pwm_stop 1      para o PWM1 (razao 0, saida em nivel baixo)
+    /i2c_config 0 50 0     jiga escrava no 0x50 a 100 kHz (papel 0/1, endereco hex, velocidade 0/1)
+    /i2c_load 10 DE AD     carrega DE AD no mapa a partir do registrador 0x10 (offset e dados em hex)
+    /i2c_dump 10 4         le 4 registradores do mapa a partir de 0x10
+    /i2c_xfer 68 2 0F      como mestre: escreve 0F no 0x68 e le 2 bytes (endereco e dados em hex)
     /teste           lista os casos de teste do protocolo
     /teste 3         envia o caso 3 (/teste todos envia todos, menos os de loopback)
     /teste loopback  envia todos, incluindo o CT10 e o CT11 (jumpers ligados)
@@ -39,7 +43,8 @@ from serial.tools import list_ports
 
 from protocolo import (
     CASOS_TESTE, QUADRO_OK, ReceptorQuadros, casos_a_executar, descrever_log, descrever_pwm,
-    interpretar_resposta, montar_pwm_set, montar_pwm_stop, montar_quadro, porcento_para_razao,
+    interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_pwm_set,
+    montar_pwm_stop, montar_quadro, porcento_para_razao,
 )
 from versao import __version__
 
@@ -100,6 +105,26 @@ def interpretar_pwm(texto):
     if len(campos) != 3:
         raise ValueError("uso: /pwm canal frequencia razao")
     return int(campos[0]), int(campos[1]), porcento_para_razao(campos[2].replace(",", "."))
+
+
+
+def montar_comando_i2c(seq, comando, argumentos):
+    """'/i2c_<comando> argumentos' -> quadro. Endereco, offset e dados em hex; papel, velocidade e
+    quantidades em decimal. Como no /pwm, a faixa nao e conferida: valor invalido vai para a jiga.
+
+    config: papel endereco velocidade | load: offset dados... | dump: offset quantidade |
+    xfer: endereco nr [dados...]
+    """
+    campos = argumentos.split()
+    if comando == "config" and len(campos) == 3:
+        return montar_i2c_config(seq, int(campos[0]), int(campos[1], 16), int(campos[2]))
+    if comando == "load" and len(campos) >= 2:
+        return montar_i2c_load(seq, int(campos[0], 16), interpretar_hex(" ".join(campos[1:])))
+    if comando == "dump" and len(campos) == 2:
+        return montar_i2c_dump(seq, int(campos[0], 16), int(campos[1]))
+    if comando == "xfer" and len(campos) >= 2:
+        return montar_i2c_xfer(seq, int(campos[0], 16), interpretar_hex(" ".join(campos[2:])), int(campos[1]))
+    raise ValueError(f"uso invalido de /i2c_{comando}")
 
 
 class Terminal:
@@ -248,6 +273,18 @@ class Terminal:
         self.seq = (self.seq + 1) & 0xFF
         self.enviar(quadro)
 
+    def enviar_i2c(self, linha):
+        """'/i2c_config', '/i2c_load', '/i2c_dump' ou '/i2c_xfer': monta o quadro com SEQ automatico."""
+        comando, _, argumentos = linha[5:].partition(" ")
+        try:
+            quadro = montar_comando_i2c(self.seq, comando, argumentos)
+        except ValueError:
+            self.exibir("*** uso: /i2c_config 0 50 0 | /i2c_load 10 DE AD | /i2c_dump 10 4 | /i2c_xfer 68 2 0F ***")
+            return
+        self.exibir(f"*** SEQ={self.seq} I2C_{comando.upper()} ***")
+        self.seq = (self.seq + 1) & 0xFF
+        self.enviar(quadro)
+
     def executar_casos(self, argumento):
         """'/teste': lista os casos; '/teste N', '/teste todos' ou '/teste loopback' envia.
 
@@ -289,6 +326,8 @@ class Terminal:
             self.enviar_pwm(linha[9:].strip(), parar=True)
         elif linha.startswith("/pwm"):
             self.enviar_pwm(linha[4:].strip())
+        elif linha.startswith("/i2c_"):
+            self.enviar_i2c(linha)
         elif linha.startswith("/teste"):
             self.executar_casos(linha[6:].strip())
         elif linha.startswith("/hex"):

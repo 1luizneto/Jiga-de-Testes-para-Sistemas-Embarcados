@@ -70,6 +70,16 @@ void Test_Exec_PwmSetTamanhoErrado(void);
 void Test_Exec_PwmStopValido(void);
 void Test_Exec_PwmStopInvalido(void);
 void Test_Exec_PwmSetFalhaPeriferico(void);
+void Test_Exec_I2cConfigValido(void);
+void Test_Exec_I2cConfigInvalido(void);
+void Test_Exec_I2cLoadDump(void);
+void Test_Exec_I2cLoadInvalido(void);
+void Test_Exec_I2cDumpInvalido(void);
+void Test_Exec_I2cXferNaoConfigurado(void);
+void Test_Exec_I2cXferValido(void);
+void Test_Exec_I2cXferInvalido(void);
+void Test_Exec_I2cXferSemAck(void);
+void Test_Exec_ResetAllZeraMapaI2c(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -115,5 +125,24 @@ void Test_Pwm_SafeState(void);
 void Test_Pwm_SafeStateComFalha(void);
 void Test_Pwm_FalhaNaoGuardaConfig(void);
 void Test_Pwm_ArgumentosInvalidos(void);
+
+// Testes do barramento I2C (I2cBus)
+void Test_I2cBus_InitInvalido(void);
+void Test_I2cBus_ConfigEscravo(void);
+void Test_I2cBus_ConfigInvalido(void);
+void Test_I2cBus_ConfigMestreIgnoraEndereco(void);
+void Test_I2cBus_ConfigFalhaBsp(void);
+void Test_I2cBus_LoadDump(void);
+void Test_I2cBus_LoadDumpInvalido(void);
+void Test_I2cBus_LoadSemConfigTrava(void);
+void Test_I2cBus_EscritaDoDut(void);
+void Test_I2cBus_LeituraDoDut(void);
+void Test_I2cBus_PonteiroEntreLeituras(void);
+void Test_I2cBus_FimLeituraDevolveByte(void);
+void Test_I2cBus_PonteiroVolta(void);
+void Test_I2cBus_MasterXferNaoConfigurado(void);
+void Test_I2cBus_MasterXfer(void);
+void Test_I2cBus_SafeState(void);
+void Test_I2cBus_SafeStateComFalha(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

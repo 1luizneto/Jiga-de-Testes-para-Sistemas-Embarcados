@@ -2,7 +2,8 @@
 
 import pytest
 
-from terminal_usb import formatar_hex, interpretar_hex, interpretar_pwm
+from protocolo import montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer
+from terminal_usb import formatar_hex, interpretar_hex, interpretar_pwm, montar_comando_i2c
 
 
 @pytest.mark.parametrize("texto, esperado", [
@@ -45,3 +46,22 @@ def test_interpretar_pwm(texto, esperado):
 def test_interpretar_pwm_invalido(texto):
     with pytest.raises(ValueError):
         interpretar_pwm(texto)
+
+
+@pytest.mark.parametrize("comando, argumentos, esperado", [
+    ("config", "0 50 1", montar_i2c_config(7, 0, 0x50, 1)),
+    ("load", "10 DE AD BE", montar_i2c_load(7, 0x10, bytes.fromhex("DEADBE"))),
+    ("dump", "FF 1", montar_i2c_dump(7, 0xFF, 1)),
+    ("xfer", "68 2 0F", montar_i2c_xfer(7, 0x68, b"\x0f", 2)),
+    ("xfer", "68 0 20 AA", montar_i2c_xfer(7, 0x68, b"\x20\xaa", 0)),
+])
+def test_montar_comando_i2c(comando, argumentos, esperado):
+    assert montar_comando_i2c(7, comando, argumentos) == esperado
+
+
+@pytest.mark.parametrize("comando, argumentos", [
+    ("config", "0 50"), ("load", "10"), ("dump", "10"), ("xfer", "68"), ("ler", "10 4"), ("config", "0 5G 0"),
+])
+def test_montar_comando_i2c_invalido(comando, argumentos):
+    with pytest.raises(ValueError):
+        montar_comando_i2c(7, comando, argumentos)

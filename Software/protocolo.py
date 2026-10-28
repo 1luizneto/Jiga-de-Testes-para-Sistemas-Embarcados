@@ -38,6 +38,10 @@ CMD_GPIO_READ = 0x21
 CMD_PWM_SET = 0x30
 CMD_PWM_STOP = 0x31
 CMD_ADC_READ = 0x40
+CMD_I2C_CONFIG = 0x50
+CMD_I2C_SLAVE_LOAD = 0x51
+CMD_I2C_SLAVE_DUMP = 0x52
+CMD_I2C_MASTER_XFER = 0x53
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
 
@@ -48,7 +52,9 @@ CMD_INEXISTENTE = 0x55
 NOMES_COMANDO = {
     CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_DAC_SET: "DAC_SET",
     CMD_GPIO_SET: "GPIO_SET", CMD_GPIO_READ: "GPIO_READ", CMD_PWM_SET: "PWM_SET",
-    CMD_PWM_STOP: "PWM_STOP", CMD_ADC_READ: "ADC_READ",
+    CMD_PWM_STOP: "PWM_STOP", CMD_ADC_READ: "ADC_READ", CMD_I2C_CONFIG: "I2C_CONFIG",
+    CMD_I2C_SLAVE_LOAD: "I2C_SLAVE_LOAD", CMD_I2C_SLAVE_DUMP: "I2C_SLAVE_DUMP",
+    CMD_I2C_MASTER_XFER: "I2C_MASTER_XFER",
 }
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
@@ -84,6 +90,17 @@ PWM_TIMERS = {1: (216_000_000, 0xFFFF), 2: (108_000_000, 0xFFFF_FFFF), 3: (108_0
 PWM_DIVISOR_MAX = 65536
 PWM_PINOS = {1: "PE9", 2: "PA0", 3: "PA6"}
 
+# I2C (Apendice A): I2C2 em PF0 (SDA) e PF1 (SCL), pull-ups externos. Como escrava, a jiga emula um mapa de
+# 256 registradores no padrao de uma EEPROM 24C02: na escrita do DUT o 1o byte e o ponteiro e os seguintes
+# sao gravados com auto-incremento; a leitura sai a partir do ponteiro. O LOAD/DUMP funciona sem I2C_CONFIG
+# e o RESET_ALL desliga o barramento e zera o mapa
+I2C_PAPEL_ESCRAVO = 0
+I2C_PAPEL_MESTRE = 1
+I2C_ENDERECO_MIN = 0x08          # 0x00-0x07 e 0x78-0x7F sao reservados pelo padrao I2C
+I2C_ENDERECO_MAX = 0x77
+I2C_VELOCIDADES = {0: 100_000, 1: 400_000}
+I2C_TAMANHO_MAPA = 256
+
 # Loopback dos casos CT10 e CT11 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0)
 # e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3)
 LOOPBACK_DAC_ADC = {1: 0, 2: 1}
@@ -101,6 +118,7 @@ TAMANHO_BLOCO_RX = 64
 # Codigos de erro do NACK (Apendice A, commError_t no firmware)
 ERRO_CMD_DESCONHECIDO = 0x01
 ERRO_PARAMETRO_INVALIDO = 0x02
+ERRO_NAO_CONFIGURADO = 0x03
 ERRO_PERIFERICO = 0x06
 ERRO_OCUPADO = 0x07
 CODIGOS_ERRO = {
@@ -297,6 +315,35 @@ def montar_pwm_stop(seq, canal):
     return montar_quadro(seq, CMD_PWM_STOP, bytes([canal]))
 
 
+def _u8(*valores):
+    if not all(0 <= valor <= 0xFF for valor in valores):
+        raise ValueError("os campos precisam caber em 1 byte")
+
+
+def montar_i2c_config(seq, papel, endereco, velocidade):
+    """I2C_CONFIG: payload [papel (u8, 0 escravo, 1 mestre)][endereco de 7 bits (u8)][velocidade (u8, 0-1)]."""
+    _u8(papel, endereco, velocidade)
+    return montar_quadro(seq, CMD_I2C_CONFIG, bytes([papel, endereco, velocidade]))
+
+
+def montar_i2c_load(seq, offset, dados):
+    """I2C_SLAVE_LOAD: payload [offset (u8)][quantidade (u8)][dados]."""
+    _u8(offset, len(dados))
+    return montar_quadro(seq, CMD_I2C_SLAVE_LOAD, bytes([offset, len(dados)]) + bytes(dados))
+
+
+def montar_i2c_dump(seq, offset, quantidade):
+    """I2C_SLAVE_DUMP: payload [offset (u8)][quantidade (u8)]; o ACK traz os bytes do mapa."""
+    _u8(offset, quantidade)
+    return montar_quadro(seq, CMD_I2C_SLAVE_DUMP, bytes([offset, quantidade]))
+
+
+def montar_i2c_xfer(seq, endereco, escrita=b"", nr=0):
+    """I2C_MASTER_XFER: payload [endereco (u8)][nw (u8)][nr (u8)][escrita]; o ACK traz os nr bytes lidos."""
+    _u8(endereco, len(escrita), nr)
+    return montar_quadro(seq, CMD_I2C_MASTER_XFER, bytes([endereco, len(escrita), nr]) + bytes(escrita))
+
+
 def calcular_pwm(canal, frequencia, razao):
     """Espelho do Pwm_Calcula: (PSC, ARR, CCR) que a jiga aplica no timer do canal.
 
@@ -424,8 +471,12 @@ class JigaSimulada:
     - SEQ do ultimo quadro respondido -> reenvia a resposta guardada, sem executar;
     - PING -> ACK com as versoes, na hora (inclusive com um comando pendente);
     - outro comando com um pendente -> NACK OCUPADO, sem guardar no cache;
-    - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ, PWM_SET, PWM_STOP;
-      codigo desconhecido -> NACK CMD_DESCONHECIDO.
+    - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ, PWM_SET, PWM_STOP e os
+      quatro de I2C; codigo desconhecido -> NACK CMD_DESCONHECIDO.
+
+    I2C: 'i2c_papel' (None = desligado), 'i2c_mapa' (os 256 registradores da jiga escrava) e
+    'i2c_dispositivos' (endereco -> registradores dos escravos no barramento, para o papel de mestre).
+    Endereco sem dispositivo -> falta de ACK (NACK ERRO_PERIFERICO), como na placa sem DUT.
 
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
@@ -444,6 +495,9 @@ class JigaSimulada:
     entradas: int = 0
     adc: dict = field(default_factory=lambda: {canal: 0 for canal in ADC_CANAIS})
     pwm: dict = field(default_factory=lambda: {canal: (PWM_FREQUENCIA_PADRAO, 0) for canal in PWM_CANAIS})
+    i2c_papel: int = None
+    i2c_mapa: bytearray = field(default_factory=lambda: bytearray(I2C_TAMANHO_MAPA))
+    i2c_dispositivos: dict = field(default_factory=dict)
 
     def nova_sessao(self):
         """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
@@ -495,6 +549,8 @@ class JigaSimulada:
             self.dac = {canal: 0 for canal in DAC_CANAIS}
             self.gpio = {pino: 0 for pino in GPIO_SAIDAS}
             self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
+            self.i2c_papel = None
+            self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
             return 0, b""
         if quadro.cmd == CMD_DAC_SET:
             if len(payload) != 3:
@@ -534,7 +590,50 @@ class JigaSimulada:
             frequencia, _ = self.pwm[payload[0]]
             self.pwm[payload[0]] = (frequencia, 0)
             return 0, b""
+        if CMD_I2C_CONFIG <= quadro.cmd <= CMD_I2C_MASTER_XFER:
+            return self._executar_i2c(quadro.cmd, payload)
         return ERRO_CMD_DESCONHECIDO, b""
+
+    def _executar_i2c(self, cmd, payload):
+        """Espelho do Exec (tamanhos) e do I2cBus (faixas, mapa, papel)."""
+        if cmd == CMD_I2C_CONFIG:
+            if len(payload) != 3:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            papel, endereco, velocidade = payload
+            if papel > I2C_PAPEL_MESTRE or velocidade not in I2C_VELOCIDADES or (
+                    papel == I2C_PAPEL_ESCRAVO and not I2C_ENDERECO_MIN <= endereco <= I2C_ENDERECO_MAX):
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.i2c_papel = papel
+            return 0, b""
+        if cmd == CMD_I2C_SLAVE_LOAD:
+            if len(payload) < 2 or len(payload) != 2 + payload[1]:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            offset, quantidade = payload[0], payload[1]
+            if quantidade == 0 or offset + quantidade > I2C_TAMANHO_MAPA:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.i2c_mapa[offset:offset + quantidade] = payload[2:]
+            return 0, b""
+        if cmd == CMD_I2C_SLAVE_DUMP:
+            if len(payload) != 2 or payload[1] > PAYLOAD_MAX:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            offset, quantidade = payload
+            if quantidade == 0 or offset + quantidade > I2C_TAMANHO_MAPA:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            return 0, bytes(self.i2c_mapa[offset:offset + quantidade])
+        if len(payload) < 3 or len(payload) != 3 + payload[1] or payload[2] > PAYLOAD_MAX:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        endereco, nw, nr = payload[0], payload[1], payload[2]
+        if not I2C_ENDERECO_MIN <= endereco <= I2C_ENDERECO_MAX or nw + nr == 0:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        if self.i2c_papel != I2C_PAPEL_MESTRE:
+            return ERRO_NAO_CONFIGURADO, b""
+        if endereco not in self.i2c_dispositivos:
+            return ERRO_PERIFERICO, b""
+        registros, escrita = self.i2c_dispositivos[endereco], payload[3:]
+        ponteiro = escrita[0] if escrita else 0
+        for i, byte in enumerate(escrita[1:]):
+            registros[(ponteiro + i) % I2C_TAMANHO_MAPA] = byte
+        return 0, bytes(registros[(ponteiro + i) % I2C_TAMANHO_MAPA] for i in range(nr))
 
     def _concluir_pendente(self):
         """Equivale ao CommTask_VerificaResultado + Comm_BuildResult."""
@@ -870,6 +969,40 @@ CASOS_TESTE = [
     CasoTeste("PWM_STOP canal invalido", "canal 0 nao existe: NACK PARAMETRO_INVALIDO",
               [("enviar", montar_pwm_stop(37, 0))],
               [QUADRO_OK], [montar_nack(37, CMD_PWM_STOP, ERRO_PARAMETRO_INVALIDO)]),
+    # I2C (v0.7.0), sem DUT: so os comandos e o mapa; o barramento e conferido no CT20, com o DUT de referencia
+    CasoTeste("I2C_CONFIG escravo", "jiga escrava no 0x50 a 100 kHz: ACK",
+              [("enviar", montar_i2c_config(40, I2C_PAPEL_ESCRAVO, 0x50, 0))],
+              [QUADRO_OK], [montar_ack(40, CMD_I2C_CONFIG)]),
+    CasoTeste("I2C_CONFIG endereco reservado", "endereco 0x78 (reservado): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_i2c_config(41, I2C_PAPEL_ESCRAVO, 0x78, 0))],
+              [QUADRO_OK], [montar_nack(41, CMD_I2C_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("I2C_CONFIG tamanho errado", "payload de 2 bytes (esperado 3): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(42, CMD_I2C_CONFIG, bytes([0x00, 0x50])))],
+              [QUADRO_OK], [montar_nack(42, CMD_I2C_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("I2C LOAD e DUMP", "carrega DE AD BE EF em 0x10 e le de volta: ACK com os mesmos bytes",
+              [("enviar", montar_i2c_load(43, 0x10, bytes.fromhex("DEADBEEF"))), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_i2c_dump(44, 0x10, 4))],
+              [QUADRO_OK, QUADRO_OK],
+              [montar_ack(43, CMD_I2C_SLAVE_LOAD), montar_ack(44, CMD_I2C_SLAVE_DUMP, bytes.fromhex("DEADBEEF"))]),
+    CasoTeste("I2C_SLAVE_LOAD alem do mapa", "2 bytes a partir de 0xFF: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_i2c_load(45, 0xFF, b"\x01\x02"))],
+              [QUADRO_OK], [montar_nack(45, CMD_I2C_SLAVE_LOAD, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("I2C_SLAVE_LOAD tamanho errado", "quantidade 3 com 2 bytes de dados: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(46, CMD_I2C_SLAVE_LOAD, bytes([0x00, 0x03, 0xAA, 0xBB])))],
+              [QUADRO_OK], [montar_nack(46, CMD_I2C_SLAVE_LOAD, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("I2C_SLAVE_DUMP grande demais", "241 bytes nao cabem na resposta: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_i2c_dump(47, 0x00, PAYLOAD_MAX + 1))],
+              [QUADRO_OK], [montar_nack(47, CMD_I2C_SLAVE_DUMP, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("I2C_MASTER_XFER sem mestre", "transferencia sem I2C_CONFIG de mestre: NACK NAO_CONFIGURADO",
+              [("enviar", montar_i2c_xfer(48, 0x68, b"\x0f", 2))],
+              [QUADRO_OK], [montar_nack(48, CMD_I2C_MASTER_XFER, ERRO_NAO_CONFIGURADO)]),
+    CasoTeste("RESET_ALL zera o mapa I2C", "LOAD em 0x00, RESET_ALL e DUMP: o registrador volta a 0",
+              [("enviar", montar_i2c_load(49, 0x00, b"\x5a")), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_quadro(50, CMD_RESET_ALL)), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_i2c_dump(51, 0x00, 1))],
+              [QUADRO_OK] * 3,
+              [montar_ack(49, CMD_I2C_SLAVE_LOAD), montar_ack(50, CMD_RESET_ALL),
+               montar_ack(51, CMD_I2C_SLAVE_DUMP, b"\x00")]),
     # Com os jumpers (opcao de loopback): CT10 e CT11 da monografia
     _caso_ct10(1, 100),
     _caso_ct10(2, 122),
