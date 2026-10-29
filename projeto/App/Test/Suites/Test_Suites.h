@@ -92,6 +92,17 @@ void Test_Exec_SpiXferValido(void);
 void Test_Exec_SpiXferInvalido(void);
 void Test_Exec_SpiXferFalhaPeriferico(void);
 void Test_Exec_ResetAllEsvaziaSpi(void);
+void Test_Exec_UartConfigValido(void);
+void Test_Exec_UartConfigInvalido(void);
+void Test_Exec_UartWriteNaoConfigurado(void);
+void Test_Exec_UartWriteValido(void);
+void Test_Exec_UartWriteInvalido(void);
+void Test_Exec_UartWriteFalhaPeriferico(void);
+void Test_Exec_UartReadNaoConfigurado(void);
+void Test_Exec_UartReadValido(void);
+void Test_Exec_UartReadMaximoGrande(void);
+void Test_Exec_UartReadTamanhoErrado(void);
+void Test_Exec_ResetAllDesligaUart(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
