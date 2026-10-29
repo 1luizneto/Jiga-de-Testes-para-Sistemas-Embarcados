@@ -1,7 +1,7 @@
 /*
  * Test_Exec.c
  *
- * Testes do Exec com DAC, GPIO, ADC, timer e barramentos I2C e SPI falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
+ * Testes do Exec com DAC, GPIO, ADC, timer, barramentos I2C e SPI e UART falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
  * periferico foi ou nao acionado ("nenhuma saida alterada" do CT09), sem multimetro.
  */
 
@@ -14,6 +14,7 @@
 #include "Pwm.h"
 #include "I2cBus.h"
 #include "SpiBus.h"
+#include "UartBus.h"
 
 /// Payload do PWM_SET: canal + frequencia (u32) + razao ciclica (u16)
 #define dEXEC_TESTE_PWM_SET_SIZE (7U)
@@ -241,6 +242,55 @@ static const spiBusFunc_t spiFalsoFunc =
 	SpiFalso_Config, SpiFalso_Off, SpiFalso_Xfer, SpiFalso_Lock, SpiFalso_Unlock,
 };
 
+/// Registro das chamadas a UART falsa
+static struct uartFalsa
+{
+	uint8_t         configChamadas;
+	uint8_t         offChamadas;
+	uint8_t         writeChamadas;
+	uint32_t        baud;
+	uint8_t         writeEscrita;   ///< 1o byte escrito
+	uint8_t         writeQuantidade;
+	uartBusReturn_t retornoWrite;   ///< simula falha ou timeout do HAL
+} uartFalsa;
+
+static uartBusReturn_t UartFalsa_Config(uint32_t baud)
+{
+	uartFalsa.configChamadas++;
+	uartFalsa.baud = baud;
+
+	return eUARTBUS_RETURN_OK;
+}
+
+static uartBusReturn_t UartFalsa_Off(void)
+{
+	uartFalsa.offChamadas++;
+
+	return eUARTBUS_RETURN_OK;
+}
+
+static uartBusReturn_t UartFalsa_Write(const uint8_t *dados, uint8_t quantidade)
+{
+	uartFalsa.writeChamadas++;
+	uartFalsa.writeEscrita    = dados[0];
+	uartFalsa.writeQuantidade = quantidade;
+
+	return uartFalsa.retornoWrite;
+}
+
+static void UartFalsa_Lock(void)
+{
+}
+
+static void UartFalsa_Unlock(void)
+{
+}
+
+static const uartBusFunc_t uartFalsaFunc =
+{
+	UartFalsa_Config, UartFalsa_Off, UartFalsa_Write, UartFalsa_Lock, UartFalsa_Unlock,
+};
+
 // Os modulos de periferico passam a usar os falsos. Na build Test nada mais usa o hardware, entao nao precisa restaurar.
 static void IniciaExec(void)
 {
@@ -264,6 +314,10 @@ static void IniciaExec(void)
 	memset(&spiFalso, 0, sizeof(spiFalso));
 	spiFalso.retornoXfer = eSPIBUS_RETURN_OK;
 	SpiBus_Init(&spiFalsoFunc, dEXEC_TESTE_SPI_CLOCK_HZ);
+
+	memset(&uartFalsa, 0, sizeof(uartFalsa));
+	uartFalsa.retornoWrite = eUARTBUS_RETURN_OK;
+	UartBus_Init(&uartFalsaFunc);
 }
 
 static void MontaComando(commFrame_t *frame, uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t size)
@@ -276,6 +330,16 @@ static void MontaComando(commFrame_t *frame, uint8_t seq, uint8_t cmd, const uin
 	{
 		memcpy(frame->payload, payload, size);
 	}
+}
+
+// Configura a UART em 115200 baud (0x0001C200)
+static void ConfiguraUart(void)
+{
+	const uint8_t config[] = {0x00, 0xC2, 0x01, 0x00};
+	commFrame_t frame;
+	execResult_t result;
+	MontaComando(&frame, 0x70, dCOMM_CMD_UART_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
 }
 
 // 1. DAC_SET valido: ACK e o DAC recebe canal e valor (u16 little-endian)
@@ -354,7 +418,7 @@ void Test_Exec_DacSetTamanhoErrado(void)
 	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
 }
 
-// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo, os tres PWM parados e o I2C e o SPI desligados
+// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo, os tres PWM parados e o I2C, o SPI e a UART desligados
 void Test_Exec_ResetAll(void)
 {
 	commFrame_t frame;
@@ -386,6 +450,7 @@ void Test_Exec_ResetAll(void)
 
 	TEST_ASSERT_EQUAL_UINT8(1, i2cFalso.offChamadas);
 	TEST_ASSERT_EQUAL_UINT8(1, spiFalso.offChamadas);
+	TEST_ASSERT_EQUAL_UINT8(1, uartFalsa.offChamadas);
 }
 
 // 7. RESET_ALL com payload: NACK PARAMETRO_INVALIDO e nada e acionado
@@ -404,6 +469,7 @@ void Test_Exec_ResetAllComPayload(void)
 	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
 	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.offChamadas);
 	TEST_ASSERT_EQUAL_UINT8(0, spiFalso.offChamadas);
+	TEST_ASSERT_EQUAL_UINT8(0, uartFalsa.offChamadas);
 }
 
 // 8. Comando desconhecido: NACK CMD_DESCONHECIDO e nada e acionado
@@ -1196,4 +1262,242 @@ void Test_Exec_ResetAllEsvaziaSpi(void)
 	MontaComando(&frame, 0x61, dCOMM_CMD_SPI_MASTER_XFER, xfer, sizeof(xfer));
 	Exec_Process(&frame, &result);
 	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
+}
+
+// 49. UART_CONFIG em 115200 baud: ACK e a UART recebe o baud (u32 little-endian)
+void Test_Exec_UartConfigValido(void)
+{
+	const uint8_t payload[] = {0x00, 0xC2, 0x01, 0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x62, dCOMM_CMD_UART_CONFIG, payload, sizeof(payload));
+
+	TEST_ASSERT_EQUAL(eEXEC_RETURN_OK, Exec_Process(&frame, &result));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, uartFalsa.configChamadas);
+	TEST_ASSERT_EQUAL_UINT32(115200, uartFalsa.baud);
+}
+
+// 50. UART_CONFIG com 1199 baud, 1 000 001 baud ou tamanho errado: NACK PARAMETRO_INVALIDO e a UART nao e tocada
+void Test_Exec_UartConfigInvalido(void)
+{
+	const uint8_t lento[]  = {0xAF, 0x04, 0x00, 0x00};   // 1199
+	const uint8_t rapido[] = {0x41, 0x42, 0x0F, 0x00};   // 1 000 001
+	const uint8_t curto[]  = {0x00, 0xC2, 0x01};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x63, dCOMM_CMD_UART_CONFIG, lento, sizeof(lento));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x64, dCOMM_CMD_UART_CONFIG, rapido, sizeof(rapido));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x65, dCOMM_CMD_UART_CONFIG, curto, sizeof(curto));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, uartFalsa.configChamadas);
+}
+
+// 51. UART_WRITE sem UART_CONFIG: NACK NAO_CONFIGURADO e nada e enviado
+void Test_Exec_UartWriteNaoConfigurado(void)
+{
+	const uint8_t payload[] = {0x02, 'O', 'K'};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x66, dCOMM_CMD_UART_WRITE, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, uartFalsa.writeChamadas);
+}
+
+// 52. UART_WRITE de 3 bytes: ACK sem dados e a UART envia os 3 bytes
+void Test_Exec_UartWriteValido(void)
+{
+	const uint8_t payload[] = {0x03, 'O', 'K', '\n'};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+	MontaComando(&frame, 0x67, dCOMM_CMD_UART_WRITE, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, uartFalsa.writeChamadas);
+	TEST_ASSERT_EQUAL_HEX8('O', uartFalsa.writeEscrita);
+	TEST_ASSERT_EQUAL_UINT8(3, uartFalsa.writeQuantidade);
+}
+
+// 53. UART_WRITE com quantidade que nao bate com o payload, quantidade 0 ou sem payload: NACK e nada e enviado
+void Test_Exec_UartWriteInvalido(void)
+{
+	const uint8_t faltaByte[] = {0x03, 'O', 'K'};   // diz 3, manda 2
+	const uint8_t zero[]      = {0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+
+	MontaComando(&frame, 0x68, dCOMM_CMD_UART_WRITE, faltaByte, sizeof(faltaByte));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x69, dCOMM_CMD_UART_WRITE, zero, sizeof(zero));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x6A, dCOMM_CMD_UART_WRITE, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, uartFalsa.writeChamadas);
+}
+
+// 54. Falha ou timeout do HAL na escrita: NACK ERRO_PERIFERICO
+void Test_Exec_UartWriteFalhaPeriferico(void)
+{
+	const uint8_t payload[] = {0x01, 'X'};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+	uartFalsa.retornoWrite = eUARTBUS_RETURN_ERROR;
+	MontaComando(&frame, 0x6B, dCOMM_CMD_UART_WRITE, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PERIFERICO, result.erro);
+}
+
+// 55. UART_READ sem UART_CONFIG: NACK NAO_CONFIGURADO e sem dados
+void Test_Exec_UartReadNaoConfigurado(void)
+{
+	const uint8_t payload[] = {0x10};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x6C, dCOMM_CMD_UART_READ, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+}
+
+// 56. UART_READ com maximo 2 de 3 bytes recebidos: [2][A B]; depois [1][C] e, sem mais nada, [0]
+void Test_Exec_UartReadValido(void)
+{
+	const uint8_t max2[]      = {0x02};
+	const uint8_t max10[]     = {0x0A};
+	const uint8_t esperado1[] = {0x02, 'A', 'B'};
+	const uint8_t esperado2[] = {0x01, 'C'};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+	UartBus_ByteRecebido('A');
+	UartBus_ByteRecebido('B');
+	UartBus_ByteRecebido('C');
+
+	MontaComando(&frame, 0x6D, dCOMM_CMD_UART_READ, max2, sizeof(max2));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(3, result.size);
+	TEST_ASSERT_EQUAL_UINT8_ARRAY(esperado1, result.dados, sizeof(esperado1));
+
+	MontaComando(&frame, 0x6E, dCOMM_CMD_UART_READ, max10, sizeof(max10));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(2, result.size);
+	TEST_ASSERT_EQUAL_UINT8_ARRAY(esperado2, result.dados, sizeof(esperado2));
+
+	MontaComando(&frame, 0x6F, dCOMM_CMD_UART_READ, max10, sizeof(max10));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, result.size);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+}
+
+// 57. UART_READ com maximo 255 e 250 bytes recebidos: devolve 239 (a resposta ocupa os 240 bytes) e depois os 11 restantes
+void Test_Exec_UartReadMaximoGrande(void)
+{
+	const uint8_t max255[] = {0xFF};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+	for (uint16_t i = 0U; i < 250U; i++)
+	{
+		UartBus_ByteRecebido((uint8_t)i);
+	}
+
+	MontaComando(&frame, 0x71, dCOMM_CMD_UART_READ, max255, sizeof(max255));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(dCOMM_PAYLOAD_MAX_SIZE, result.size);
+	TEST_ASSERT_EQUAL_UINT8(dUARTBUS_TAMANHO_MAX, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8(0x00, result.dados[1]);
+	TEST_ASSERT_EQUAL_HEX8(238, result.dados[dCOMM_PAYLOAD_MAX_SIZE - 1U]);
+
+	MontaComando(&frame, 0x72, dCOMM_CMD_UART_READ, max255, sizeof(max255));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(11, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8(239, result.dados[1]);
+}
+
+// 58. UART_READ sem payload ou com 2 bytes: NACK PARAMETRO_INVALIDO e o buffer fica intacto
+void Test_Exec_UartReadTamanhoErrado(void)
+{
+	const uint8_t longo[] = {0x01, 0x00};
+	const uint8_t max1[]  = {0x01};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+	UartBus_ByteRecebido('Z');
+
+	MontaComando(&frame, 0x73, dCOMM_CMD_UART_READ, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+
+	MontaComando(&frame, 0x74, dCOMM_CMD_UART_READ, longo, sizeof(longo));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x75, dCOMM_CMD_UART_READ, max1, sizeof(max1));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8('Z', result.dados[1]);
+}
+
+// 59. RESET_ALL desliga a UART e esvazia o buffer: a leitura pede UART_CONFIG de novo e, depois dele, vem vazia
+void Test_Exec_ResetAllDesligaUart(void)
+{
+	const uint8_t max10[] = {0x0A};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	ConfiguraUart();
+	UartBus_ByteRecebido('A');
+
+	MontaComando(&frame, 0x76, dCOMM_CMD_RESET_ALL, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(1, uartFalsa.offChamadas);
+
+	MontaComando(&frame, 0x77, dCOMM_CMD_UART_READ, max10, sizeof(max10));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
+
+	ConfiguraUart();
+	MontaComando(&frame, 0x78, dCOMM_CMD_UART_READ, max10, sizeof(max10));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
 }

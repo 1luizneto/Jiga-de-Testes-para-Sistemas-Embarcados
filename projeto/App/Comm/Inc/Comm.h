@@ -48,6 +48,9 @@
 #define dCOMM_CMD_SPI_SLAVE_LOAD  (0x61U)
 #define dCOMM_CMD_SPI_SLAVE_READ  (0x62U)
 #define dCOMM_CMD_SPI_MASTER_XFER (0x63U)
+#define dCOMM_CMD_UART_CONFIG     (0x70U)
+#define dCOMM_CMD_UART_WRITE      (0x71U)
+#define dCOMM_CMD_UART_READ       (0x72U)
 
 // ACK: CMD de requisicao com o bit 7 ligado
 #define dCOMM_ACK_FLAG (0x80U)

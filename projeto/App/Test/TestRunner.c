@@ -100,6 +100,17 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_SpiXferInvalido);
 		RUN_TEST(Test_Exec_SpiXferFalhaPeriferico);
 		RUN_TEST(Test_Exec_ResetAllEsvaziaSpi);
+		RUN_TEST(Test_Exec_UartConfigValido);
+		RUN_TEST(Test_Exec_UartConfigInvalido);
+		RUN_TEST(Test_Exec_UartWriteNaoConfigurado);
+		RUN_TEST(Test_Exec_UartWriteValido);
+		RUN_TEST(Test_Exec_UartWriteInvalido);
+		RUN_TEST(Test_Exec_UartWriteFalhaPeriferico);
+		RUN_TEST(Test_Exec_UartReadNaoConfigurado);
+		RUN_TEST(Test_Exec_UartReadValido);
+		RUN_TEST(Test_Exec_UartReadMaximoGrande);
+		RUN_TEST(Test_Exec_UartReadTamanhoErrado);
+		RUN_TEST(Test_Exec_ResetAllDesligaUart);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
