@@ -42,6 +42,10 @@ CMD_I2C_CONFIG = 0x50
 CMD_I2C_SLAVE_LOAD = 0x51
 CMD_I2C_SLAVE_DUMP = 0x52
 CMD_I2C_MASTER_XFER = 0x53
+CMD_SPI_CONFIG = 0x60
+CMD_SPI_SLAVE_LOAD = 0x61
+CMD_SPI_SLAVE_READ = 0x62
+CMD_SPI_MASTER_XFER = 0x63
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
 
@@ -54,7 +58,8 @@ NOMES_COMANDO = {
     CMD_GPIO_SET: "GPIO_SET", CMD_GPIO_READ: "GPIO_READ", CMD_PWM_SET: "PWM_SET",
     CMD_PWM_STOP: "PWM_STOP", CMD_ADC_READ: "ADC_READ", CMD_I2C_CONFIG: "I2C_CONFIG",
     CMD_I2C_SLAVE_LOAD: "I2C_SLAVE_LOAD", CMD_I2C_SLAVE_DUMP: "I2C_SLAVE_DUMP",
-    CMD_I2C_MASTER_XFER: "I2C_MASTER_XFER",
+    CMD_I2C_MASTER_XFER: "I2C_MASTER_XFER", CMD_SPI_CONFIG: "SPI_CONFIG", CMD_SPI_SLAVE_LOAD: "SPI_SLAVE_LOAD",
+    CMD_SPI_SLAVE_READ: "SPI_SLAVE_READ", CMD_SPI_MASTER_XFER: "SPI_MASTER_XFER",
 }
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
@@ -100,6 +105,20 @@ I2C_ENDERECO_MIN = 0x08          # 0x00-0x07 e 0x78-0x7F sao reservados pelo pad
 I2C_ENDERECO_MAX = 0x77
 I2C_VELOCIDADES = {0: 100_000, 1: 400_000}
 I2C_TAMANHO_MAPA = 256
+
+# SPI (Apendice A): SPI2 em PB10 (SCK), PB15 (MOSI), PC2 (MISO) e PD7 (CS, ativo em nivel baixo). Como
+# escrava, a jiga envia o buffer do SPI_SLAVE_LOAD a cada transacao do DUT (do byte 0, completando com 0xFF)
+# e acumula o que o DUT enviou ate o SPI_SLAVE_READ, que esvazia o buffer. LOAD e READ funcionam sem
+# SPI_CONFIG. Como mestre, a frequencia e a maior de 54 MHz / 2..256 que nao passa da pedida. O RESET_ALL
+# desliga o barramento (CS em nivel alto) e esvazia os buffers
+SPI_PAPEL_ESCRAVO = 0
+SPI_PAPEL_MESTRE = 1
+SPI_MODO_MAX = 3                 # bit 1 = CPOL, bit 0 = CPHA
+SPI_CLOCK = 54_000_000           # PCLK1
+SPI_DIVISORES = tuple(2 ** n for n in range(1, 9))
+SPI_FREQUENCIA_MIN = -(-SPI_CLOCK // SPI_DIVISORES[-1])   # 210 938 Hz (54 MHz / 256, arredondado para cima)
+SPI_TAMANHO_BUFFER = 239         # [quantidade][dados] cabe nos 240 bytes do payload
+SPI_BYTE_VAZIO = 0xFF
 
 # Loopback dos casos CT10 e CT11 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0)
 # e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3)
@@ -344,6 +363,48 @@ def montar_i2c_xfer(seq, endereco, escrita=b"", nr=0):
     return montar_quadro(seq, CMD_I2C_MASTER_XFER, bytes([endereco, len(escrita), nr]) + bytes(escrita))
 
 
+def montar_spi_config(seq, papel, modo, frequencia=0):
+    """SPI_CONFIG: payload [papel (u8, 0 escravo, 1 mestre)][modo (u8, 0-3)][frequencia em Hz (u32, LE)].
+
+    A frequencia so vale como mestre (a escrava segue o clock do DUT).
+    """
+    _u8(papel, modo)
+    if not 0 <= frequencia <= 0xFFFF_FFFF:
+        raise ValueError("frequencia precisa caber em 4 bytes")
+    return montar_quadro(seq, CMD_SPI_CONFIG, bytes([papel, modo]) + frequencia.to_bytes(4, "little"))
+
+
+def montar_spi_load(seq, dados):
+    """SPI_SLAVE_LOAD: payload [quantidade (u8)][dados]; sem dados, a escrava passa a enviar so 0xFF."""
+    _u8(len(dados))
+    return montar_quadro(seq, CMD_SPI_SLAVE_LOAD, bytes([len(dados)]) + bytes(dados))
+
+
+def montar_spi_read(seq):
+    """SPI_SLAVE_READ: sem payload; o ACK traz [quantidade][dados] recebidos do DUT."""
+    return montar_quadro(seq, CMD_SPI_SLAVE_READ)
+
+
+def montar_spi_xfer(seq, dados):
+    """SPI_MASTER_XFER: payload [quantidade (u8)][dados]; o ACK traz os bytes lidos (a mesma quantidade)."""
+    _u8(len(dados))
+    return montar_quadro(seq, CMD_SPI_MASTER_XFER, bytes([len(dados)]) + bytes(dados))
+
+
+def spi_divisor(frequencia):
+    """Espelho do SpiBus_Divisor: menor divisor cuja frequencia nao passa da pedida; ValueError se nao houver."""
+    for divisor in SPI_DIVISORES:
+        if SPI_CLOCK <= frequencia * divisor:
+            return divisor
+    raise ValueError(f"frequencia abaixo de {SPI_FREQUENCIA_MIN} Hz (54 MHz / 256)")
+
+
+def descrever_spi(frequencia):
+    """Texto com o divisor e a frequencia que o mestre gera, ex.: 1 MHz -> 54 MHz / 64 = 843750 Hz."""
+    divisor = spi_divisor(frequencia)
+    return f"SPI mestre: 54 MHz / {divisor} = {SPI_CLOCK // divisor} Hz"
+
+
 def calcular_pwm(canal, frequencia, razao):
     """Espelho do Pwm_Calcula: (PSC, ARR, CCR) que a jiga aplica no timer do canal.
 
@@ -429,6 +490,10 @@ class Resposta:
             canal, valor = self.dados[0], int.from_bytes(self.dados[1:3], "little")
             tensao = f"{codigo_para_tensao(valor):.3f}".replace(".", ",")
             texto += f" canal {canal} = {valor} ({tensao} V)"
+        elif self.cmd == CMD_SPI_SLAVE_READ and self.dados and self.dados[0] == len(self.dados) - 1:
+            texto += f" {self.dados[0]} B do DUT"
+            if self.dados[0]:
+                texto += f": {self.dados[1:].hex(' ').upper()}"
         elif self.dados:
             texto += f" dados={self.dados.hex(' ').upper()}"
         return texto
@@ -472,11 +537,15 @@ class JigaSimulada:
     - PING -> ACK com as versoes, na hora (inclusive com um comando pendente);
     - outro comando com um pendente -> NACK OCUPADO, sem guardar no cache;
     - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ, PWM_SET, PWM_STOP e os
-      quatro de I2C; codigo desconhecido -> NACK CMD_DESCONHECIDO.
+      quatro de I2C e os quatro de SPI; codigo desconhecido -> NACK CMD_DESCONHECIDO.
 
     I2C: 'i2c_papel' (None = desligado), 'i2c_mapa' (os 256 registradores da jiga escrava) e
     'i2c_dispositivos' (endereco -> registradores dos escravos no barramento, para o papel de mestre).
     Endereco sem dispositivo -> falta de ACK (NACK ERRO_PERIFERICO), como na placa sem DUT.
+
+    SPI: 'spi_papel' (None = desligado), 'spi_tx' (o que a escrava envia) e 'spi_rx' (o que o DUT enviou);
+    transacao_spi() faz o papel do DUT. Como mestre, o MISO le o MOSI com loopback (jumper PB15 -> PC2) e
+    0xFF sem ele (nominal: na placa, sem DUT, o MISO fica solto).
 
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
@@ -498,6 +567,9 @@ class JigaSimulada:
     i2c_papel: int = None
     i2c_mapa: bytearray = field(default_factory=lambda: bytearray(I2C_TAMANHO_MAPA))
     i2c_dispositivos: dict = field(default_factory=dict)
+    spi_papel: int = None
+    spi_tx: bytes = b""
+    spi_rx: bytearray = field(default_factory=bytearray)
 
     def nova_sessao(self):
         """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
@@ -551,6 +623,7 @@ class JigaSimulada:
             self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
             self.i2c_papel = None
             self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
+            self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
             return 0, b""
         if quadro.cmd == CMD_DAC_SET:
             if len(payload) != 3:
@@ -592,6 +665,8 @@ class JigaSimulada:
             return 0, b""
         if CMD_I2C_CONFIG <= quadro.cmd <= CMD_I2C_MASTER_XFER:
             return self._executar_i2c(quadro.cmd, payload)
+        if CMD_SPI_CONFIG <= quadro.cmd <= CMD_SPI_MASTER_XFER:
+            return self._executar_spi(quadro.cmd, payload)
         return ERRO_CMD_DESCONHECIDO, b""
 
     def _executar_i2c(self, cmd, payload):
@@ -634,6 +709,50 @@ class JigaSimulada:
         for i, byte in enumerate(escrita[1:]):
             registros[(ponteiro + i) % I2C_TAMANHO_MAPA] = byte
         return 0, bytes(registros[(ponteiro + i) % I2C_TAMANHO_MAPA] for i in range(nr))
+
+    def _executar_spi(self, cmd, payload):
+        """Espelho do Exec (tamanhos) e do SpiBus (faixas, buffers, papel)."""
+        if cmd == CMD_SPI_CONFIG:
+            if len(payload) != 6:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            papel, modo, frequencia = payload[0], payload[1], int.from_bytes(payload[2:6], "little")
+            if papel > SPI_PAPEL_MESTRE or modo > SPI_MODO_MAX:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            if papel == SPI_PAPEL_MESTRE:
+                try:
+                    spi_divisor(frequencia)
+                except ValueError:
+                    return ERRO_PARAMETRO_INVALIDO, b""
+            self.spi_papel = papel
+            return 0, b""
+        if cmd == CMD_SPI_SLAVE_READ:
+            if payload:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            recebidos, self.spi_rx = bytes(self.spi_rx), bytearray()
+            return 0, bytes([len(recebidos)]) + recebidos
+        if len(payload) < 1 or len(payload) != 1 + payload[0]:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        dados = payload[1:]
+        if len(dados) > SPI_TAMANHO_BUFFER:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        if cmd == CMD_SPI_SLAVE_LOAD:
+            self.spi_tx = bytes(dados)
+            return 0, b""
+        if not dados:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        if self.spi_papel != SPI_PAPEL_MESTRE:
+            return ERRO_NAO_CONFIGURADO, b""
+        return 0, bytes(dados) if self.loopback else bytes([SPI_BYTE_VAZIO]) * len(dados)
+
+    def transacao_spi(self, enviados):
+        """Uma transacao do DUT com a jiga escrava (CS baixo, bytes, CS alto): retorna o que a jiga enviou.
+
+        Como no SpiBus, a transmissao recomeca do byte 0 e o que passa do buffer de recepcao e descartado.
+        """
+        livre = SPI_TAMANHO_BUFFER - len(self.spi_rx)
+        self.spi_rx += bytes(enviados[:livre])
+        tx = self.spi_tx + bytes([SPI_BYTE_VAZIO]) * SPI_TAMANHO_BUFFER
+        return tx[:len(enviados)]
 
     def _concluir_pendente(self):
         """Equivale ao CommTask_VerificaResultado + Comm_BuildResult."""
@@ -1003,6 +1122,39 @@ CASOS_TESTE = [
               [QUADRO_OK] * 3,
               [montar_ack(49, CMD_I2C_SLAVE_LOAD), montar_ack(50, CMD_RESET_ALL),
                montar_ack(51, CMD_I2C_SLAVE_DUMP, b"\x00")]),
+    # SPI (v0.8.0), sem DUT: so os comandos e os buffers; a transferencia como mestre e conferida no CT13, com o
+    # jumper MOSI -> MISO, e a escrava no CT20, com o DUT de referencia
+    CasoTeste("SPI_CONFIG mestre", "jiga mestre no modo 0 a 1 MHz (54 MHz / 64 = 843 750 Hz): ACK",
+              [("enviar", montar_spi_config(52, SPI_PAPEL_MESTRE, 0, 1_000_000))],
+              [QUADRO_OK], [montar_ack(52, CMD_SPI_CONFIG)]),
+    CasoTeste("SPI_CONFIG modo invalido", "modo 4 (so existem 0 a 3): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_spi_config(53, SPI_PAPEL_ESCRAVO, 4))],
+              [QUADRO_OK], [montar_nack(53, CMD_SPI_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("SPI_CONFIG mestre lento", "mestre a 100 kHz (minimo 210 938 Hz = 54 MHz / 256): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_spi_config(54, SPI_PAPEL_MESTRE, 0, 100_000))],
+              [QUADRO_OK], [montar_nack(54, CMD_SPI_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("SPI_CONFIG tamanho errado", "payload de 2 bytes (esperado 6): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(55, CMD_SPI_CONFIG, bytes([SPI_PAPEL_ESCRAVO, 0])))],
+              [QUADRO_OK], [montar_nack(55, CMD_SPI_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("SPI_CONFIG escrava", "jiga escrava no modo 0 (CS no PD7 vira entrada): ACK",
+              [("enviar", montar_spi_config(56, SPI_PAPEL_ESCRAVO, 0))],
+              [QUADRO_OK], [montar_ack(56, CMD_SPI_CONFIG)]),
+    CasoTeste("SPI_MASTER_XFER sem mestre", "transferencia com a jiga escrava: NACK NAO_CONFIGURADO",
+              [("enviar", montar_spi_xfer(57, b"\x9f\x00"))],
+              [QUADRO_OK], [montar_nack(57, CMD_SPI_MASTER_XFER, ERRO_NAO_CONFIGURADO)]),
+    CasoTeste("SPI_MASTER_XFER vazio", "quantidade 0: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_spi_xfer(58, b""))],
+              [QUADRO_OK], [montar_nack(58, CMD_SPI_MASTER_XFER, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("SPI LOAD e READ sem DUT", "carrega 3 bytes e le a recepcao: ACK e [0] (nenhuma transacao do DUT)",
+              [("enviar", montar_spi_load(59, b"\x11\x22\x33")), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_spi_read(60))],
+              [QUADRO_OK] * 2, [montar_ack(59, CMD_SPI_SLAVE_LOAD), montar_ack(60, CMD_SPI_SLAVE_READ, b"\x00")]),
+    CasoTeste("SPI_SLAVE_LOAD tamanho errado", "quantidade 3 com 2 bytes de dados: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(61, CMD_SPI_SLAVE_LOAD, bytes([0x03, 0xAA, 0xBB])))],
+              [QUADRO_OK], [montar_nack(61, CMD_SPI_SLAVE_LOAD, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("SPI_SLAVE_READ com payload", "READ nao tem payload: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(62, CMD_SPI_SLAVE_READ, b"\x00"))],
+              [QUADRO_OK], [montar_nack(62, CMD_SPI_SLAVE_READ, ERRO_PARAMETRO_INVALIDO)]),
     # Com os jumpers (opcao de loopback): CT10 e CT11 da monografia
     _caso_ct10(1, 100),
     _caso_ct10(2, 122),

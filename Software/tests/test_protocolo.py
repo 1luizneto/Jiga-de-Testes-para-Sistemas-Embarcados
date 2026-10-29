@@ -8,16 +8,19 @@ import pytest
 from protocolo import (
     CASOS_TESTE, CMD_ADC_READ, CMD_DAC_SET, CMD_GPIO_READ, CMD_GPIO_SET, CMD_INEXISTENTE, CMD_PING,
     CMD_I2C_CONFIG, CMD_I2C_MASTER_XFER, CMD_I2C_SLAVE_DUMP, CMD_I2C_SLAVE_LOAD, CMD_PWM_SET, CMD_PWM_STOP,
-    CMD_RESET_ALL, DAC_FAIXA_UTIL, DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO,
+    CMD_RESET_ALL, CMD_SPI_CONFIG, CMD_SPI_MASTER_XFER, CMD_SPI_SLAVE_LOAD, CMD_SPI_SLAVE_READ, DAC_FAIXA_UTIL,
+    DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO,
     ERRO_CRC, ERRO_LEN, ERRO_NAO_CONFIGURADO, ERRO_OCUPADO, ERRO_PERIFERICO, I2C_PAPEL_ESCRAVO,
     I2C_PAPEL_MESTRE, ERRO_PARAMETRO_INVALIDO, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX,
-    PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_PADRAO, PWM_RAZAO_MAX, QUADRO_OK, SOF, TAMANHO_QUADRO_MAX, TIMEOUT,
+    PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_PADRAO, PWM_RAZAO_MAX, QUADRO_OK, SOF, SPI_FREQUENCIA_MIN, SPI_PAPEL_ESCRAVO,
+    SPI_PAPEL_MESTRE, SPI_TAMANHO_BUFFER, TAMANHO_QUADRO_MAX, TIMEOUT,
     TOLERANCIA_ADC, JigaSimulada, Quadro, ReceptorQuadros, avaliar_caso, calcular_pwm, casos_a_executar,
     crc16_ccitt, descrever_log, descrever_pwm, descrever_resposta, descrever_respostas, interpretar_resposta,
     montar_ack, montar_ack_ping, montar_adc_read, montar_dac_set, montar_gpio_read, montar_gpio_set,
     montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_nack,
-    montar_pwm_set, montar_pwm_stop, montar_quadro, pontos_ct10, porcento_para_razao, pwm_gerado,
-    resultado_do_log, simular, simular_caso,
+    montar_pwm_set, montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read,
+    montar_spi_xfer, pontos_ct10, porcento_para_razao, pwm_gerado, resultado_do_log, simular, simular_caso,
+    descrever_spi, spi_divisor,
 )
 from versao import __version__
 
@@ -518,6 +521,107 @@ def test_jiga_i2c_mestre():
     assert _resposta(jiga, montar_i2c_xfer(4, 0x68, b"\x0f", 2)).dados == b"\x0f\x10"
     assert _resposta(jiga, montar_i2c_xfer(5, 0x68, b"\x20\xaa\xbb")).dados == b""
     assert jiga.i2c_dispositivos[0x68][0x20:0x22] == b"\xaa\xbb"
+
+
+# --- SPI ----------------------------------------------------------------------
+
+def test_quadros_spi():
+    assert montar_spi_config(1, SPI_PAPEL_MESTRE, 3, 1_000_000)[1:10] == bytes(
+        [6, 1, CMD_SPI_CONFIG, 0x01, 0x03, 0x40, 0x42, 0x0F, 0x00])
+    assert montar_spi_load(2, b"\x11\x22")[1:7] == bytes([3, 2, CMD_SPI_SLAVE_LOAD, 2, 0x11, 0x22])
+    assert montar_spi_load(3, b"")[1:5] == bytes([1, 3, CMD_SPI_SLAVE_LOAD, 0])
+    assert montar_spi_read(4)[1:4] == bytes([0, 4, CMD_SPI_SLAVE_READ])
+    assert montar_spi_xfer(5, b"\x9f\x00")[1:7] == bytes([3, 5, CMD_SPI_MASTER_XFER, 2, 0x9F, 0x00])
+
+
+@pytest.mark.parametrize("montar", [
+    lambda: montar_spi_config(1, 256, 0), lambda: montar_spi_config(1, 0, 0, 2 ** 32),
+    lambda: montar_spi_load(1, bytes(256)), lambda: montar_spi_xfer(1, bytes(256)),
+], ids=["papel 256", "frequencia 2^32", "load 256 bytes", "xfer 256 bytes"])
+def test_spi_fora_do_tamanho(montar):
+    with pytest.raises(ValueError):
+        montar()
+
+
+@pytest.mark.parametrize("frequencia, divisor", [
+    (27_000_000, 2), (30_000_000, 2), (26_999_999, 4), (1_000_000, 64), (843_750, 64), (843_749, 128),
+    (SPI_FREQUENCIA_MIN, 256),
+])
+def test_spi_divisor_igual_ao_firmware(frequencia, divisor):
+    """Os pontos do Test_SpiBus.c e mais alguns: o mestre nunca fica mais rapido que o pedido."""
+    assert spi_divisor(frequencia) == divisor
+
+
+@pytest.mark.parametrize("frequencia", [0, SPI_FREQUENCIA_MIN - 1])
+def test_spi_divisor_abaixo_do_minimo(frequencia):
+    with pytest.raises(ValueError):
+        spi_divisor(frequencia)
+
+
+def test_descrever_spi():
+    assert descrever_spi(1_000_000) == "SPI mestre: 54 MHz / 64 = 843750 Hz"
+
+
+def test_jiga_spi_escrava():
+    """LOAD/READ sem SPI_CONFIG; a transmissao recomeca do byte 0 a cada transacao; o READ esvazia."""
+    jiga = JigaSimulada()
+    assert jiga.processar(montar_spi_load(1, b"\x11\x22"))[1] == montar_ack(1, CMD_SPI_SLAVE_LOAD)
+    assert jiga.transacao_spi(b"\xa1\xa2\xa3") == b"\x11\x22\xff"
+    assert jiga.transacao_spi(b"\xb1") == b"\x11"
+    resposta = _resposta(jiga, montar_spi_read(2))
+    assert resposta.dados == b"\x04\xa1\xa2\xa3\xb1"
+    assert resposta.descrever() == "ACK SPI_SLAVE_READ SEQ=2 4 B do DUT: A1 A2 A3 B1"
+    assert _resposta(jiga, montar_spi_read(3)).dados == b"\x00"
+
+
+def test_jiga_spi_recepcao_cheia_descarta_excedente():
+    jiga = JigaSimulada()
+    jiga.transacao_spi(bytes(200))
+    jiga.transacao_spi(bytes([0x55]) * 100)
+    dados = _resposta(jiga, montar_spi_read(1)).dados
+    assert len(dados) == 1 + SPI_TAMANHO_BUFFER and dados[0] == SPI_TAMANHO_BUFFER
+    assert dados[-1] == 0x55
+
+
+def test_jiga_spi_mestre():
+    """Sem mestre: NAO_CONFIGURADO; com loopback o MISO le o MOSI; sem ele, 0xFF (nominal)."""
+    jiga = JigaSimulada(loopback=True)
+    assert _resposta(jiga, montar_spi_xfer(1, b"\x9f")).erro == ERRO_NAO_CONFIGURADO
+    jiga.processar(montar_spi_config(2, SPI_PAPEL_MESTRE, 0, 1_000_000))
+    assert _resposta(jiga, montar_spi_xfer(3, b"\x9f\x00\x5a")).dados == b"\x9f\x00\x5a"
+    jiga.loopback = False
+    assert _resposta(jiga, montar_spi_xfer(4, b"\x9f\x00")).dados == b"\xff\xff"
+
+
+def test_jiga_spi_reset_all():
+    jiga = JigaSimulada()
+    jiga.processar(montar_spi_config(1, SPI_PAPEL_MESTRE, 0, 1_000_000))
+    jiga.processar(montar_spi_load(2, b"\x11"))
+    jiga.transacao_spi(b"\x22")
+    jiga.processar(montar_quadro(3, CMD_RESET_ALL))
+    assert (jiga.spi_papel, jiga.spi_tx, jiga.spi_rx) == (None, b"", bytearray())
+
+
+@pytest.mark.parametrize("quadro", [
+    montar_spi_config(1, 2, 0),                                            # papel 2
+    montar_spi_config(1, SPI_PAPEL_ESCRAVO, 4),                            # modo 4
+    montar_spi_config(1, SPI_PAPEL_MESTRE, 0, SPI_FREQUENCIA_MIN - 1),     # mestre lento
+    montar_spi_config(1, SPI_PAPEL_MESTRE, 0, 0),                          # mestre sem frequencia
+    montar_quadro(1, CMD_SPI_CONFIG, bytes([0, 0])),                       # tamanho 2
+    montar_quadro(1, CMD_SPI_SLAVE_LOAD, bytes([3, 0xAA])),                # quantidade nao bate
+    montar_quadro(1, CMD_SPI_SLAVE_LOAD, b""),                             # sem quantidade
+    montar_quadro(1, CMD_SPI_SLAVE_READ, b"\x00"),                         # read com payload
+    montar_spi_xfer(1, b""),                                               # xfer vazio
+    montar_quadro(1, CMD_SPI_MASTER_XFER, bytes([2, 0x9F])),               # xfer quantidade nao bate
+], ids=["papel 2", "modo 4", "mestre lento", "mestre 0 Hz", "config tamanho 2", "load qtd errada", "load vazio",
+        "read com payload", "xfer vazio", "xfer qtd errada"])
+def test_jiga_spi_parametro_invalido_nao_altera(quadro):
+    """CT09 com o SPI: NACK PARAMETRO_INVALIDO, buffers e papel intactos."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_spi_load(9, b"\x77"))
+    jiga.transacao_spi(b"\x66")
+    assert _resposta(jiga, quadro).erro == ERRO_PARAMETRO_INVALIDO
+    assert (jiga.spi_papel, jiga.spi_tx, jiga.spi_rx) == (None, b"\x77", bytearray(b"\x66"))
 
 
 def test_jiga_ocupado_no_mesmo_bloco():
