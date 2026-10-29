@@ -7,14 +7,14 @@ parser; e no proprio USB-CDC, se a jiga devolveu a resposta (ACK/NACK) esperada.
 
 Precisa das duas portas: o CN13 (USB-CDC) e o USB do ST-Link (CN1).
 
-Os casos de loopback (CT10 e CT11) so passam com os jumpers DAC1 (PA4) -> A0 (PA3),
-DAC2 (PA5) -> A1 (PC0) e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3): sem
---loopback eles sao pulados.
+Os casos de loopback (CT10, CT11 e CT13) so passam com os jumpers DAC1 (PA4) -> A0 (PA3),
+DAC2 (PA5) -> A1 (PC0), GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3), MOSI (PB15) ->
+MISO (PC2) e TX (PD1) -> RX (PD0): sem --loopback eles sao pulados.
 
 Uso:
     python teste_protocolo.py                          # detecta as duas portas
     python teste_protocolo.py --porta COM14 --porta-log COM8
-    python teste_protocolo.py --loopback               # inclui o CT10 e o CT11 (jumpers ligados)
+    python teste_protocolo.py --loopback               # inclui o CT10, o CT11 e o CT13 (jumpers ligados)
     python teste_protocolo.py --caso 1                 # so um caso (numero da lista)
     python teste_protocolo.py --listar                 # lista os casos e sai
 """
@@ -88,7 +88,7 @@ def main():
     parser.add_argument("--porta-log", help="porta do ST-Link (DebugLog). Padrao: detecta")
     parser.add_argument("--caso", type=int, help="numero do caso (ver --listar); roda mesmo se for de loopback")
     parser.add_argument("--loopback", action="store_true",
-                        help="inclui os casos que precisam dos jumpers (CT10 e CT11)")
+                        help="inclui os casos que precisam dos jumpers (CT10, CT11 e CT13)")
     parser.add_argument("--listar", action="store_true", help="lista os casos e sai")
     args = parser.parse_args()
 

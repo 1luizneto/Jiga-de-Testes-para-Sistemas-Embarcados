@@ -46,6 +46,9 @@ CMD_SPI_CONFIG = 0x60
 CMD_SPI_SLAVE_LOAD = 0x61
 CMD_SPI_SLAVE_READ = 0x62
 CMD_SPI_MASTER_XFER = 0x63
+CMD_UART_CONFIG = 0x70
+CMD_UART_WRITE = 0x71
+CMD_UART_READ = 0x72
 CMD_NACK = 0xFF
 FLAG_ACK = 0x80
 
@@ -59,7 +62,8 @@ NOMES_COMANDO = {
     CMD_PWM_STOP: "PWM_STOP", CMD_ADC_READ: "ADC_READ", CMD_I2C_CONFIG: "I2C_CONFIG",
     CMD_I2C_SLAVE_LOAD: "I2C_SLAVE_LOAD", CMD_I2C_SLAVE_DUMP: "I2C_SLAVE_DUMP",
     CMD_I2C_MASTER_XFER: "I2C_MASTER_XFER", CMD_SPI_CONFIG: "SPI_CONFIG", CMD_SPI_SLAVE_LOAD: "SPI_SLAVE_LOAD",
-    CMD_SPI_SLAVE_READ: "SPI_SLAVE_READ", CMD_SPI_MASTER_XFER: "SPI_MASTER_XFER",
+    CMD_SPI_SLAVE_READ: "SPI_SLAVE_READ", CMD_SPI_MASTER_XFER: "SPI_MASTER_XFER", CMD_UART_CONFIG: "UART_CONFIG",
+    CMD_UART_WRITE: "UART_WRITE", CMD_UART_READ: "UART_READ",
 }
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
@@ -120,8 +124,16 @@ SPI_FREQUENCIA_MIN = -(-SPI_CLOCK // SPI_DIVISORES[-1])   # 210 938 Hz (54 MHz /
 SPI_TAMANHO_BUFFER = 239         # [quantidade][dados] cabe nos 240 bytes do payload
 SPI_BYTE_VAZIO = 0xFF
 
-# Loopback dos casos CT10 e CT11 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0)
-# e GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3)
+# UART (Apendice A): UART4 em PD1 (TX) e PD0 (RX), 8N1. Os bytes do DUT entram num buffer circular de 256
+# bytes (com ele cheio, os novos sao descartados) e o UART_READ tira os mais antigos. O UART_CONFIG esvazia o
+# buffer; o RESET_ALL desliga a UART (o WRITE e o READ voltam a pedir UART_CONFIG)
+UART_BAUD_MIN = 1200
+UART_BAUD_MAX = 1_000_000
+UART_TAMANHO_RX = 256
+UART_TAMANHO_MAX = 239           # maior WRITE e maior READ: [quantidade][dados] cabe nos 240 bytes
+
+# Loopback dos casos CT10, CT11 e CT13 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0),
+# GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3), MOSI (PB15) -> MISO (PC2) e TX (PD1) -> RX (PD0)
 LOOPBACK_DAC_ADC = {1: 0, 2: 1}
 
 # CT10: tolerancia de 1 % do fundo de escala (33 mV ~ 41 codigos) e faixa util do DAC com o buffer
@@ -391,6 +403,25 @@ def montar_spi_xfer(seq, dados):
     return montar_quadro(seq, CMD_SPI_MASTER_XFER, bytes([len(dados)]) + bytes(dados))
 
 
+def montar_uart_config(seq, baud):
+    """UART_CONFIG: payload [baud (u32, LE)]; 8N1 fixo."""
+    if not 0 <= baud <= 0xFFFF_FFFF:
+        raise ValueError("baud precisa caber em 4 bytes")
+    return montar_quadro(seq, CMD_UART_CONFIG, baud.to_bytes(4, "little"))
+
+
+def montar_uart_write(seq, dados):
+    """UART_WRITE: payload [quantidade (u8)][dados]; o ACK so sai depois de enviar."""
+    _u8(len(dados))
+    return montar_quadro(seq, CMD_UART_WRITE, bytes([len(dados)]) + bytes(dados))
+
+
+def montar_uart_read(seq, maximo=UART_TAMANHO_MAX):
+    """UART_READ: payload [maximo (u8)]; o ACK traz [quantidade][dados] recebidos do DUT."""
+    _u8(maximo)
+    return montar_quadro(seq, CMD_UART_READ, bytes([maximo]))
+
+
 def spi_divisor(frequencia):
     """Espelho do SpiBus_Divisor: menor divisor cuja frequencia nao passa da pedida; ValueError se nao houver."""
     for divisor in SPI_DIVISORES:
@@ -490,7 +521,7 @@ class Resposta:
             canal, valor = self.dados[0], int.from_bytes(self.dados[1:3], "little")
             tensao = f"{codigo_para_tensao(valor):.3f}".replace(".", ",")
             texto += f" canal {canal} = {valor} ({tensao} V)"
-        elif self.cmd == CMD_SPI_SLAVE_READ and self.dados and self.dados[0] == len(self.dados) - 1:
+        elif self.cmd in (CMD_SPI_SLAVE_READ, CMD_UART_READ) and self.dados and self.dados[0] == len(self.dados) - 1:
             texto += f" {self.dados[0]} B do DUT"
             if self.dados[0]:
                 texto += f": {self.dados[1:].hex(' ').upper()}"
@@ -537,7 +568,7 @@ class JigaSimulada:
     - PING -> ACK com as versoes, na hora (inclusive com um comando pendente);
     - outro comando com um pendente -> NACK OCUPADO, sem guardar no cache;
     - demais -> executados: RESET_ALL, DAC_SET, GPIO_SET, GPIO_READ, ADC_READ, PWM_SET, PWM_STOP e os
-      quatro de I2C e os quatro de SPI; codigo desconhecido -> NACK CMD_DESCONHECIDO.
+      quatro de I2C, os quatro de SPI e os tres de UART; codigo desconhecido -> NACK CMD_DESCONHECIDO.
 
     I2C: 'i2c_papel' (None = desligado), 'i2c_mapa' (os 256 registradores da jiga escrava) e
     'i2c_dispositivos' (endereco -> registradores dos escravos no barramento, para o papel de mestre).
@@ -546,6 +577,9 @@ class JigaSimulada:
     SPI: 'spi_papel' (None = desligado), 'spi_tx' (o que a escrava envia) e 'spi_rx' (o que o DUT enviou);
     transacao_spi() faz o papel do DUT. Como mestre, o MISO le o MOSI com loopback (jumper PB15 -> PC2) e
     0xFF sem ele (nominal: na placa, sem DUT, o MISO fica solto).
+
+    UART: 'uart_baud' (None = desligada) e 'uart_rx' (buffer de recepcao); recepcao_uart() faz o papel do DUT.
+    Com loopback (jumper PD1 -> PD0), o que o UART_WRITE envia volta para o buffer.
 
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
@@ -570,6 +604,8 @@ class JigaSimulada:
     spi_papel: int = None
     spi_tx: bytes = b""
     spi_rx: bytearray = field(default_factory=bytearray)
+    uart_baud: int = None
+    uart_rx: bytearray = field(default_factory=bytearray)
 
     def nova_sessao(self):
         """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
@@ -624,6 +660,7 @@ class JigaSimulada:
             self.i2c_papel = None
             self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
             self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
+            self.uart_baud, self.uart_rx = None, bytearray()
             return 0, b""
         if quadro.cmd == CMD_DAC_SET:
             if len(payload) != 3:
@@ -667,6 +704,8 @@ class JigaSimulada:
             return self._executar_i2c(quadro.cmd, payload)
         if CMD_SPI_CONFIG <= quadro.cmd <= CMD_SPI_MASTER_XFER:
             return self._executar_spi(quadro.cmd, payload)
+        if CMD_UART_CONFIG <= quadro.cmd <= CMD_UART_READ:
+            return self._executar_uart(quadro.cmd, payload)
         return ERRO_CMD_DESCONHECIDO, b""
 
     def _executar_i2c(self, cmd, payload):
@@ -753,6 +792,37 @@ class JigaSimulada:
         self.spi_rx += bytes(enviados[:livre])
         tx = self.spi_tx + bytes([SPI_BYTE_VAZIO]) * SPI_TAMANHO_BUFFER
         return tx[:len(enviados)]
+
+    def _executar_uart(self, cmd, payload):
+        """Espelho do Exec (tamanhos) e do UartBus (faixas, buffer, configuracao)."""
+        if cmd == CMD_UART_CONFIG:
+            if len(payload) != 4:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            baud = int.from_bytes(payload, "little")
+            if not UART_BAUD_MIN <= baud <= UART_BAUD_MAX:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.uart_baud, self.uart_rx = baud, bytearray()
+            return 0, b""
+        if cmd == CMD_UART_WRITE:
+            if len(payload) < 1 or len(payload) != 1 + payload[0] or payload[0] == 0:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            if self.uart_baud is None:
+                return ERRO_NAO_CONFIGURADO, b""
+            if self.loopback:
+                self.recepcao_uart(payload[1:])
+            return 0, b""
+        if len(payload) != 1:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        if self.uart_baud is None:
+            return ERRO_NAO_CONFIGURADO, b""
+        quantidade = min(payload[0], UART_TAMANHO_MAX, len(self.uart_rx))
+        lidos, self.uart_rx = bytes(self.uart_rx[:quantidade]), self.uart_rx[quantidade:]
+        return 0, bytes([quantidade]) + lidos
+
+    def recepcao_uart(self, recebidos):
+        """Bytes que chegam do DUT no RX: entram no fim do buffer; com ele cheio, sao descartados."""
+        livre = UART_TAMANHO_RX - len(self.uart_rx)
+        self.uart_rx += bytes(recebidos[:livre])
 
     def _concluir_pendente(self):
         """Equivale ao CommTask_VerificaResultado + Comm_BuildResult."""
@@ -980,6 +1050,54 @@ def _caso_ct11(seq):
         resumo_esperado=f"{len(comandos)} ACKs; mascara do GPIO_READ igual a combinacao aplicada")
 
 
+def _padrao(quantidade, semente):
+    """Bytes de teste que passam por 0x00, 0x7E e 0xFF e mudam de um envio para o outro."""
+    return bytes((semente + 37 * i) & 0xFF for i in range(quantidade))
+
+
+# CT13 SPI: os 4 modos a 1 MHz com 16 bytes e o buffer inteiro (239 bytes) a 54 MHz / 8 = 6,75 MHz
+CT13_SPI = [(modo, 1_000_000, 16) for modo in range(SPI_MODO_MAX + 1)] + [(0, 6_750_000, SPI_TAMANHO_BUFFER)]
+
+# CT13 UART: (baud, bytes). A 9600 baud, 16 bytes levam ~17 ms, menos que a PAUSA_COMANDO: o READ seguinte
+# nao recebe OCUPADO e ja encontra os bytes no buffer
+CT13_UART = [(9600, 16), (115_200, 64), (UART_BAUD_MAX, UART_TAMANHO_MAX)]
+
+
+def _caso_ct13_spi(seq):
+    """CT13 SPI: como mestre, com o jumper MOSI -> MISO, cada transferencia le de volta o que enviou."""
+    comandos = []
+    for modo, frequencia, quantidade in CT13_SPI:
+        ack = montar_ack(seq, CMD_SPI_CONFIG)
+        comandos.append((montar_spi_config(seq, SPI_PAPEL_MESTRE, modo, frequencia), ack, _igual(ack)))
+        dados = _padrao(quantidade, seq)
+        ack = montar_ack(seq + 1, CMD_SPI_MASTER_XFER, dados)
+        comandos.append((montar_spi_xfer(seq + 1, dados), ack, _igual(ack)))
+        seq += 2
+    passos, esperado, respostas, conferir = _sequencia(comandos)
+    return CasoTeste(
+        "CT13 SPI MOSI -> MISO", "loopback do SPI mestre: modos 0 a 3 a 1 MHz e 239 bytes a 6,75 MHz",
+        passos, esperado, respostas, conferir=conferir, requer_loopback=True,
+        resumo_esperado=f"{len(comandos)} ACKs; cada SPI_MASTER_XFER devolve os bytes enviados")
+
+
+def _caso_ct13_uart(seq):
+    """CT13 UART: com o jumper TX -> RX, o UART_READ devolve o que o UART_WRITE enviou, em cada baud."""
+    comandos = []
+    for baud, quantidade in CT13_UART:
+        dados = _padrao(quantidade, seq)
+        for quadro, ack in ((montar_uart_config(seq, baud), montar_ack(seq, CMD_UART_CONFIG)),
+                            (montar_uart_write(seq + 1, dados), montar_ack(seq + 1, CMD_UART_WRITE)),
+                            (montar_uart_read(seq + 2), montar_ack(seq + 2, CMD_UART_READ,
+                                                                  bytes([quantidade]) + dados))):
+            comandos.append((quadro, ack, _igual(ack)))
+        seq += 3
+    passos, esperado, respostas, conferir = _sequencia(comandos)
+    return CasoTeste(
+        "CT13 UART TX -> RX", "loopback da UART4: 9600, 115200 e 1 000 000 baud",
+        passos, esperado, respostas, conferir=conferir, requer_loopback=True,
+        resumo_esperado=f"{len(comandos)} ACKs; cada UART_READ devolve os bytes do UART_WRITE")
+
+
 def _caso_variavel(nome, descricao, quadro, resposta_nominal, verificador, resumo):
     """Caso de um comando so cuja resposta varia na placa."""
     return CasoTeste(nome, descricao, [("enviar", quadro)], [QUADRO_OK], [resposta_nominal],
@@ -1155,10 +1273,43 @@ CASOS_TESTE = [
     CasoTeste("SPI_SLAVE_READ com payload", "READ nao tem payload: NACK PARAMETRO_INVALIDO",
               [("enviar", montar_quadro(62, CMD_SPI_SLAVE_READ, b"\x00"))],
               [QUADRO_OK], [montar_nack(62, CMD_SPI_SLAVE_READ, ERRO_PARAMETRO_INVALIDO)]),
-    # Com os jumpers (opcao de loopback): CT10 e CT11 da monografia
+    # UART (v0.8.0), sem fio: so os comandos. Sem o jumper o RX (PD0) fica solto e pode receber lixo, entao
+    # nenhum caso daqui le a UART configurada; a recepcao e conferida no CT13
+    CasoTeste("UART_WRITE sem config", "escrita antes do UART_CONFIG: NACK NAO_CONFIGURADO",
+              [("enviar", montar_uart_write(63, b"OK"))],
+              [QUADRO_OK], [montar_nack(63, CMD_UART_WRITE, ERRO_NAO_CONFIGURADO)]),
+    CasoTeste("UART_READ sem config", "leitura antes do UART_CONFIG: NACK NAO_CONFIGURADO",
+              [("enviar", montar_uart_read(64))],
+              [QUADRO_OK], [montar_nack(64, CMD_UART_READ, ERRO_NAO_CONFIGURADO)]),
+    CasoTeste("UART_CONFIG baud baixo", "1199 baud (minimo 1200): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_uart_config(65, UART_BAUD_MIN - 1))],
+              [QUADRO_OK], [montar_nack(65, CMD_UART_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("UART_CONFIG baud alto", "1 000 001 baud (maximo 1 000 000): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_uart_config(66, UART_BAUD_MAX + 1))],
+              [QUADRO_OK], [montar_nack(66, CMD_UART_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("UART_CONFIG tamanho errado", "payload de 3 bytes (esperado 4): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(67, CMD_UART_CONFIG, bytes([0x00, 0xC2, 0x01])))],
+              [QUADRO_OK], [montar_nack(67, CMD_UART_CONFIG, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("UART_CONFIG e WRITE", "115200 baud e envia 'OK\\n' (sem DUT, o TX so sai no PD1): dois ACKs",
+              [("enviar", montar_uart_config(68, 115_200)), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_uart_write(69, b"OK\n"))],
+              [QUADRO_OK] * 2, [montar_ack(68, CMD_UART_CONFIG), montar_ack(69, CMD_UART_WRITE)]),
+    CasoTeste("UART_WRITE vazio", "quantidade 0: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_uart_write(70, b""))],
+              [QUADRO_OK], [montar_nack(70, CMD_UART_WRITE, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("UART_READ tamanho errado", "READ sem o maximo: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_quadro(71, CMD_UART_READ))],
+              [QUADRO_OK], [montar_nack(71, CMD_UART_READ, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("RESET_ALL desliga a UART", "RESET_ALL e READ: a UART volta a pedir UART_CONFIG",
+              [("enviar", montar_quadro(72, CMD_RESET_ALL)), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_uart_read(73))],
+              [QUADRO_OK] * 2, [montar_ack(72, CMD_RESET_ALL), montar_nack(73, CMD_UART_READ, ERRO_NAO_CONFIGURADO)]),
+    # Com os jumpers (opcao de loopback): CT10, CT11 e CT13 da monografia
     _caso_ct10(1, 100),
     _caso_ct10(2, 122),
     _caso_ct11(150),
+    _caso_ct13_spi(230),
+    _caso_ct13_uart(240),
     CasoTeste("RESET_ALL no fim", "deixa a jiga no estado seguro depois da bateria: ACK",
               [("enviar", montar_quadro(20, CMD_RESET_ALL))],
               [QUADRO_OK], [montar_ack(20, CMD_RESET_ALL)]),
