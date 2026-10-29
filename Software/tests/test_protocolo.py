@@ -8,19 +8,21 @@ import pytest
 from protocolo import (
     CASOS_TESTE, CMD_ADC_READ, CMD_DAC_SET, CMD_GPIO_READ, CMD_GPIO_SET, CMD_INEXISTENTE, CMD_PING,
     CMD_I2C_CONFIG, CMD_I2C_MASTER_XFER, CMD_I2C_SLAVE_DUMP, CMD_I2C_SLAVE_LOAD, CMD_PWM_SET, CMD_PWM_STOP,
-    CMD_RESET_ALL, CMD_SPI_CONFIG, CMD_SPI_MASTER_XFER, CMD_SPI_SLAVE_LOAD, CMD_SPI_SLAVE_READ, DAC_FAIXA_UTIL,
+    CMD_RESET_ALL, CMD_SPI_CONFIG, CMD_SPI_MASTER_XFER, CMD_SPI_SLAVE_LOAD, CMD_SPI_SLAVE_READ, CMD_UART_CONFIG,
+    CMD_UART_READ, CMD_UART_WRITE, DAC_FAIXA_UTIL,
     DAC_VALOR_MAX, ERRO_CMD_DESCONHECIDO,
     ERRO_CRC, ERRO_LEN, ERRO_NAO_CONFIGURADO, ERRO_OCUPADO, ERRO_PERIFERICO, I2C_PAPEL_ESCRAVO,
     I2C_PAPEL_MESTRE, ERRO_PARAMETRO_INVALIDO, LENDO, LOG_FIRMWARE, OCIOSO, PAYLOAD_MAX,
     PWM_FREQUENCIA_MAX, PWM_FREQUENCIA_PADRAO, PWM_RAZAO_MAX, QUADRO_OK, SOF, SPI_FREQUENCIA_MIN, SPI_PAPEL_ESCRAVO,
-    SPI_PAPEL_MESTRE, SPI_TAMANHO_BUFFER, TAMANHO_QUADRO_MAX, TIMEOUT,
+    SPI_PAPEL_MESTRE, SPI_TAMANHO_BUFFER, TAMANHO_QUADRO_MAX, TIMEOUT, UART_BAUD_MAX, UART_BAUD_MIN,
+    UART_TAMANHO_MAX, UART_TAMANHO_RX,
     TOLERANCIA_ADC, JigaSimulada, Quadro, ReceptorQuadros, avaliar_caso, calcular_pwm, casos_a_executar,
     crc16_ccitt, descrever_log, descrever_pwm, descrever_resposta, descrever_respostas, interpretar_resposta,
     montar_ack, montar_ack_ping, montar_adc_read, montar_dac_set, montar_gpio_read, montar_gpio_set,
     montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_nack,
     montar_pwm_set, montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read,
     montar_spi_xfer, pontos_ct10, porcento_para_razao, pwm_gerado, resultado_do_log, simular, simular_caso,
-    descrever_spi, spi_divisor,
+    descrever_spi, spi_divisor, montar_uart_config, montar_uart_read, montar_uart_write,
 )
 from versao import __version__
 
@@ -624,6 +626,92 @@ def test_jiga_spi_parametro_invalido_nao_altera(quadro):
     assert (jiga.spi_papel, jiga.spi_tx, jiga.spi_rx) == (None, b"\x77", bytearray(b"\x66"))
 
 
+# --- UART ---------------------------------------------------------------------
+
+def test_quadros_uart():
+    assert montar_uart_config(1, 115_200)[1:8] == bytes([4, 1, CMD_UART_CONFIG, 0x00, 0xC2, 0x01, 0x00])
+    assert montar_uart_write(2, b"OK")[1:7] == bytes([3, 2, CMD_UART_WRITE, 2, 0x4F, 0x4B])
+    assert montar_uart_read(3, 16)[1:5] == bytes([1, 3, CMD_UART_READ, 16])
+    assert montar_uart_read(4)[4] == UART_TAMANHO_MAX
+
+
+@pytest.mark.parametrize("montar", [
+    lambda: montar_uart_config(1, 2 ** 32), lambda: montar_uart_write(1, bytes(256)), lambda: montar_uart_read(1, 256),
+], ids=["baud 2^32", "write 256 bytes", "read 256"])
+def test_uart_fora_do_tamanho(montar):
+    with pytest.raises(ValueError):
+        montar()
+
+
+def test_jiga_uart_sem_config():
+    jiga = JigaSimulada()
+    assert _resposta(jiga, montar_uart_write(1, b"OK")).erro == ERRO_NAO_CONFIGURADO
+    assert _resposta(jiga, montar_uart_read(2)).erro == ERRO_NAO_CONFIGURADO
+
+
+def test_jiga_uart_leitura_em_partes():
+    """Os mais antigos primeiro; maximo acima de 239 vale 239; sem nada, [0]."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_uart_config(1, 9600))
+    jiga.recepcao_uart(b"ABC")
+    resposta = _resposta(jiga, montar_uart_read(2, 2))
+    assert resposta.dados == b"\x02AB"
+    assert resposta.descrever() == "ACK UART_READ SEQ=2 2 B do DUT: 41 42"
+    assert _resposta(jiga, montar_uart_read(3, 10)).dados == b"\x01C"
+    assert _resposta(jiga, montar_uart_read(4, 10)).dados == b"\x00"
+    jiga.recepcao_uart(bytes(250))
+    assert _resposta(jiga, montar_uart_read(5, 255)).dados[0] == UART_TAMANHO_MAX
+    assert _resposta(jiga, montar_uart_read(6, 255)).dados[0] == 250 - UART_TAMANHO_MAX
+
+
+def test_jiga_uart_buffer_cheio_descarta_os_novos():
+    jiga = JigaSimulada()
+    jiga.processar(montar_uart_config(1, 9600))
+    jiga.recepcao_uart(bytes([0x11]) * UART_TAMANHO_RX + b"\x22")
+    assert len(jiga.uart_rx) == UART_TAMANHO_RX and 0x22 not in jiga.uart_rx
+
+
+def test_jiga_uart_config_e_reset_all_esvaziam():
+    jiga = JigaSimulada()
+    jiga.processar(montar_uart_config(1, 9600))
+    jiga.recepcao_uart(b"lixo")
+    jiga.processar(montar_uart_config(2, 115_200))
+    assert (jiga.uart_baud, jiga.uart_rx) == (115_200, bytearray())
+    jiga.recepcao_uart(b"lixo")
+    jiga.processar(montar_quadro(3, CMD_RESET_ALL))
+    assert (jiga.uart_baud, jiga.uart_rx) == (None, bytearray())
+
+
+def test_jiga_uart_loopback():
+    """Com o jumper PD1 -> PD0 o WRITE volta para o buffer; sem ele, nao."""
+    jiga = JigaSimulada(loopback=True)
+    jiga.processar(montar_uart_config(1, UART_BAUD_MAX))
+    jiga.processar(montar_uart_write(2, b"eco"))
+    assert _resposta(jiga, montar_uart_read(3)).dados == b"\x03eco"
+    jiga.loopback = False
+    jiga.processar(montar_uart_write(4, b"eco"))
+    assert _resposta(jiga, montar_uart_read(5)).dados == b"\x00"
+
+
+@pytest.mark.parametrize("quadro", [
+    montar_uart_config(1, UART_BAUD_MIN - 1),                   # baud baixo
+    montar_uart_config(1, UART_BAUD_MAX + 1),                   # baud alto
+    montar_quadro(1, CMD_UART_CONFIG, bytes([0x00, 0xC2, 0x01])),  # tamanho 3
+    montar_uart_write(1, b""),                                  # write vazio
+    montar_quadro(1, CMD_UART_WRITE, bytes([3, 0x4F, 0x4B])),   # quantidade nao bate
+    montar_quadro(1, CMD_UART_READ),                            # read sem maximo
+    montar_quadro(1, CMD_UART_READ, bytes([1, 0])),             # read com 2 bytes
+], ids=["baud 1199", "baud 1000001", "config tamanho 3", "write vazio", "write qtd errada", "read vazio",
+        "read 2 bytes"])
+def test_jiga_uart_parametro_invalido_nao_altera(quadro):
+    """CT09 com a UART: NACK PARAMETRO_INVALIDO, baud e buffer intactos."""
+    jiga = JigaSimulada()
+    jiga.processar(montar_uart_config(9, 9600))
+    jiga.recepcao_uart(b"\x66")
+    assert _resposta(jiga, quadro).erro == ERRO_PARAMETRO_INVALIDO
+    assert (jiga.uart_baud, jiga.uart_rx) == (9600, bytearray(b"\x66"))
+
+
 def test_jiga_ocupado_no_mesmo_bloco():
     """Dois comandos no mesmo envio: o 2o recebe OCUPADO antes do ACK do 1o, e nao e executado."""
     jiga = JigaSimulada()
@@ -706,7 +794,8 @@ def test_bateria_termina_no_reset_all():
 
 def test_casos_de_loopback():
     nomes = [caso.nome for caso in CASOS_TESTE if caso.requer_loopback]
-    assert nomes == ["CT10 DAC1 -> A0", "CT10 DAC2 -> A1", "CT11 GPIO1-4 -> GPIO5-8"]
+    assert nomes == ["CT10 DAC1 -> A0", "CT10 DAC2 -> A1", "CT11 GPIO1-4 -> GPIO5-8", "CT13 SPI MOSI -> MISO",
+                     "CT13 UART TX -> RX"]
 
 
 def test_pontos_do_ct10():
