@@ -80,6 +80,18 @@ void Test_Exec_I2cXferValido(void);
 void Test_Exec_I2cXferInvalido(void);
 void Test_Exec_I2cXferSemAck(void);
 void Test_Exec_ResetAllZeraMapaI2c(void);
+void Test_Exec_SpiConfigMestre(void);
+void Test_Exec_SpiConfigInvalido(void);
+void Test_Exec_SpiLoadValido(void);
+void Test_Exec_SpiLoadInvalido(void);
+void Test_Exec_SpiReadValido(void);
+void Test_Exec_SpiReadCheio(void);
+void Test_Exec_SpiReadComPayload(void);
+void Test_Exec_SpiXferNaoConfigurado(void);
+void Test_Exec_SpiXferValido(void);
+void Test_Exec_SpiXferInvalido(void);
+void Test_Exec_SpiXferFalhaPeriferico(void);
+void Test_Exec_ResetAllEsvaziaSpi(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);

@@ -88,6 +88,18 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_I2cXferInvalido);
 		RUN_TEST(Test_Exec_I2cXferSemAck);
 		RUN_TEST(Test_Exec_ResetAllZeraMapaI2c);
+		RUN_TEST(Test_Exec_SpiConfigMestre);
+		RUN_TEST(Test_Exec_SpiConfigInvalido);
+		RUN_TEST(Test_Exec_SpiLoadValido);
+		RUN_TEST(Test_Exec_SpiLoadInvalido);
+		RUN_TEST(Test_Exec_SpiReadValido);
+		RUN_TEST(Test_Exec_SpiReadCheio);
+		RUN_TEST(Test_Exec_SpiReadComPayload);
+		RUN_TEST(Test_Exec_SpiXferNaoConfigurado);
+		RUN_TEST(Test_Exec_SpiXferValido);
+		RUN_TEST(Test_Exec_SpiXferInvalido);
+		RUN_TEST(Test_Exec_SpiXferFalhaPeriferico);
+		RUN_TEST(Test_Exec_ResetAllEsvaziaSpi);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);

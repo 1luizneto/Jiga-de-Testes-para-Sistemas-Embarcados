@@ -1,7 +1,7 @@
 /*
  * Test_Exec.c
  *
- * Testes do Exec com DAC, GPIO, ADC, timer e barramento I2C falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
+ * Testes do Exec com DAC, GPIO, ADC, timer e barramentos I2C e SPI falsos: conferem o resultado (ACK/NACK) e, principalmente, se o
  * periferico foi ou nao acionado ("nenhuma saida alterada" do CT09), sem multimetro.
  */
 
@@ -13,9 +13,13 @@
 #include "DigitalIo.h"
 #include "Pwm.h"
 #include "I2cBus.h"
+#include "SpiBus.h"
 
 /// Payload do PWM_SET: canal + frequencia (u32) + razao ciclica (u16)
 #define dEXEC_TESTE_PWM_SET_SIZE (7U)
+
+/// Clock do SPI2 na placa (PCLK1)
+#define dEXEC_TESTE_SPI_CLOCK_HZ (54000000U)
 
 /// Registro das chamadas ao DAC falso
 static struct dacFalso
@@ -178,6 +182,65 @@ static const i2cBusFunc_t i2cFalsoFunc =
 	I2cFalso_Config, I2cFalso_Off, I2cFalso_Xfer, I2cFalso_Lock, I2cFalso_Unlock,
 };
 
+/// Registro das chamadas ao barramento SPI falso
+static struct spiFalso
+{
+	uint8_t        configChamadas;
+	uint8_t        offChamadas;
+	uint8_t        xferChamadas;
+	uint8_t        papel;
+	uint8_t        modo;
+	uint16_t       divisor;
+	uint8_t        xferEscrita;   ///< 1o byte escrito
+	uint8_t        xferQuantidade;
+	spiBusReturn_t retornoXfer;   ///< simula falha do HAL
+} spiFalso;
+
+static spiBusReturn_t SpiFalso_Config(uint8_t papel, uint8_t modo, uint16_t divisor)
+{
+	spiFalso.configChamadas++;
+	spiFalso.papel   = papel;
+	spiFalso.modo    = modo;
+	spiFalso.divisor = divisor;
+
+	return eSPIBUS_RETURN_OK;
+}
+
+static spiBusReturn_t SpiFalso_Off(void)
+{
+	spiFalso.offChamadas++;
+
+	return eSPIBUS_RETURN_OK;
+}
+
+// O DUT responde 0xB0, 0xB1, ...
+static spiBusReturn_t SpiFalso_Xfer(const uint8_t *escrita, uint8_t *leitura, uint8_t quantidade)
+{
+	spiFalso.xferChamadas++;
+	spiFalso.xferEscrita    = escrita[0];
+	spiFalso.xferQuantidade = quantidade;
+
+	for (uint8_t i = 0U; i < quantidade; i++)
+	{
+		leitura[i] = (uint8_t)(0xB0U + i);
+	}
+
+	return spiFalso.retornoXfer;
+}
+
+static void SpiFalso_Lock(void)
+{
+}
+
+static void SpiFalso_Unlock(void)
+{
+}
+
+static const spiBusFunc_t spiFalsoFunc =
+{
+	SpiFalso_Config, SpiFalso_Off, SpiFalso_Xfer, SpiFalso_Lock, SpiFalso_Unlock,
+};
+
 // Os modulos de periferico passam a usar os falsos. Na build Test nada mais usa o hardware, entao nao precisa restaurar.
 static void IniciaExec(void)
 {
@@ -197,6 +260,10 @@ static void IniciaExec(void)
 	memset(&i2cFalso, 0, sizeof(i2cFalso));
 	i2cFalso.retornoXfer = eI2CBUS_RETURN_OK;
 	I2cBus_Init(&i2cFalsoFunc);
+
+	memset(&spiFalso, 0, sizeof(spiFalso));
+	spiFalso.retornoXfer = eSPIBUS_RETURN_OK;
+	SpiBus_Init(&spiFalsoFunc, dEXEC_TESTE_SPI_CLOCK_HZ);
 }
 
 static void MontaComando(commFrame_t *frame, uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t size)
@@ -287,7 +354,7 @@ void Test_Exec_DacSetTamanhoErrado(void)
 	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
 }
 
-// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo, os tres PWM parados e o I2C desligado
+// 6. RESET_ALL: ACK, DAC em 0, GPIO1-4 em nivel baixo, os tres PWM parados e o I2C e o SPI desligados
 void Test_Exec_ResetAll(void)
 {
 	commFrame_t frame;
@@ -318,6 +385,7 @@ void Test_Exec_ResetAll(void)
 	}
 
 	TEST_ASSERT_EQUAL_UINT8(1, i2cFalso.offChamadas);
+	TEST_ASSERT_EQUAL_UINT8(1, spiFalso.offChamadas);
 }
 
 // 7. RESET_ALL com payload: NACK PARAMETRO_INVALIDO e nada e acionado
@@ -335,6 +403,7 @@ void Test_Exec_ResetAllComPayload(void)
 	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
 	TEST_ASSERT_EQUAL_UINT8(0, timerFalso.chamadas);
 	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.offChamadas);
+	TEST_ASSERT_EQUAL_UINT8(0, spiFalso.offChamadas);
 }
 
 // 8. Comando desconhecido: NACK CMD_DESCONHECIDO e nada e acionado
@@ -859,4 +928,272 @@ void Test_Exec_ResetAllZeraMapaI2c(void)
 
 	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
 	TEST_ASSERT_EQUAL_HEX8(0x00, result.dados[0]);
+}
+
+// 37. SPI_CONFIG como mestre no modo 3 a 1 MHz: ACK e o SPI recebe o divisor 64 (54 MHz / 64 = 843 750 Hz <= 1 MHz)
+void Test_Exec_SpiConfigMestre(void)
+{
+	const uint8_t payload[] = {0x01, 0x03, 0x40, 0x42, 0x0F, 0x00};   // 0x000F4240 = 1 000 000
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x47, dCOMM_CMD_SPI_CONFIG, payload, sizeof(payload));
+
+	TEST_ASSERT_EQUAL(eEXEC_RETURN_OK, Exec_Process(&frame, &result));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, spiFalso.configChamadas);
+	TEST_ASSERT_EQUAL_UINT8(dSPIBUS_PAPEL_MESTRE, spiFalso.papel);
+	TEST_ASSERT_EQUAL_UINT8(3, spiFalso.modo);
+	TEST_ASSERT_EQUAL_UINT16(64, spiFalso.divisor);
+}
+
+// 38. SPI_CONFIG com modo 4, mestre abaixo de 210 938 Hz ou tamanho errado: NACK PARAMETRO_INVALIDO e o SPI nao e tocado
+void Test_Exec_SpiConfigInvalido(void)
+{
+	const uint8_t modo4[]  = {0x00, 0x04, 0x00, 0x00, 0x00, 0x00};
+	const uint8_t lento[]  = {0x01, 0x00, 0xA0, 0x86, 0x01, 0x00};   // 100 000 Hz
+	const uint8_t curto[]  = {0x00, 0x00, 0x00, 0x00, 0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x48, dCOMM_CMD_SPI_CONFIG, modo4, sizeof(modo4));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x49, dCOMM_CMD_SPI_CONFIG, lento, sizeof(lento));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x4A, dCOMM_CMD_SPI_CONFIG, curto, sizeof(curto));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, spiFalso.configChamadas);
+}
+
+// 39. SPI_SLAVE_LOAD de 3 bytes (sem SPI_CONFIG): ACK e a proxima transacao envia os 3 bytes seguidos de 0xFF
+void Test_Exec_SpiLoadValido(void)
+{
+	const uint8_t payload[]  = {0x03, 0x11, 0x22, 0x33};
+	const uint8_t esperado[] = {0x11, 0x22, 0x33, 0xFF};
+	uint8_t tx[dSPIBUS_TAMANHO_BUFFER];
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x4B, dCOMM_CMD_SPI_SLAVE_LOAD, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+
+	SpiBus_PreparaTx(tx);
+	TEST_ASSERT_EQUAL_UINT8_ARRAY(esperado, tx, sizeof(esperado));
+	TEST_ASSERT_EQUAL_HEX8(0xFF, tx[dSPIBUS_TAMANHO_BUFFER - 1U]);
+}
+
+// 40. SPI_SLAVE_LOAD com quantidade que nao bate com o payload ou sem quantidade: NACK e o buffer fica intacto
+void Test_Exec_SpiLoadInvalido(void)
+{
+	const uint8_t carga[]     = {0x01, 0x5A};
+	const uint8_t faltaByte[] = {0x03, 0xAA, 0xBB};   // diz 3, manda 2
+	uint8_t tx[dSPIBUS_TAMANHO_BUFFER];
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x4C, dCOMM_CMD_SPI_SLAVE_LOAD, carga, sizeof(carga));
+	Exec_Process(&frame, &result);
+
+	MontaComando(&frame, 0x4D, dCOMM_CMD_SPI_SLAVE_LOAD, faltaByte, sizeof(faltaByte));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x4E, dCOMM_CMD_SPI_SLAVE_LOAD, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	SpiBus_PreparaTx(tx);
+	TEST_ASSERT_EQUAL_HEX8(0x5A, tx[0]);
+	TEST_ASSERT_EQUAL_HEX8(0xFF, tx[1]);
+}
+
+// 41. SPI_SLAVE_READ depois de duas transacoes do DUT: ACK com [2][dados]; a leitura seguinte vem vazia ([0])
+void Test_Exec_SpiReadValido(void)
+{
+	const uint8_t rx1[]      = {0x5A};
+	const uint8_t rx2[]      = {0xA5};
+	const uint8_t esperado[] = {0x02, 0x5A, 0xA5};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	SpiBus_FimTransacao(rx1, sizeof(rx1));
+	SpiBus_FimTransacao(rx2, sizeof(rx2));
+
+	MontaComando(&frame, 0x4F, dCOMM_CMD_SPI_SLAVE_READ, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(3, result.size);
+	TEST_ASSERT_EQUAL_UINT8_ARRAY(esperado, result.dados, sizeof(esperado));
+
+	MontaComando(&frame, 0x50, dCOMM_CMD_SPI_SLAVE_READ, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, result.size);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+}
+
+// 42. SPI_SLAVE_READ com buffer cheio (239 bytes): a resposta [239][dados] ocupa os 240 bytes do payload
+void Test_Exec_SpiReadCheio(void)
+{
+	uint8_t rx[dSPIBUS_TAMANHO_BUFFER];
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	memset(rx, 0x3C, sizeof(rx));
+	SpiBus_FimTransacao(rx, sizeof(rx));
+
+	MontaComando(&frame, 0x51, dCOMM_CMD_SPI_SLAVE_READ, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(dCOMM_PAYLOAD_MAX_SIZE, result.size);
+	TEST_ASSERT_EQUAL_UINT8(dSPIBUS_TAMANHO_BUFFER, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8(0x3C, result.dados[dCOMM_PAYLOAD_MAX_SIZE - 1U]);
+}
+
+// 43. SPI_SLAVE_READ com payload: NACK PARAMETRO_INVALIDO e o buffer nao e esvaziado
+void Test_Exec_SpiReadComPayload(void)
+{
+	const uint8_t rx[]      = {0x77};
+	const uint8_t payload[] = {0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	SpiBus_FimTransacao(rx, sizeof(rx));
+
+	MontaComando(&frame, 0x52, dCOMM_CMD_SPI_SLAVE_READ, payload, sizeof(payload));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+
+	MontaComando(&frame, 0x53, dCOMM_CMD_SPI_SLAVE_READ, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8(0x77, result.dados[1]);
+}
+
+// 44. SPI_MASTER_XFER sem SPI_CONFIG de mestre: NACK NAO_CONFIGURADO e o barramento nao e tocado
+void Test_Exec_SpiXferNaoConfigurado(void)
+{
+	const uint8_t payload[] = {0x01, 0x9F};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x54, dCOMM_CMD_SPI_MASTER_XFER, payload, sizeof(payload));
+
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(0, spiFalso.xferChamadas);
+}
+
+// 45. Como mestre, envia 0x9F 0x00 0x00: ACK com os 3 bytes que o DUT devolveu
+void Test_Exec_SpiXferValido(void)
+{
+	const uint8_t config[]  = {0x01, 0x00, 0x40, 0x42, 0x0F, 0x00};
+	const uint8_t payload[] = {0x03, 0x9F, 0x00, 0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x55, dCOMM_CMD_SPI_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+
+	MontaComando(&frame, 0x56, dCOMM_CMD_SPI_MASTER_XFER, payload, sizeof(payload));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(3, result.size);
+	TEST_ASSERT_EQUAL_HEX8(0xB0, result.dados[0]);
+	TEST_ASSERT_EQUAL_HEX8(0xB2, result.dados[2]);
+	TEST_ASSERT_EQUAL_HEX8(0x9F, spiFalso.xferEscrita);
+	TEST_ASSERT_EQUAL_UINT8(3, spiFalso.xferQuantidade);
+}
+
+// 46. SPI_MASTER_XFER com quantidade que nao bate com o payload, quantidade 0 ou sem payload: NACK, barramento intocado
+void Test_Exec_SpiXferInvalido(void)
+{
+	const uint8_t config[]    = {0x01, 0x00, 0x40, 0x42, 0x0F, 0x00};
+	const uint8_t faltaByte[] = {0x02, 0x9F};   // diz 2, manda 1
+	const uint8_t zero[]      = {0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x57, dCOMM_CMD_SPI_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+
+	MontaComando(&frame, 0x58, dCOMM_CMD_SPI_MASTER_XFER, faltaByte, sizeof(faltaByte));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x59, dCOMM_CMD_SPI_MASTER_XFER, zero, sizeof(zero));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x5A, dCOMM_CMD_SPI_MASTER_XFER, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	TEST_ASSERT_EQUAL_UINT8(0, spiFalso.xferChamadas);
+}
+
+// 47. Falha do HAL na transferencia: NACK ERRO_PERIFERICO e sem dados
+void Test_Exec_SpiXferFalhaPeriferico(void)
+{
+	const uint8_t config[]  = {0x01, 0x00, 0x40, 0x42, 0x0F, 0x00};
+	const uint8_t payload[] = {0x01, 0x9F};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	MontaComando(&frame, 0x5B, dCOMM_CMD_SPI_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+	spiFalso.retornoXfer = eSPIBUS_RETURN_ERROR;
+
+	MontaComando(&frame, 0x5C, dCOMM_CMD_SPI_MASTER_XFER, payload, sizeof(payload));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PERIFERICO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+}
+
+// 48. RESET_ALL esvazia os buffers do escravo e tira o papel de mestre: um teste nao herda o SPI do anterior
+void Test_Exec_ResetAllEsvaziaSpi(void)
+{
+	const uint8_t config[] = {0x01, 0x00, 0x40, 0x42, 0x0F, 0x00};
+	const uint8_t load[]   = {0x01, 0x5A};
+	const uint8_t xfer[]   = {0x01, 0x9F};
+	const uint8_t rx[]     = {0x77};
+	uint8_t tx[dSPIBUS_TAMANHO_BUFFER];
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x5D, dCOMM_CMD_SPI_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+	MontaComando(&frame, 0x5E, dCOMM_CMD_SPI_SLAVE_LOAD, load, sizeof(load));
+	Exec_Process(&frame, &result);
+	SpiBus_FimTransacao(rx, sizeof(rx));
+	MontaComando(&frame, 0x5F, dCOMM_CMD_RESET_ALL, NULL, 0);
+	Exec_Process(&frame, &result);
+
+	SpiBus_PreparaTx(tx);
+	TEST_ASSERT_EQUAL_HEX8(0xFF, tx[0]);
+
+	MontaComando(&frame, 0x60, dCOMM_CMD_SPI_SLAVE_READ, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+
+	MontaComando(&frame, 0x61, dCOMM_CMD_SPI_MASTER_XFER, xfer, sizeof(xfer));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, result.erro);
 }
