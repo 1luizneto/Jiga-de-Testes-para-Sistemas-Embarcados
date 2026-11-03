@@ -4,7 +4,7 @@
  *   @author       Luiz Neto
  *   @details
  *   \n <b>Dependencias:</b>
- *   - comandos.c (interpretador), barramentos.c (I2C/SPI), ESP-IDF v6.1 (esp_driver_uart).
+ *   - comandos.c (interpretador), barramentos.c (I2C/SPI), ventilador.c (CT22), ESP-IDF v6.1 (esp_driver_uart).
  *
  *   \n <b>Observacoes:</b>
  *   - UART1 (GPIO17 TX, GPIO18 RX, 115200 8N1) vai na UART4 da jiga: o PC manda o comando com UART_WRITE e le a
@@ -15,6 +15,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 03/11/2026</b> \n Luiz Neto \n Comportamento do ventilador (CT22) numa task propria
  *
  *   @{
  **********************************************************************************************************************/
@@ -33,6 +34,7 @@
 #include "esp_log.h"
 #include "barramentos.h"
 #include "comandos.h"
+#include "ventilador.h"
 #include "versao_dut.h"
 
 /***********************************************************************************************************************
@@ -74,6 +76,7 @@ void app_main(void)
 
 	xTaskCreate(Main_UartTask, "dut_uart0", 6144, (void *)UART_NUM_0, 5, NULL);
 	xTaskCreate(Main_UartTask, "dut_uart1", 6144, (void *)UART_NUM_1, 5, NULL);
+	Ventilador_Inicia();
 
 	ESP_LOGI(TAG, "DUT de referencia %s pronto. UART1: TX=%d RX=%d; I2C: SDA=%d SCL=%d; "
 	         "SPI: CS=%d MOSI=%d SCK=%d MISO=%d", dDUT_VERSAO, dDUT_PINO_UART_TX, dDUT_PINO_UART_RX,
