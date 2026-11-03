@@ -7,6 +7,35 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.10.0] - 2026-11-03
+
+Aplicação desktop da seção 3.6 da monografia: baterias de testes em YAML, compiladas em rotinas, executadas na
+jiga com o veredito de cada caso e um relatório de cada execução. Firmware sem mudanças (só a versão).
+Na placa, sem fios, a bateria `sem_fios.yaml` passou nas **10 execuções** seguidas, com os mesmos vereditos e
+nenhuma retransmissão; a `loopback.yaml` (CT21) fica para o teste manual, com os jumpers.
+
+### Adicionado
+- Software: `cliente.py` com o `ClienteJiga` (uma operação por comando, SEQ, tempo limite de 100 ms e 3
+  tentativas com o mesmo SEQ; `ErroComunicacao` e `ErroNack`), o `TransporteSerial` (pyserial) e o
+  `TransporteSimulado` (jiga simulada, descarta respostas de propósito e anda o relógio simulado).
+- Software: `bateria.py`: baterias YAML (estímulos `dac`, `gpio_out`, `pwm`, `pwm_stop`, esperas, I2C, SPI e
+  UART; verificações `gpio_in`, `adc`, `reacao_gpio`, `uart_read`, `i2c_dump`, `i2c_xfer`, `spi_read` e
+  `spi_xfer`), validadas inteiras antes da execução (todos os erros, com o caso e o item) e compiladas em
+  rotinas com as grandezas físicas convertidas (V → código do DAC, % → razão do PWM). Tempo máximo de cada
+  rotina = (esperas + limites) × 1,1 + 100 ms.
+- Software: `motor.py` (`MotorDeTestes`): PING e RESET_ALL, RUN_ROUTINE, ROUTINE_STATUS até o fim e
+  READ_RESULT por caso; vereditos passou, falhou (inclusive rotina em ERRO) e inconclusivo (comunicação, tempo
+  esgotado, ABORT), que para a bateria; RESET_ALL no fim.
+- Software: `relatorio.py` (CSV com uma linha por verificação e JSON com os dados brutos), `executar_bateria.py`
+  (linha de comando, `--repetir` para o CT21, `--simulada`) e `app_jiga.py` (janela: abrir, executar,
+  interromper, tabela de vereditos, repetições e pasta dos relatórios).
+- Software: baterias `sem_fios.yaml`, `loopback.yaml` (CT21) e `exemplo_monografia.yaml` (figura da seção 3.6.3).
+- Software: testes dos casos de unidade **CT02 a CT07** (quadros de exemplo do Apêndice A, bit alterado, lixo e
+  quadro truncado, retransmissão, compilação de baterias e vereditos) e da janela: **562 testes pytest**.
+
+### Alterado
+- Dependências: PyYAML (também no GitHub Actions).
+
 ## [0.9.0] - 2026-11-03
 
 Rotinas de teste executadas na própria jiga (Apêndice A): o PC envia um caso de teste inteiro em um
@@ -300,7 +329,11 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.7.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.8.1...v0.9.0
+[0.8.1]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.4.0...v0.5.0
