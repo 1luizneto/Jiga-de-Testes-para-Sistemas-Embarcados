@@ -7,6 +7,30 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.11.0] - 2026-11-03
+
+Validação com DUTs e desempenho (CT22 a CT24). Firmware da jiga sem mudanças (só a versão). Na placa, o CT23 e o
+CT24 passaram com folga: PING com máximo de 2,7 ms (critério < 50 ms) e 10 000 comandos sem nenhum erro nem
+retransmissão. O CT22 com os dois DUTs ligados fica para o teste manual.
+
+### Adicionado
+- Software: `desempenho.py`: **CT23** (1000 PING; média, mediana, p95, p99 e máximo do tempo de ida e volta) e
+  **CT24** (10 000 comandos alternando DAC_SET e ADC_READ; erros não recuperados e taxa de retransmissão), com os
+  tempos de cada comando em `medicoes/ct23_ping.csv` e `medicoes/ct24_escrita_leitura.csv`.
+- DUT ESP32-S3: comportamento conhecido do **CT22**, o "ventilador" (`main/ventilador.c`): uma task lê o sensor no
+  GPIO1 a cada 1 ms e liga o GPIO4 acima de 1,80 V e desliga abaixo de 1,50 V (histerese), sem comando nenhum da
+  jiga. Tick do FreeRTOS em 1 kHz. 18 testes Unity no PC.
+- DUT Arduino Uno (`DUT_ArduinoUno/ventilador`): o mesmo comportamento (A0 → pino 7), para o CT22 com dois
+  microcontroladores diferentes (RNF02).
+- Software: bateria **`ct22_ventilador.yaml`** (5 casos, inclusive os dois da histerese e os tempos de reação de
+  até 20 ms) e testes com DUTs simulados: o comportamento conhecido passa e um firmware sem histerese falha nos
+  dois casos da histerese. **574 testes pytest**.
+
+### Medido
+- Na placa (firmware 0.10.0, Windows 11): CT23 com média de 1,46 ms, p95 de 2,26 ms e máximo de 2,67 ms; CT24
+  com média de 2,13 ms, p95 de 2,54 ms e máximo de 3,08 ms (numa primeira rodada, um pico isolado de 15 ms), 0
+  erros e 0 retransmissões em 10 000 comandos.
+
 ## [0.10.0] - 2026-11-03
 
 Aplicação desktop da seção 3.6 da monografia: baterias de testes em YAML, compiladas em rotinas, executadas na
@@ -329,7 +353,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.10.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.8.0...v0.8.1

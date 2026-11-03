@@ -8,6 +8,13 @@ O ESP32 é comandado **pela própria jiga**: a UART1 dele vai na UART4 da jiga, 
 com `UART_WRITE` e lê a resposta com `UART_READ`. Assim o CT20 roda inteiro pelo `teste_protocolo.py --dut`,
 sem outro cabo. Os mesmos comandos funcionam pelo USB do kit (UART0), para testar o ESP32 sozinho.
 
+No **CT22** o mesmo firmware tem um segundo comportamento, que roda o tempo todo numa task própria e não recebe
+comando nenhum: o **ventilador** (`main/ventilador.c`). Ele lê o "sensor" no GPIO1 a cada 1 ms e liga a saída
+GPIO4 acima de 1,80 V e desliga abaixo de 1,50 V (histerese). A jiga aplica a tensão no DAC1 e confere a
+saída no GPIO5, como faria com um firmware qualquer (teste *black-box*, bateria
+`Software/baterias/ct22_ventilador.yaml`). O Arduino Uno roda o mesmo comportamento
+([`DUT_ArduinoUno`](../DUT_ArduinoUno/README.md)).
+
 ## Ligação com a jiga
 
 GND comum. Tudo em 3,3 V. **Tirar os jumpers do CT13** (PB15 → PC2 e PD1 → PD0) antes de ligar o ESP32.
@@ -22,6 +29,8 @@ GND comum. Tudo em 3,3 V. **Tirar os jumpers do CT13** (PB15 → PC2 e PD1 → P
 | PB15 (MOSI) | GPIO11 (MOSI) | |
 | PB10 (SCK) | GPIO12 (SCK) | |
 | PC2 (MISO) | GPIO13 (MISO) | |
+| PA4 (DAC1) | GPIO1 (ADC1 canal 0) | só no CT22 (sensor do ventilador) |
+| PC12 (GPIO5) | GPIO4 | só no CT22 (saída do ventilador) |
 | GND | GND | |
 
 - **Só um mestre por vez.** Antes de um comando de mestre do ESP32 (`I2CM`, `SPIM`), a jiga tem que estar
@@ -102,6 +111,7 @@ mesmos vetores (`Software/tests/test_dut.py`): é ele que define a resposta espe
 | `main/comandos.c` | interpretador (lógica pura, testada no PC) |
 | `main/mapa_i2c.c` | mapa de registradores do escravo I2C (lógica pura) |
 | `main/barramentos.c` | I2C e SPI mestre/escravo com os drivers do ESP-IDF |
-| `main/main.c` | UART0 (USB) e UART1 (jiga), uma task por UART |
+| `main/main.c` | UART0 (USB) e UART1 (jiga), uma task por UART, e a task do ventilador |
+| `main/ventilador.c` | comportamento do CT22 (a regra da histerese é testada no PC) |
 | `main/versao_dut.h` | versão, igual à da jiga (conferida pelo `test_versao.py`) |
 | `test_host/` | testes Unity no PC |

@@ -10,6 +10,7 @@
 #include "unity.h"
 #include "comandos.h"
 #include "mapa_i2c.h"
+#include "ventilador.h"
 #include "versao_dut.h"
 
 /// Registro das chamadas aos barramentos falsos
@@ -328,6 +329,18 @@ void TestOutput_PutChar(int c)
 	putchar(c);
 }
 
+// 18. Ventilador (CT22): liga acima de 1,80 V, desliga abaixo de 1,50 V e mantem o estado entre os dois
+void Test_Dut_VentiladorHisterese(void)
+{
+	TEST_ASSERT_FALSE(Ventilador_Atualiza(false, 1000U));
+	TEST_ASSERT_FALSE(Ventilador_Atualiza(false, 1800U));
+	TEST_ASSERT_TRUE(Ventilador_Atualiza(false, 1801U));
+	TEST_ASSERT_TRUE(Ventilador_Atualiza(true, 1650U));
+	TEST_ASSERT_FALSE(Ventilador_Atualiza(false, 1700U));
+	TEST_ASSERT_TRUE(Ventilador_Atualiza(true, 1500U));
+	TEST_ASSERT_FALSE(Ventilador_Atualiza(true, 1499U));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -348,5 +361,6 @@ int main(void)
 	RUN_TEST(Test_Dut_LinhaInvalida);
 	RUN_TEST(Test_Dut_MapaEscritaELeitura);
 	RUN_TEST(Test_Dut_MapaCargaNaoMexeNoPonteiro);
+	RUN_TEST(Test_Dut_VentiladorHisterese);
 	return UNITY_END();
 }
