@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.12"
       # PySide6 fica de fora: os testes nao abrem a interface grafica
-      - run: pip install "pyserial>=3.5" "pytest>=8"
+      - run: pip install "pyserial>=3.5" "PyYAML>=6.0" "pytest>=8"
       - run: pytest -v
 
   # Interpretador de comandos e mapa I2C do DUT de referencia (ESP32-S3), compilados no PC com o Unity da jiga
