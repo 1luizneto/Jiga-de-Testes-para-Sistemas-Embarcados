@@ -1,0 +1,47 @@
+# CT22: bateria black-box do comportamento conhecido "ventilador" (liga acima de 1,80 V, desliga abaixo de 1,50 V),
+# a mesma para os dois DUTs, sem nenhum comando ao DUT:
+#   ESP32-S3 (DUT_ESP32S3, ventilador.c): DAC1 (PA4) -> GPIO1; GPIO4 -> GPIO5 (PC12); GND comum
+#   Arduino Uno (DUT_ArduinoUno/ventilador): DAC1 (PA4) -> A0; pino 7 -> GPIO5 (PC12); GND comum (ligar a jiga antes)
+# Rodar: python executar_bateria.py baterias/ct22_ventilador.yaml --repetir 10
+# Cada rotina termina no estado seguro (DAC em 0 V), entao cada caso comeca com o ventilador desligado.
+# Os pontos da histerese (1,58 e 1,72 V) ficam a 70-80 mV dos limiares e do meio (1,65 V): um firmware com limiar
+# unico de 1,65 V falha nos dois, e o erro do ADC do DUT (dezenas de mV) nao muda o veredito.
+bateria: ct22-ventilador
+dut: ESP32-S3 ou Arduino Uno (firmware ventilador)
+casos:
+  - nome: desligado em 1,0 V
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+    espera_ms: 50
+    verificar:
+      - gpio_in: {pino: 5, esperado: 0}
+  - nome: liga em 2,0 V em até 20 ms
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+      - espera_ms: 50
+      - dac: {canal: 1, tensao: 2.0}
+    verificar:
+      - reacao_gpio: {pino: 5, nivel: 1, max_ms: 20}
+  - nome: histerese, continua ligado em 1,58 V
+    estimulos:
+      - dac: {canal: 1, tensao: 2.0}
+      - espera_ms: 50
+      - dac: {canal: 1, tensao: 1.58}
+    espera_ms: 50
+    verificar:
+      - gpio_in: {pino: 5, esperado: 1}
+  - nome: desliga em 1,2 V em até 20 ms
+    estimulos:
+      - dac: {canal: 1, tensao: 2.0}
+      - espera_ms: 50
+      - dac: {canal: 1, tensao: 1.2}
+    verificar:
+      - reacao_gpio: {pino: 5, nivel: 0, max_ms: 20}
+  - nome: histerese, não liga em 1,72 V
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+      - espera_ms: 50
+      - dac: {canal: 1, tensao: 1.72}
+    espera_ms: 50
+    verificar:
+      - gpio_in: {pino: 5, esperado: 0}
