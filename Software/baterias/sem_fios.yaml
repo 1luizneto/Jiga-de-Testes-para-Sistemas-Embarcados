@@ -1,0 +1,27 @@
+# Bateria que roda na jiga sem nenhum fio ligado: so confere o que a propria jiga guarda (mapa da escrava I2C,
+# buffers vazios do SPI e da UART) e exercita os estimulos e as esperas. Serve para conferir o app com a placa.
+bateria: jiga-sem-fios
+casos:
+  - nome: mapa da escrava I2C
+    estimulos:
+      - i2c_config: {papel: escravo, endereco: 0x50}
+      - i2c_load: {offset: 0x10, dados: "DE AD BE EF"}
+    verificar:
+      - i2c_dump: {offset: 0x10, esperado: "DE AD BE EF"}
+      - i2c_dump: {offset: 0x14, esperado: "00 00"}
+  - nome: estimulos e esperas (passa se a rotina concluir)
+    estimulos:
+      - dac: {canal: 1, tensao: 1.65}
+      - pwm: {canal: 1, frequencia: 1000, razao: 25}
+      - gpio_out: {pino: 2, nivel: 1}
+      - espera_ms: 20
+      - pwm_stop: {canal: 1}
+  - nome: SPI e UART sem dados recebidos
+    estimulos:
+      - spi_config: {papel: escrava, modo: 0}
+      - spi_load: {dados: "01 02 03"}
+      - uart_config: {baud: 115200}
+    espera_ms: 10
+    verificar:
+      - spi_read: {esperado: ""}
+      - uart_read: {esperado: ""}
