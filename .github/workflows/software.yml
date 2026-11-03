@@ -6,12 +6,16 @@ on:
     tags: ["v*"]
     paths:
       - "Software/**"
+      - "DUT_ESP32S3/**"
+      - "projeto/App/Test/Unity/**"
       - "projeto/App/System/Inc/Version.h"
       - "CHANGELOG.md"
       - ".github/workflows/software.yml"
   pull_request:
     paths:
       - "Software/**"
+      - "DUT_ESP32S3/**"
+      - "projeto/App/Test/Unity/**"
       - "projeto/App/System/Inc/Version.h"
       - "CHANGELOG.md"
       - ".github/workflows/software.yml"
@@ -30,3 +34,10 @@ jobs:
       # PySide6 fica de fora: os testes nao abrem a interface grafica
       - run: pip install "pyserial>=3.5" "pytest>=8"
       - run: pytest -v
+
+  # Interpretador de comandos e mapa I2C do DUT de referencia (ESP32-S3), compilados no PC com o Unity da jiga
+  dut-host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh DUT_ESP32S3/test_host/rodar.sh

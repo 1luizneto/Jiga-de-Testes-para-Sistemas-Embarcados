@@ -7,6 +7,33 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.8.1] - 2026-11-03
+
+DUT de referência (ESP32-S3) e os casos do **CT20**. O firmware da jiga não muda (só a versão): a versão sobe
+como PATCH porque o protocolo PC ↔ jiga é o mesmo. A validação do CT20 na bancada (ESP32 ligado na jiga) fica
+para o teste manual; sem o ESP32 ligado, os casos do CT20 falham só na resposta do DUT, sem travar a jiga.
+
+### Adicionado
+- DUT: firmware do ESP32-S3 (`DUT_ESP32S3/`, ESP-IDF v6.1) comandado por texto pela UART1 (ligada na UART4 da
+  jiga) ou pelo USB do kit: `PING`, `OFF`, `I2CM`/`I2CS`/`I2CS_LOAD`/`I2CS_DUMP` (mestre e escravo I2C, mapa
+  de 256 registradores) e `SPIM`/`SPIS`/`SPIS_LOAD`/`SPIS_READ` (mestre e escravo SPI). Pinos soltos fora de
+  uso; o CS do mestre SPI só é acionado durante a transferência. Gravado e testado pelo USB (sem a jiga).
+- DUT: interpretador e mapa em lógica pura, com 17 testes Unity no PC (`test_host/rodar.sh`), também no
+  GitHub Actions (job `dut-host`).
+- Software: `dut.py` com o espelho do firmware do DUT (`DutSimulado`) ligado à `JigaSimulada` (UART, I2C e
+  SPI nos dois sentidos); 46 testes pytest novos, com os mesmos vetores do Unity do DUT (381 no total).
+- Software: 5 casos do **CT20** (`[DUT]`): PING pela UART, DUT mestre lendo e escrevendo a jiga escrava I2C
+  (inclusive uma leitura sem ponteiro, que confere o byte a mais da leitura do F7), jiga mestra lendo e
+  escrevendo o DUT escravo I2C, DUT mestre com a jiga escrava SPI (o envio recomeça do byte 0 a cada
+  transação) e jiga mestra com o DUT escravo SPI.
+- Software: `teste_protocolo.py --dut`, `/teste dut` e `/dut <comando>` no terminal, caixa "Incluir DUT" na
+  GUI e opção "+
+" no envio da UART.
+
+### Alterado
+- Software: a `JigaSimulada` guarda o endereço e o ponteiro da jiga escrava I2C (24C02), como o `I2cBus`.
+- Versão conferida em quatro lugares: o `versao_dut.h` do DUT entrou no `test_versao.py`.
+
 ## [0.8.0] - 2026-11-03
 
 SPI (escravo e mestre) e UART completos, testados no Unity, pelo USB e em loopback no software. Na placa,

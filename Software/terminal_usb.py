@@ -35,6 +35,8 @@ Comandos digitados durante a execucao:
     /teste           lista os casos de teste do protocolo
     /teste 3         envia o caso 3 (/teste todos envia todos, menos os de loopback)
     /teste loopback  envia todos, incluindo o CT10, o CT11 e o CT13 (jumpers ligados)
+    /teste dut       envia todos, incluindo o CT20 (DUT ESP32-S3 ligado na jiga)
+    /dut PING        manda a linha ao DUT pela UART4 da jiga (UART_WRITE + UART_READ; antes, /uart_config 115200)
     /modo            alterna entre hex e texto
     /ajuda           mostra os comandos
     /sair            encerra (Ctrl+C tambem)
@@ -53,7 +55,7 @@ from protocolo import (
     CASOS_TESTE, QUADRO_OK, ReceptorQuadros, casos_a_executar, descrever_log, descrever_pwm,
     interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_pwm_set,
     montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read, montar_spi_xfer,
-    montar_uart_config, montar_uart_read, montar_uart_write, nome_comando, porcento_para_razao,
+    montar_uart_config, montar_uart_read, montar_uart_write, marca_caso, nome_comando, porcento_para_razao,
 )
 from versao import __version__
 
@@ -72,6 +74,9 @@ TEMPO_MAX_RAJADA = 0.05
 
 # Pausa entre casos de teste, para o log de um nao se misturar com o do outro (s)
 PAUSA_ENTRE_CASOS = 0.3
+
+# Entre o UART_WRITE de um comando do DUT e o UART_READ da resposta (o DUT responde em poucos ms)
+PAUSA_DUT = 0.1
 
 
 def listar_portas():
@@ -338,21 +343,21 @@ class Terminal:
         self.enviar(quadro)
 
     def executar_casos(self, argumento):
-        """'/teste': lista os casos; '/teste N', '/teste todos' ou '/teste loopback' envia.
+        """'/teste': lista os casos; '/teste N', '/teste todos', '/teste loopback' ou '/teste dut' envia.
 
-        'todos' pula os casos que precisam dos jumpers (CT10, CT11, CT13); 'loopback' inclui eles.
+        'todos' pula os casos que precisam dos jumpers (CT10, CT11, CT13) e do DUT (CT20); 'loopback' inclui os
+        primeiros e 'dut', os do CT20.
         """
         if not argumento:
             for i, caso in enumerate(CASOS_TESTE, 1):
-                marca = " [loopback]" if caso.requer_loopback else ""
-                self.exibir(f"  {i:2d}. {caso.nome:24s} {caso.descricao}{marca}")
+                self.exibir(f"  {i:2d}. {caso.nome:24s} {caso.descricao}{marca_caso(caso)}")
             return
-        if argumento in ("todos", "loopback"):
-            casos = casos_a_executar(argumento == "loopback")
+        if argumento in ("todos", "loopback", "dut"):
+            casos = casos_a_executar(argumento == "loopback", argumento == "dut")
         elif argumento.isdigit() and 1 <= int(argumento) <= len(CASOS_TESTE):
             casos = [CASOS_TESTE[int(argumento) - 1]]
         else:
-            self.exibir(f"*** caso invalido; use 1 a {len(CASOS_TESTE)}, 'todos' ou 'loopback' ***")
+            self.exibir(f"*** caso invalido; use 1 a {len(CASOS_TESTE)}, 'todos', 'loopback' ou 'dut' ***")
             return
         for caso in casos:
             self.exibir(f"*** caso '{caso.nome}' | esperado: log {descrever_log(caso.esperado)}"
@@ -363,6 +368,18 @@ class Terminal:
                 else:
                     time.sleep(valor)
             time.sleep(PAUSA_ENTRE_CASOS)
+
+    def enviar_dut(self, linha):
+        """'/dut <comando>': UART_WRITE da linha (com '\\n') e, depois da pausa, UART_READ da resposta do DUT."""
+        if not linha:
+            self.exibir("*** uso: /dut PING (a UART4 precisa estar em 115200: /uart_config 115200) ***")
+            return
+        self.exibir(f"*** SEQ={self.seq} DUT: {linha} ***")
+        self.enviar(montar_uart_write(self.seq, (linha + "\n").encode("utf-8")))
+        self.seq = (self.seq + 1) & 0xFF
+        time.sleep(PAUSA_DUT)
+        self.enviar(montar_uart_read(self.seq))
+        self.seq = (self.seq + 1) & 0xFF
 
     def tratar_linha(self, linha):
         if linha in ("/sair", "/q"):
@@ -380,6 +397,8 @@ class Terminal:
             self.enviar_pwm(linha[4:].strip())
         elif linha.startswith(tuple(COMANDOS_BARRAMENTO)):
             self.enviar_barramento(next(p for p in COMANDOS_BARRAMENTO if linha.startswith(p)), linha)
+        elif linha.startswith("/dut"):
+            self.enviar_dut(linha[4:].strip())
         elif linha.startswith("/teste"):
             self.executar_casos(linha[6:].strip())
         elif linha.startswith("/hex"):

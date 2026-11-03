@@ -27,11 +27,12 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from dut import DUT_LIGACAO
 from protocolo import (
     CASOS_TESTE, I2C_PAPEL_ESCRAVO, I2C_PAPEL_MESTRE, I2C_VELOCIDADES, PAYLOAD_MAX, PWM_CANAIS, PWM_FREQUENCIA_MAX,
     PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_PADRAO, PWM_PINOS, PWM_RAZAO_MAX, QUADRO_OK, SPI_CLOCK, SPI_DIVISORES,
     SPI_FREQUENCIA_MIN, SPI_MODO_MAX, SPI_PAPEL_ESCRAVO, SPI_PAPEL_MESTRE, UART_BAUD_MAX, UART_BAUD_MIN,
-    UART_TAMANHO_MAX, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log, descrever_pwm,
+    UART_TAMANHO_MAX, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log, descrever_pwm, marca_caso,
     descrever_resposta, descrever_spi, interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load,
     montar_pwm_set, montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read,
     montar_spi_xfer, montar_uart_config, montar_uart_read, montar_uart_write, porcento_para_razao,
@@ -394,6 +395,8 @@ class JanelaTerminal(QMainWindow):
         self.campo_uart_dados.setPlaceholderText("Texto ou hex (com 'hex' marcado) para enviar ao DUT")
         self.campo_uart_dados.returnPressed.connect(self.escrever_uart)
         self.ck_uart_hex = QCheckBox("hex")
+        self.ck_uart_nl = QCheckBox("+\\n", checked=True)
+        self.ck_uart_nl.setToolTip("Acrescenta '\\n' no fim: os comandos do DUT de referência terminam em '\\n'")
         self.spin_uart_max = QSpinBox(minimum=1, maximum=UART_TAMANHO_MAX, value=UART_TAMANHO_MAX)
         self.spin_uart_max.setToolTip("Máximo de bytes tirados do buffer pelo 'Ler'")
         linha_uart.addWidget(QLabel("UART:"))
@@ -403,6 +406,7 @@ class JanelaTerminal(QMainWindow):
         linha_uart.addSpacing(12)
         linha_uart.addWidget(self.campo_uart_dados, 1)
         linha_uart.addWidget(self.ck_uart_hex)
+        linha_uart.addWidget(self.ck_uart_nl)
         linha_uart.addWidget(QPushButton("Enviar", clicked=self.escrever_uart))
         linha_uart.addWidget(self.spin_uart_max)
         linha_uart.addWidget(QPushButton("Ler", clicked=self.ler_uart))
@@ -412,25 +416,29 @@ class JanelaTerminal(QMainWindow):
         linha_teste = QHBoxLayout()
         self.combo_caso = QComboBox()
         for i, caso in enumerate(CASOS_TESTE, 1):
-            marca = " [loopback]" if caso.requer_loopback else ""
-            self.combo_caso.addItem(f"{i}. {caso.nome}{marca}", caso)
+            self.combo_caso.addItem(f"{i}. {caso.nome}{marca_caso(caso)}", caso)
         self.combo_caso.currentIndexChanged.connect(self._mudou_caso)
         self.lb_caso = QLabel()
         self.lb_caso.setStyleSheet("color: #555")
         self.bt_caso = QPushButton("Executar caso", clicked=lambda: self.executar_casos([self.combo_caso.currentData()]))
         self.bt_todos = QPushButton("Executar todos", clicked=lambda: self.executar_casos(
-            casos_a_executar(self.ck_loopback.isChecked())))
+            casos_a_executar(self.ck_loopback.isChecked(), self.ck_dut.isChecked())))
         self.ck_loopback = QCheckBox("Incluir loopback")
         self.ck_loopback.setToolTip("Inclui no 'Executar todos' o CT10, o CT11 e o CT13, que precisam dos jumpers:\n"
                                     "DAC1 (PA4) → A0 (PA3), DAC2 (PA5) → A1 (PC0)\n"
                                     "GPIO1-4 (PC8-PC11) → GPIO5-8 (PC12, PD2, PG2, PG3)\n"
                                     "MOSI (PB15) → MISO (PC2), TX (PD1) → RX (PD0)")
+        self.ck_dut = QCheckBox("Incluir DUT")
+        self.ck_dut.setToolTip("Inclui no 'Executar todos' o CT20, que precisa do DUT de referencia (ESP32-S3)\n"
+                               "ligado na jiga, sem os jumpers do CT13 (ligação no README):\n" +
+                               "\n".join(f"{jiga} ↔ {dut}" for jiga, dut in DUT_LIGACAO))
         linha_teste.addWidget(QLabel("Caso de teste:"))
         linha_teste.addWidget(self.combo_caso)
         linha_teste.addWidget(self.lb_caso, 1)
         linha_teste.addWidget(self.bt_caso)
         linha_teste.addWidget(self.bt_todos)
         linha_teste.addWidget(self.ck_loopback)
+        linha_teste.addWidget(self.ck_dut)
         layout.addLayout(linha_teste)
 
         # Porta do DebugLog: e dela que sai o veredito de cada caso
@@ -481,9 +489,11 @@ class JanelaTerminal(QMainWindow):
         self.ck_log_tela.setChecked(self.config.value("mostrar_log", True, type=bool))
         self.ck_interpretar.setChecked(self.config.value("interpretar", True, type=bool))
         self.ck_loopback.setChecked(self.config.value("loopback", False, type=bool))
+        self.ck_dut.setChecked(self.config.value("dut", False, type=bool))
 
     def _salvar_config(self):
         self.config.setValue("loopback", self.ck_loopback.isChecked())
+        self.config.setValue("dut", self.ck_dut.isChecked())
         self.config.setValue("porta", self.porta_selecionada() or "")
         self.config.setValue("porta_log", self.combo_log.currentData() or "")
         self.config.setValue("mostrar_log", self.ck_log_tela.isChecked())
@@ -820,6 +830,8 @@ class JanelaTerminal(QMainWindow):
         try:
             texto = self.campo_uart_dados.text()
             dados = interpretar_hex(texto) if self.ck_uart_hex.isChecked() else texto.encode("utf-8")
+            if self.ck_uart_nl.isChecked():
+                dados += b"\n"
             quadro = montar_uart_write(self.spin_seq.value(), dados)
         except ValueError as e:
             self._escrever_info(f"UART_WRITE inválido: {e}")
