@@ -1,0 +1,44 @@
+# Bateria de loopback da propria jiga (CT21), com os jumpers do CT10, CT11 e CT13:
+# PA4 -> PA3 (DAC1 -> A0), PA5 -> PC0 (DAC2 -> A1), PC8 -> PC12 (GPIO1 -> GPIO5), PC11 -> PG3 (GPIO4 -> GPIO8),
+# PB15 -> PC2 (MOSI -> MISO) e PD1 -> PD0 (TX -> RX).
+# Rodar dez vezes: python executar_bateria.py baterias/loopback.yaml --repetir 10
+bateria: loopback-da-jiga
+dut: nenhum (jumpers)
+casos:
+  - nome: DAC1 -> A0 em 1,0 V
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+      - espera_ms: 5
+    verificar:
+      - adc: {canal: 0, esperado: 1.0}
+  - nome: DAC2 -> A1 em 2,5 V
+    estimulos:
+      - dac: {canal: 2, tensao: 2.5}
+      - espera_ms: 5
+    verificar:
+      - adc: {canal: 1, esperado: 2.5}
+  - nome: GPIO1 -> GPIO5 sobe em até 1 ms
+    estimulos:
+      - gpio_out: {pino: 1, nivel: 1}
+    verificar:
+      - reacao_gpio: {pino: 5, nivel: 1, max_ms: 1}
+      - gpio_in: {pino: 5, esperado: 1}
+  - nome: GPIO4 -> GPIO8 desce em até 1 ms
+    estimulos:
+      - gpio_out: {pino: 4, nivel: 1}
+      - espera_ms: 1
+      - gpio_out: {pino: 4, nivel: 0}
+    verificar:
+      - reacao_gpio: {pino: 8, nivel: 0, max_ms: 1}
+  - nome: UART TX -> RX a 115200 baud
+    estimulos:
+      - uart_config: {baud: 115200}
+      - uart_write: {texto: "jiga\n"}
+    espera_ms: 2
+    verificar:
+      - uart_read: {esperado_texto: "jiga\n"}
+  - nome: SPI mestre MOSI -> MISO a 1 MHz
+    estimulos:
+      - spi_config: {papel: mestre, modo: 0, frequencia: 1000000}
+    verificar:
+      - spi_xfer: {dados: "A5 5A 00 FF", esperado: "A5 5A 00 FF"}

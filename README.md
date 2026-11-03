@@ -20,6 +20,7 @@ emula escravos (I2C, SPI, UART) e lê as respostas do dispositivo sob teste (ADC
 | Firmware: Exec e Rotina (Unity, no PC) | `projeto/App/Test/host` | `sh projeto/App/Test/host/rodar.sh` (os mesmos testes do `Test_Exec.c`; roda também no GitHub Actions) |
 | DUT de referência (Unity, no PC) | `DUT_ESP32S3/test_host` | `sh DUT_ESP32S3/test_host/rodar.sh` (roda também no GitHub Actions) |
 | Placa + PC (HIL) | `Software/teste_protocolo.py` | Ver o [README do Software](Software/README.md#teste-automático-com-a-placa) |
+| Baterias de testes (CT21) | `Software/baterias` | `python Software/executar_bateria.py Software/baterias/loopback.yaml --repetir 10` ([README](Software/README.md#aplicação-de-baterias-de-testes)) |
 
 ## Versionamento
 
