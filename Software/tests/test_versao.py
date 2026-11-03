@@ -8,6 +8,7 @@ from versao import __version__
 RAIZ = Path(__file__).resolve().parents[2]
 VERSION_H = RAIZ / "projeto" / "App" / "System" / "Inc" / "Version.h"
 CHANGELOG = RAIZ / "CHANGELOG.md"
+VERSAO_DUT = RAIZ / "DUT_ESP32S3" / "main" / "versao_dut.h"
 
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
@@ -32,3 +33,9 @@ def test_major_minor_patch_batem_com_a_string():
 
 def test_changelog_tem_a_versao_atual():
     assert f"## [{__version__}]" in CHANGELOG.read_text(encoding="utf-8")
+
+
+def test_dut_na_mesma_versao():
+    """O firmware do DUT de referencia (ESP32-S3) sai junto com a jiga: mesma versao."""
+    texto = VERSAO_DUT.read_text(encoding="utf-8")
+    assert re.search(r'#define\s+dDUT_VERSAO\s+"([^"]+)"', texto).group(1) == __version__
