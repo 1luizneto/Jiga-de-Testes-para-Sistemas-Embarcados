@@ -11,10 +11,14 @@ Os casos de loopback (CT10, CT11 e CT13) so passam com os jumpers DAC1 (PA4) -> 
 DAC2 (PA5) -> A1 (PC0), GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3), MOSI (PB15) ->
 MISO (PC2) e TX (PD1) -> RX (PD0): sem --loopback eles sao pulados.
 
+Os casos do CT20 so passam com o DUT de referencia (ESP32-S3, firmware em DUT_ESP32S3/) ligado na jiga, sem
+os jumpers do CT13 (ligacao no README): sem --dut eles sao pulados.
+
 Uso:
     python teste_protocolo.py                          # detecta as duas portas
     python teste_protocolo.py --porta COM14 --porta-log COM8
     python teste_protocolo.py --loopback               # inclui o CT10, o CT11 e o CT13 (jumpers ligados)
+    python teste_protocolo.py --dut                    # inclui o CT20 (ESP32-S3 ligado na jiga)
     python teste_protocolo.py --caso 1                 # so um caso (numero da lista)
     python teste_protocolo.py --listar                 # lista os casos e sai
 """
@@ -26,7 +30,9 @@ import time
 import serial
 from serial.tools import list_ports
 
-from protocolo import CASOS_TESTE, avaliar_caso, casos_a_executar, descrever_log, descrever_resposta
+from protocolo import (
+    CASOS_TESTE, avaliar_caso, casos_a_executar, descrever_log, descrever_resposta, marca_caso,
+)
 from terminal_usb import detectar_porta
 from versao import __version__
 
@@ -89,16 +95,17 @@ def main():
     parser.add_argument("--caso", type=int, help="numero do caso (ver --listar); roda mesmo se for de loopback")
     parser.add_argument("--loopback", action="store_true",
                         help="inclui os casos que precisam dos jumpers (CT10, CT11 e CT13)")
+    parser.add_argument("--dut", action="store_true",
+                        help="inclui os casos que precisam do DUT de referencia ligado (CT20)")
     parser.add_argument("--listar", action="store_true", help="lista os casos e sai")
     args = parser.parse_args()
 
     if args.listar:
         for i, caso in enumerate(CASOS_TESTE, 1):
-            marca = " [loopback]" if caso.requer_loopback else ""
-            print(f"{i:2d}. {caso.nome:24s} {caso.descricao}{marca}")
+            print(f"{i:2d}. {caso.nome:24s} {caso.descricao}{marca_caso(caso)}")
         return 0
 
-    casos = casos_a_executar(args.loopback)
+    casos = casos_a_executar(args.loopback, args.dut)
     if args.caso is not None:
         if not 1 <= args.caso <= len(CASOS_TESTE):
             print(f"caso invalido; use 1 a {len(CASOS_TESTE)}")
@@ -133,9 +140,11 @@ def main():
                 if len(obtida) <= 64:
                     print(f"                           {obtida.hex(' ').upper() or '(sem bytes)'}")
 
-    pulados = [] if args.caso is not None or args.loopback else [c for c in CASOS_TESTE if c.requer_loopback]
+    pulados = [] if args.caso is not None else [c for c in CASOS_TESTE if c not in casos]
     for caso in pulados:
-        print(f"[PULADO] {caso.nome} (requer loopback: use --loopback com os jumpers ligados)")
+        motivo = "loopback: use --loopback com os jumpers ligados" if caso.requer_loopback else \
+            "DUT: use --dut com o ESP32-S3 ligado na jiga"
+        print(f"[PULADO] {caso.nome} (requer {motivo})")
 
     resumo = f"{len(casos) - falhas}/{len(casos)} casos passaram"
     print(f"\n{resumo}" + (f", {len(pulados)} pulados" if pulados else ""))

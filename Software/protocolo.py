@@ -1445,6 +1445,11 @@ CASOS_TESTE = [
 ]
 
 
+def marca_caso(caso):
+    """Marca do caso nas listas: precisa dos jumpers ou do DUT ligado."""
+    return " [loopback]" if caso.requer_loopback else " [DUT]" if caso.requer_dut else ""
+
+
 def casos_a_executar(loopback=False, dut=False):
     """Casos do 'executar todos': os de loopback so entram com os jumpers ligados e os do CT20 com o DUT."""
     return [caso for caso in CASOS_TESTE
