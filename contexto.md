@@ -36,6 +36,9 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - **v0.8.1** (DUT de referência ESP32-S3 + CT20) fechada no branch **`feat_dut-esp32`**: 172/172 Unity e
   62/62 HIL com o firmware 0.8.1, 17 Unity do DUT no PC, 381 pytest; ESP32 gravado e testado pelo USB.
   Falta o CT20 na bancada (ESP32 ligado na jiga): teste manual.
+- **v0.9.0** (rotinas, CT14–CT19) fechada no branch **`feat_rotinas`**: 193/193 Unity e 68/68 HIL na placa
+  sem fios, 435 pytest, 76 testes do Exec/Rotina no PC; ESP32 regravado com a 0.9.0. Falta o CT19 com
+  jumper (GPIO1 → GPIO5): teste manual.
 - Cada versão nova nasce de um branch criado do `main` atualizado (`git checkout main && git pull &&
   git checkout -b <branch>`). Branch criado de `main` desatualizado já deu problema uma vez.
 - `gh` instalado no PC de casa (`C:\Program Files\GitHub CLI`, conta 1luizneto); o notebook da empresa não tem.
@@ -81,6 +84,9 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   Planejado (opção G, ainda não montado): filtro RC PA6 → 10 kΩ → A2 (PC3) com 10 µF ao GND, para
   conferir a razão cíclica do PWM3 pelo ADC (média = 3,3 V × razão; τ = 0,1 s, esperar ~0,5 s)
 - Timebase do HAL no TIM6; FPU habilitada; USE_NEWLIB_REENTRANT habilitado
+- TIM5 (v0.9.0): base de tempo das rotinas, contador livre de 32 bits a 1 MHz (PSC 107 sobre 108 MHz), CC1
+  em compare para as esperas, IRQ na prioridade 5. EXTI das entradas: PC12 no EXTI15_10, PD2 e PG2 no
+  EXTI2, PG3 no EXTI3 (o PD7 do CS continua no EXTI9_5)
 
 ## DUT de referência (ESP32-S3, v0.8.1)
 - Kit ESP32-S3 (QFN56 rev 0.2, 16 MB de flash, 8 MB de PSRAM octal: GPIO33–37 ficam de fora), USB-serial
@@ -148,6 +154,15 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   0x03 NAO_CONFIGURADO, 0x04 CRC_INVALIDO, 0x05 TAMANHO_EXCEDIDO, 0x06 ERRO_PERIFERICO, 0x07 OCUPADO,
   0x08 ROTINA_INVALIDA, 0x09 SEM_RESULTADO
 - `0x55` não é usado por nenhum comando: os casos de teste usam como "comando inexistente"
+- NACK com detalhe (v0.9.0): [cmd][erro][detalhe]; no ROTINA_INVALIDA o detalhe é o índice do passo (0xFF =
+  cabeçalho ou bytes sobrando)
+- Rotinas (v0.9.0): RUN_ROUTINE (0x08, [id u16][tempo máximo ms u32, 1–3 600 000][n u8][passos]), cada passo
+  = código do comando direto + payload dele; passos novos ESPERA (0x78, [µs u32]) e ESPERA_GPIO (0x79,
+  [entrada 5–8][nível][limite µs u32] → registro [resultado 0/1][decorrido µs u32]). ROUTINE_STATUS (0x09 →
+  [estado][passos concluídos][id u16][erro]), READ_RESULT (0x0A, [offset u16] → [id][total][até 236 B]),
+  ABORT (0x0B). Registros [índice][instante µs u32][qtd][dados], área de 2048 B. Estados: 0 OCIOSA,
+  1 EM_EXECUCAO, 2 CONCLUIDA, 3 ABORTADA, 4 TEMPO_ESGOTADO, 5 ERRO. Durante a rotina só PING,
+  ROUTINE_STATUS, ABORT e retransmissões são atendidos (o resto: OCUPADO); no fim, estado seguro
 
 ### Decisões tomadas
 - **Enquadramento por comprimento**: 0x7E só é SOF no estado AGUARDA_SOF; dentro do quadro é dado
@@ -394,6 +409,19 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - `/i2c_config`, `/i2c_load`, `/i2c_dump`, `/i2c_xfer` no terminal; linha I2C na GUI
 - **246 testes pytest**
 
+### v0.9.0 — rotinas (03/11/2026)
+- CubeMX: TIM5 a 1 MHz (32 bits); `Bsp_Tempo` (compare do TIM5, EXTI das entradas, notificação da task)
+- `Rotina` (valida a rotina inteira antes, executa pelo `Exec_Passo`, grava os registros, estado seguro no
+  fim); RUN_ROUTINE/READ_RESULT no `Exec`, ROUTINE_STATUS/ABORT direto na CommTask (`eCOMM_RETURN_DIRECT`),
+  `Comm_SetBusyCheck` para o OCUPADO durante a rotina
+- **193 testes Unity** (21 novos); os do Exec/Rotina também no PC (`projeto/App/Test/host/rodar.sh`, job
+  `firmware-host`)
+- `protocolo.py`: montagem/validação de rotinas, `StatusRotina`, `interpretar_resultados`, `JigaSimulada`
+  com relógio simulado; casos CT14–CT19 (**68 casos sem fio**, 68/68 na placa); terminal `/rotina_*` e
+  linha Rotina na GUI; **435 testes pytest**
+- Medido: ESPERA de 1/10/100 ms entre dois GPIO_READ = 1028/10 029/100 029 µs (≈ 28 µs por passo, dentro
+  dos 50 µs do critério); ABORT numa ESPERA de 10 s interrompe na hora
+
 ### v0.8.1 — DUT de referência e CT20 (03/11/2026)
 - `DUT_ESP32S3/`: firmware do ESP32-S3 (ver "DUT de referência"); gravado e testado pelo USB: todos os
   comandos, NACK sem jiga, ERR ESTADO com papel em conflito, boot limpo
@@ -441,7 +469,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 | ~~0.7.0~~ | I2C escravo e mestre (0x50–0x53), sem task, sem validação no barramento | — (CT20 na 0.8.1) |
 | ~~0.8.0~~ | SPI (escravo e mestre, 0x60–0x63) e UART (0x70–0x72), sem task | CT13 (comandos ✅; dados no teste manual) |
 | ~~0.8.1~~ | Firmware do DUT de referência (ESP32-S3) e casos do CT20 | **CT20** (simulado ✅; bancada no teste manual) |
-| 0.9.0 | Rotinas: `RUN_ROUTINE`, `ROUTINE_STATUS`, `READ_RESULT`, `ABORT`, passos ESPERA/ESPERA_GPIO, base de tempo de 1 µs (TIM5), tempo máximo | CT14–CT19 |
+| ~~0.9.0~~ | Rotinas: `RUN_ROUTINE`, `ROUTINE_STATUS`, `READ_RESULT`, `ABORT`, passos ESPERA/ESPERA_GPIO, base de tempo de 1 µs (TIM5), tempo máximo | CT14–CT18 ✅, CT19 (sem fio ✅; jumper no teste manual) |
 | 0.10.0 | App desktop da seção 3.6: `ClienteJiga` com retransmissão (100 ms, 3 tentativas), baterias YAML → rotinas, veredito, relatório | CT02–CT07, CT21 |
 | 0.11.0 | Validação com DUTs (ESP32, Arduino Uno) e desempenho | CT22–CT24 |
 | 1.0.0 | Jiga completa: todos os CT passando; resultados no Cap. 4 | CT01–CT24 |
@@ -454,7 +482,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 ## PRÓXIMOS PASSOS
 1. Monografia: levar ao texto tudo o que mudou desde 30/09 (ver "Pendências no texto") e gerar o PDF em
    `Monografia/` a cada versão
-2. v0.9.0: rotinas (`RUN_ROUTINE` etc., CT14–CT19), depois app da seção 3.6 (0.10.0), desempenho (0.11.0)
+2. App da seção 3.6 (0.10.0), desempenho (0.11.0), 1.0.0
 3. Teste manual do Luiz (jumpers do CT10/CT11/CT13 e o ESP32 ligado), correções em PATCH
 4. Opcional, quando montar o filtro RC (opção G, ver Hardware): caso de loopback do PWM só no Python
    (`PWM_SET` 25/50/75 % no PWM3, esperar ~0,5 s, `ADC_READ` do A2, conferir razão × 4095 ± 41)
@@ -568,6 +596,14 @@ faixa útil, sim. Firmware não muda.
   - **CT13**: ligação (PB15→PC2, PD1→PD0), modos 0–3 a 1 MHz e 239 bytes a 6,75 MHz; UART a 9600, 115200
     e 1 000 000 baud; comparação exata
   - **Hardware**: PD7 = CS por software (duplo papel); PD0 sem pull
+- **Rotinas (v0.9.0)**:
+  - **Apêndice A**: o exemplo do READ_RESULT (o registro do ADC_READ tem 3 B: canal + valor); o NACK com o
+    detalhe (índice do passo no ROTINA_INVALIDA, 0xFF no cabeçalho); passos ESPERA (0x78) e ESPERA_GPIO
+    (0x79) com o registro [resultado][decorrido]; tempo máximo de 1 ms a 1 h; só PING/STATUS/ABORT durante
+    a rotina; estado seguro no fim; RESET_ALL descarta os resultados
+  - **Firmware**: TIM5 como base de tempo (1 µs, 32 bits: volta em ~71 min, por isso o tempo máximo de 1 h),
+    esperas por compare/EXTI + notificação (sem polling); ROUTINE_STATUS e ABORT atendidos pela CommTask
+  - **Cap. 4**: overhead medido de ≈ 28 µs por passo (critério de 50 µs)
 - **Verificação automática com tolerância**: os casos do PC conferem leituras analógicas por faixa e não
   byte a byte (é o mesmo critério do `qua:criterios`); vale citar na seção do app/casos de teste
 
