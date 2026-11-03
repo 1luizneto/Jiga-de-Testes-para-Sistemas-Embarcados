@@ -80,6 +80,29 @@ void Test_Exec_I2cXferValido(void);
 void Test_Exec_I2cXferInvalido(void);
 void Test_Exec_I2cXferSemAck(void);
 void Test_Exec_ResetAllZeraMapaI2c(void);
+void Test_Exec_SpiConfigMestre(void);
+void Test_Exec_SpiConfigInvalido(void);
+void Test_Exec_SpiLoadValido(void);
+void Test_Exec_SpiLoadInvalido(void);
+void Test_Exec_SpiReadValido(void);
+void Test_Exec_SpiReadCheio(void);
+void Test_Exec_SpiReadComPayload(void);
+void Test_Exec_SpiXferNaoConfigurado(void);
+void Test_Exec_SpiXferValido(void);
+void Test_Exec_SpiXferInvalido(void);
+void Test_Exec_SpiXferFalhaPeriferico(void);
+void Test_Exec_ResetAllEsvaziaSpi(void);
+void Test_Exec_UartConfigValido(void);
+void Test_Exec_UartConfigInvalido(void);
+void Test_Exec_UartWriteNaoConfigurado(void);
+void Test_Exec_UartWriteValido(void);
+void Test_Exec_UartWriteInvalido(void);
+void Test_Exec_UartWriteFalhaPeriferico(void);
+void Test_Exec_UartReadNaoConfigurado(void);
+void Test_Exec_UartReadValido(void);
+void Test_Exec_UartReadMaximoGrande(void);
+void Test_Exec_UartReadTamanhoErrado(void);
+void Test_Exec_ResetAllDesligaUart(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -144,5 +167,41 @@ void Test_I2cBus_MasterXferNaoConfigurado(void);
 void Test_I2cBus_MasterXfer(void);
 void Test_I2cBus_SafeState(void);
 void Test_I2cBus_SafeStateComFalha(void);
+
+// Testes do barramento SPI (SpiBus)
+void Test_SpiBus_InitInvalido(void);
+void Test_SpiBus_Divisor(void);
+void Test_SpiBus_DivisorForaDaFaixa(void);
+void Test_SpiBus_ConfigMestre(void);
+void Test_SpiBus_ConfigEscravoIgnoraFrequencia(void);
+void Test_SpiBus_ConfigInvalido(void);
+void Test_SpiBus_ConfigFalhaBsp(void);
+void Test_SpiBus_LoadPreparaTx(void);
+void Test_SpiBus_LoadLimites(void);
+void Test_SpiBus_LoadInvalido(void);
+void Test_SpiBus_FimTransacaoERead(void);
+void Test_SpiBus_RecepcaoCheia(void);
+void Test_SpiBus_LoadReadSemConfigTravam(void);
+void Test_SpiBus_MasterXferNaoConfigurado(void);
+void Test_SpiBus_MasterXfer(void);
+void Test_SpiBus_SafeState(void);
+void Test_SpiBus_SafeStateComFalha(void);
+
+// Testes da UART do DUT (UartBus)
+void Test_UartBus_InitInvalido(void);
+void Test_UartBus_ConfigValido(void);
+void Test_UartBus_ConfigInvalido(void);
+void Test_UartBus_ConfigFalhaBsp(void);
+void Test_UartBus_SemConfig(void);
+void Test_UartBus_Write(void);
+void Test_UartBus_RecebeERead(void);
+void Test_UartBus_ReadParcial(void);
+void Test_UartBus_ReadLimitado(void);
+void Test_UartBus_BufferCircularVolta(void);
+void Test_UartBus_BufferCheio(void);
+void Test_UartBus_ConfigEsvazia(void);
+void Test_UartBus_ReadTrava(void);
+void Test_UartBus_SafeState(void);
+void Test_UartBus_SafeStateComFalha(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

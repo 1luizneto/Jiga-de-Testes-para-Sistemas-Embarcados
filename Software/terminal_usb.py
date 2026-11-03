@@ -24,9 +24,17 @@ Comandos digitados durante a execucao:
     /i2c_load 10 DE AD     carrega DE AD no mapa a partir do registrador 0x10 (offset e dados em hex)
     /i2c_dump 10 4         le 4 registradores do mapa a partir de 0x10
     /i2c_xfer 68 2 0F      como mestre: escreve 0F no 0x68 e le 2 bytes (endereco e dados em hex)
+    /spi_config 1 0 1000000  jiga mestre no modo 0 a 1 MHz (papel 0/1, modo 0-3, Hz so no mestre)
+    /spi_load 11 22 33     o que a jiga escrava envia ao DUT a cada transacao (hex; sem dados, so FF)
+    /spi_read              o que o DUT enviou a jiga escrava (e esvazia a recepcao)
+    /spi_xfer 9F 00 00     como mestre: envia os bytes (hex) e recebe a mesma quantidade
+    /uart_config 115200    liga a UART4 (PD1 TX, PD0 RX) em 8N1 no baud pedido
+    /uart_write 4F 4B 0A   envia os bytes (hex) ao DUT
+    /uart_texto ola        envia o texto ao DUT (sem quebra de linha)
+    /uart_read 16          le ate 16 bytes recebidos do DUT (sem numero, ate 239)
     /teste           lista os casos de teste do protocolo
     /teste 3         envia o caso 3 (/teste todos envia todos, menos os de loopback)
-    /teste loopback  envia todos, incluindo o CT10 e o CT11 (jumpers ligados)
+    /teste loopback  envia todos, incluindo o CT10, o CT11 e o CT13 (jumpers ligados)
     /modo            alterna entre hex e texto
     /ajuda           mostra os comandos
     /sair            encerra (Ctrl+C tambem)
@@ -44,7 +52,8 @@ from serial.tools import list_ports
 from protocolo import (
     CASOS_TESTE, QUADRO_OK, ReceptorQuadros, casos_a_executar, descrever_log, descrever_pwm,
     interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_pwm_set,
-    montar_pwm_stop, montar_quadro, porcento_para_razao,
+    montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read, montar_spi_xfer,
+    montar_uart_config, montar_uart_read, montar_uart_write, nome_comando, porcento_para_razao,
 )
 from versao import __version__
 
@@ -125,6 +134,48 @@ def montar_comando_i2c(seq, comando, argumentos):
     if comando == "xfer" and len(campos) >= 2:
         return montar_i2c_xfer(seq, int(campos[0], 16), interpretar_hex(" ".join(campos[2:])), int(campos[1]))
     raise ValueError(f"uso invalido de /i2c_{comando}")
+
+
+def montar_comando_spi(seq, comando, argumentos):
+    """'/spi_<comando> argumentos' -> quadro. Dados em hex; papel, modo e frequencia em decimal.
+
+    config: papel modo [frequencia] | load: [dados...] | read | xfer: dados...
+    """
+    campos = argumentos.split()
+    if comando == "config" and len(campos) in (2, 3):
+        return montar_spi_config(seq, *(int(campo) for campo in campos))
+    if comando == "load":
+        return montar_spi_load(seq, interpretar_hex(argumentos))
+    if comando == "read" and not campos:
+        return montar_spi_read(seq)
+    if comando == "xfer" and campos:
+        return montar_spi_xfer(seq, interpretar_hex(argumentos))
+    raise ValueError(f"uso invalido de /spi_{comando}")
+
+
+def montar_comando_uart(seq, comando, argumentos):
+    """'/uart_<comando> argumentos' -> quadro. Baud e maximo em decimal; dados em hex ou texto.
+
+    config: baud | write: dados... | texto: texto | read: [maximo]
+    """
+    campos = argumentos.split()
+    if comando == "config" and len(campos) == 1:
+        return montar_uart_config(seq, int(campos[0]))
+    if comando == "write" and campos:
+        return montar_uart_write(seq, interpretar_hex(argumentos))
+    if comando == "texto" and argumentos:
+        return montar_uart_write(seq, argumentos.encode("utf-8"))
+    if comando == "read" and len(campos) <= 1:
+        return montar_uart_read(seq, *(int(campo) for campo in campos))
+    raise ValueError(f"uso invalido de /uart_{comando}")
+
+
+# Comandos de barramento: prefixo -> (montador, exemplo de uso)
+COMANDOS_BARRAMENTO = {
+    "/i2c_": (montar_comando_i2c, "/i2c_config 0 50 0 | /i2c_load 10 DE AD | /i2c_dump 10 4 | /i2c_xfer 68 2 0F"),
+    "/spi_": (montar_comando_spi, "/spi_config 1 0 1000000 | /spi_load 11 22 | /spi_read | /spi_xfer 9F 00"),
+    "/uart_": (montar_comando_uart, "/uart_config 115200 | /uart_write 4F 4B | /uart_texto ola | /uart_read 16"),
+}
 
 
 class Terminal:
@@ -273,22 +324,23 @@ class Terminal:
         self.seq = (self.seq + 1) & 0xFF
         self.enviar(quadro)
 
-    def enviar_i2c(self, linha):
-        """'/i2c_config', '/i2c_load', '/i2c_dump' ou '/i2c_xfer': monta o quadro com SEQ automatico."""
-        comando, _, argumentos = linha[5:].partition(" ")
+    def enviar_barramento(self, prefixo, linha):
+        """'/i2c_...', '/spi_...' ou '/uart_...': monta o quadro com SEQ automatico."""
+        montar, uso = COMANDOS_BARRAMENTO[prefixo]
+        comando, _, argumentos = linha[len(prefixo):].partition(" ")
         try:
-            quadro = montar_comando_i2c(self.seq, comando, argumentos)
+            quadro = montar(self.seq, comando, argumentos)
         except ValueError:
-            self.exibir("*** uso: /i2c_config 0 50 0 | /i2c_load 10 DE AD | /i2c_dump 10 4 | /i2c_xfer 68 2 0F ***")
+            self.exibir(f"*** uso: {uso} ***")
             return
-        self.exibir(f"*** SEQ={self.seq} I2C_{comando.upper()} ***")
+        self.exibir(f"*** SEQ={self.seq} {nome_comando(quadro[3])} ***")
         self.seq = (self.seq + 1) & 0xFF
         self.enviar(quadro)
 
     def executar_casos(self, argumento):
         """'/teste': lista os casos; '/teste N', '/teste todos' ou '/teste loopback' envia.
 
-        'todos' pula os casos que precisam dos jumpers (CT10, CT11); 'loopback' inclui eles.
+        'todos' pula os casos que precisam dos jumpers (CT10, CT11, CT13); 'loopback' inclui eles.
         """
         if not argumento:
             for i, caso in enumerate(CASOS_TESTE, 1):
@@ -326,8 +378,8 @@ class Terminal:
             self.enviar_pwm(linha[9:].strip(), parar=True)
         elif linha.startswith("/pwm"):
             self.enviar_pwm(linha[4:].strip())
-        elif linha.startswith("/i2c_"):
-            self.enviar_i2c(linha)
+        elif linha.startswith(tuple(COMANDOS_BARRAMENTO)):
+            self.enviar_barramento(next(p for p in COMANDOS_BARRAMENTO if linha.startswith(p)), linha)
         elif linha.startswith("/teste"):
             self.executar_casos(linha[6:].strip())
         elif linha.startswith("/hex"):

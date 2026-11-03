@@ -35,6 +35,11 @@ python terminal_gui.py
 - Linha **I2C**: papel (escrava/mestre), endereço e velocidade com "Configurar" (I2C_CONFIG); registrador
   inicial e dados em hex com "Carregar" (I2C_SLAVE_LOAD) e "Ler mapa" (I2C_SLAVE_DUMP), para preparar o
   que o DUT vai ler e conferir o que ele escreveu. A transferência como mestre fica no terminal (`/i2c_xfer`).
+- Linha **SPI**: papel, modo (0 a 3) e frequência do mestre com "Configurar" (SPI_CONFIG; ao lado, o divisor
+  e a frequência que o SPI2 gera de fato); dados em hex com "Carregar" (SPI_SLAVE_LOAD: o que a jiga escrava
+  envia ao DUT), "Ler recebidos" (SPI_SLAVE_READ: o que o DUT enviou) e "Transferir" (SPI_MASTER_XFER).
+- Linha **UART**: baud (8N1) com "Configurar" (UART_CONFIG); texto ou hex com "Enviar" (UART_WRITE) e
+  "Ler" (UART_READ, até o máximo escolhido) para conversar com o DUT pela UART4 (PD1 TX, PD0 RX).
 - Linha **PWM**: canal, frequência (1 Hz a 100 kHz) e razão cíclica (0 a 100 %, passo de 0,01 %),
   com "Aplicar PWM" (PWM_SET) e "Parar PWM" (PWM_STOP). Mostra o PSC, ARR e CCR que a jiga vai usar
   e a forma de onda que sai de fato no pino: é o valor de referência para medir no osciloscópio (CT12).
@@ -64,9 +69,16 @@ Durante a execução:
 | `/i2c_load 10 DE AD` | carrega `DE AD` no mapa a partir do registrador 0x10 |
 | `/i2c_dump 10 4` | lê 4 registradores do mapa a partir de 0x10 |
 | `/i2c_xfer 68 2 0F` | como mestre: escreve `0F` no dispositivo 0x68 e lê 2 bytes |
+| `/spi_config 1 0 1000000` | jiga mestre no modo 0 a 1 MHz (papel 0/1, modo 0 a 3, frequência em Hz só no mestre) |
+| `/spi_load 11 22 33` | o que a jiga escrava envia ao DUT a cada transação (sem dados, só `FF`) |
+| `/spi_read` | o que o DUT enviou à jiga escrava (e esvazia a recepção) |
+| `/spi_xfer 9F 00 00` | como mestre: envia os bytes e recebe a mesma quantidade |
+| `/uart_config 115200` | liga a UART4 (PD1 TX, PD0 RX) em 8N1 |
+| `/uart_write 4F 4B 0A`, `/uart_texto ola` | envia bytes em hex / texto ao DUT |
+| `/uart_read 16` | lê até 16 bytes recebidos do DUT (sem número, até 239) |
 | `/teste`         | lista os casos de teste do protocolo   |
 | `/teste 3`, `/teste todos` | envia um caso / todos (menos os de loopback) |
-| `/teste loopback` | envia todos, incluindo o CT10 e o CT11 |
+| `/teste loopback` | envia todos, incluindo o CT10, o CT11 e o CT13 |
 | `/modo`          | alterna entre hex e texto              |
 | `/ajuda`         | mostra os comandos                     |
 | `/sair`, Ctrl+C  | encerra                                |
@@ -82,15 +94,15 @@ pelo USB-CDC e confere, no DebugLog, se a CommTask logou o resultado esperado:
 python teste_protocolo.py            # detecta as duas portas
 python teste_protocolo.py --listar   # lista os casos
 python teste_protocolo.py --caso 8   # só um caso
-python teste_protocolo.py --loopback # inclui o CT10 e o CT11 (precisa dos jumpers)
+python teste_protocolo.py --loopback # inclui o CT10, o CT11 e o CT13 (precisa dos jumpers)
 python teste_protocolo.py --porta COM14 --porta-log COM8
 ```
 
 Não deixe outro terminal aberto nessas portas enquanto o script roda.
 
-Os casos marcados como `[loopback]` (CT10 e CT11) só passam com os jumpers DAC1 (PA4) → A0 (PA3),
-DAC2 (PA5) → A1 (PC0) e GPIO1–4 (PC8–PC11) → GPIO5–8 (PC12, PD2, PG2, PG3); sem `--loopback` eles
-são pulados. Na GUI, a mesma escolha é a caixa "Incluir loopback".
+Os casos marcados como `[loopback]` (CT10, CT11 e CT13) só passam com os jumpers DAC1 (PA4) → A0 (PA3),
+DAC2 (PA5) → A1 (PC0), GPIO1–4 (PC8–PC11) → GPIO5–8 (PC12, PD2, PG2, PG3), MOSI (PB15) → MISO (PC2) e
+TX (PD1) → RX (PD0); sem `--loopback` eles são pulados. Na GUI, a mesma escolha é a caixa "Incluir loopback".
 
 ## Medição do loopback DAC → ADC
 

@@ -9,7 +9,7 @@
  *
  *   \n <b>Dependencias:</b>
  *   - Comm (commFrame_t, codigos de comando e de erro) e os modulos de periferico (AnalogOut, DigitalIo, AnalogIn,
- *     Pwm, I2cBus).
+ *     Pwm, I2cBus, SpiBus, UartBus).
  *
  *   \n <b>Observacoes:</b>
  *   - Nao conhece USB, filas nem o formato da resposta: roda na TestExecTask e e testavel no Unity com
@@ -23,6 +23,10 @@
  *   @version      <b>1.2.0 - 21/10/2026</b> \n Luiz Neto \n PWM_SET e PWM_STOP; estado seguro inclui o PWM
  *   @version      <b>1.3.0 - 27/10/2026</b> \n Luiz Neto \n I2C_CONFIG, I2C_SLAVE_LOAD, I2C_SLAVE_DUMP e
  *                                                          I2C_MASTER_XFER; estado seguro desliga o I2C
+ *   @version      <b>1.4.0 - 28/10/2026</b> \n Luiz Neto \n SPI_CONFIG, SPI_SLAVE_LOAD, SPI_SLAVE_READ e
+ *                                                          SPI_MASTER_XFER; estado seguro desliga o SPI
+ *   @version      <b>1.5.0 - 29/10/2026</b> \n Luiz Neto \n UART_CONFIG, UART_WRITE e UART_READ; estado seguro desliga
+ *                                                          a UART
  *
  *   @copyright
  *   @{
@@ -38,6 +42,8 @@
 #include "DigitalIo.h"
 #include "Pwm.h"
 #include "I2cBus.h"
+#include "SpiBus.h"
+#include "UartBus.h"
 #include <stddef.h>
 
 /***********************************************************************************************************************
@@ -77,6 +83,21 @@
 /// Cabecalho do I2C_MASTER_XFER: endereco (u8) + nw (u8) + nr (u8), seguido dos nw bytes a escrever
 #define dEXEC_I2C_XFER_HEADER_SIZE (3U)
 
+/// Payload do SPI_CONFIG: papel (u8) + modo (u8) + frequencia (u32 little-endian)
+#define dEXEC_SPI_CONFIG_SIZE (6U)
+
+/// Cabecalho do SPI_SLAVE_LOAD e do SPI_MASTER_XFER: quantidade (u8), seguido dos dados
+#define dEXEC_SPI_HEADER_SIZE (1U)
+
+/// Payload do UART_CONFIG: baud (u32 little-endian)
+#define dEXEC_UART_CONFIG_SIZE (4U)
+
+/// Cabecalho do UART_WRITE e da resposta do UART_READ: quantidade (u8), seguido dos dados
+#define dEXEC_UART_HEADER_SIZE (1U)
+
+/// Payload do UART_READ: quantidade maxima (u8)
+#define dEXEC_UART_READ_SIZE (1U)
+
 /***********************************************************************************************************************
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
@@ -94,6 +115,15 @@ static uint8_t Exec_I2cLoad(const commFrame_t *frame);
 static uint8_t Exec_I2cDump(const commFrame_t *frame, execResult_t *result);
 static uint8_t Exec_I2cXfer(const commFrame_t *frame, execResult_t *result);
 static uint8_t Exec_ErroI2c(i2cBusReturn_t ret);
+static uint8_t Exec_SpiConfig(const commFrame_t *frame);
+static uint8_t Exec_SpiLoad(const commFrame_t *frame);
+static uint8_t Exec_SpiRead(const commFrame_t *frame, execResult_t *result);
+static uint8_t Exec_SpiXfer(const commFrame_t *frame, execResult_t *result);
+static uint8_t Exec_ErroSpi(spiBusReturn_t ret);
+static uint8_t Exec_UartConfig(const commFrame_t *frame);
+static uint8_t Exec_UartWrite(const commFrame_t *frame);
+static uint8_t Exec_UartRead(const commFrame_t *frame, execResult_t *result);
+static uint8_t Exec_ErroUart(uartBusReturn_t ret);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -188,6 +218,48 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 
 		break;
 
+		case dCOMM_CMD_SPI_CONFIG:
+
+			result->erro = Exec_SpiConfig(frame);
+
+		break;
+
+		case dCOMM_CMD_SPI_SLAVE_LOAD:
+
+			result->erro = Exec_SpiLoad(frame);
+
+		break;
+
+		case dCOMM_CMD_SPI_SLAVE_READ:
+
+			result->erro = Exec_SpiRead(frame, result);
+
+		break;
+
+		case dCOMM_CMD_SPI_MASTER_XFER:
+
+			result->erro = Exec_SpiXfer(frame, result);
+
+		break;
+
+		case dCOMM_CMD_UART_CONFIG:
+
+			result->erro = Exec_UartConfig(frame);
+
+		break;
+
+		case dCOMM_CMD_UART_WRITE:
+
+			result->erro = Exec_UartWrite(frame);
+
+		break;
+
+		case dCOMM_CMD_UART_READ:
+
+			result->erro = Exec_UartRead(frame, result);
+
+		break;
+
 		default:
 
 			result->erro = (uint8_t)eCOMM_ERROR_CMD_DESCONHECIDO;
@@ -200,8 +272,9 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 
 
 /***********************************************************************************************************************
- * @brief      Leva todas as saidas ao estado seguro: DAC em 0, GPIO1-4 em nivel baixo, PWM parado e I2C desligado
- *             (com o mapa de registradores zerado).
+ * @brief      Leva todas as saidas ao estado seguro: DAC em 0, GPIO1-4 em nivel baixo, PWM parado, I2C desligado
+ *             (com o mapa de registradores zerado), SPI desligado (com os buffers vazios e o CS em nivel alto) e UART
+ *             desligada (com o buffer de recepcao vazio).
  * @details    Tenta todos os perifericos mesmo que um falhe, para nao deixar um estimulo aplicado.
  **********************************************************************************************************************/
 execReturn_t Exec_SafeState(void)
@@ -224,6 +297,16 @@ execReturn_t Exec_SafeState(void)
 	}
 
 	if (I2cBus_SafeState() != eI2CBUS_RETURN_OK)
+	{
+		ret = eEXEC_RETURN_ERROR;
+	}
+
+	if (SpiBus_SafeState() != eSPIBUS_RETURN_OK)
+	{
+		ret = eEXEC_RETURN_ERROR;
+	}
+
+	if (UartBus_SafeState() != eUARTBUS_RETURN_OK)
 	{
 		ret = eEXEC_RETURN_ERROR;
 	}
@@ -582,6 +665,238 @@ static uint8_t Exec_ErroI2c(i2cBusReturn_t ret)
 		break;
 
 		case eI2CBUS_RETURN_NOT_CONFIGURED:
+
+			return (uint8_t)eCOMM_ERROR_NAO_CONFIGURADO;
+
+		break;
+
+		default:
+
+			return (uint8_t)eCOMM_ERROR_PERIFERICO;
+
+		break;
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      SPI_CONFIG: payload [papel (u8, 0 escravo, 1 mestre)][modo (u8, 0-3)][frequencia (u32 LE, Hz)].
+ * @details    Aqui so o tamanho do payload e conferido; a faixa e conferida pelo SpiBus_Config, que recusa sem tocar
+ *             no SPI. A frequencia so vale como mestre (o escravo segue o clock do DUT).
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_SpiConfig(const commFrame_t *frame)
+{
+	if (frame->size != dEXEC_SPI_CONFIG_SIZE)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	uint32_t frequencia = (uint32_t)frame->payload[2]
+	                    | ((uint32_t)frame->payload[3] << 8)
+	                    | ((uint32_t)frame->payload[4] << 16)
+	                    | ((uint32_t)frame->payload[5] << 24);
+
+	return Exec_ErroSpi(SpiBus_Config(frame->payload[0], frame->payload[1], frequencia));
+}
+
+/***********************************************************************************************************************
+ * @brief      SPI_SLAVE_LOAD: payload [quantidade (u8)][dados (quantidade bytes)].
+ * @details    A quantidade tem que bater com o tamanho do payload; o limite do buffer e conferido pelo SpiBus_Load.
+ *             Quantidade 0 esvazia o buffer (o escravo passa a enviar so 0xFF).
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_SpiLoad(const commFrame_t *frame)
+{
+	if ((frame->size < dEXEC_SPI_HEADER_SIZE) ||
+	    (frame->size != (dEXEC_SPI_HEADER_SIZE + frame->payload[0])))
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	return Exec_ErroSpi(SpiBus_Load(&frame->payload[1], frame->payload[0]));
+}
+
+/***********************************************************************************************************************
+ * @brief      SPI_SLAVE_READ (sem payload): responde [quantidade (u8)][dados] com o que o DUT enviou desde a ultima
+ *             leitura, e esvazia o buffer.
+ * @param[in]  frame   Quadro do comando
+ * @param[out] result  Recebe quantidade e dados (so no ACK)
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_SpiRead(const commFrame_t *frame, execResult_t *result)
+{
+	uint8_t quantidade = 0U;
+
+	if (frame->size != 0U)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	uint8_t erro = Exec_ErroSpi(SpiBus_Read(&result->dados[1], &quantidade));
+
+	if (erro == 0U)
+	{
+		result->dados[0] = quantidade;
+		result->size     = (uint8_t)(dEXEC_SPI_HEADER_SIZE + quantidade);
+	}
+
+	return erro;
+}
+
+/***********************************************************************************************************************
+ * @brief      SPI_MASTER_XFER: payload [quantidade (u8)][dados (quantidade bytes)]; responde os quantidade bytes lidos.
+ * @details    A quantidade tem que bater com o tamanho do payload; 0 e o limite de 239 sao conferidos pelo
+ *             SpiBus_MasterXfer.
+ * @param[in]  frame   Quadro do comando
+ * @param[out] result  Recebe os bytes lidos em dados (so no ACK)
+ * @return     0 (ACK) ou codigo commError_t (NACK); sem papel de mestre, NAO_CONFIGURADO
+ **********************************************************************************************************************/
+static uint8_t Exec_SpiXfer(const commFrame_t *frame, execResult_t *result)
+{
+	if ((frame->size < dEXEC_SPI_HEADER_SIZE) ||
+	    (frame->size != (dEXEC_SPI_HEADER_SIZE + frame->payload[0])))
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	uint8_t quantidade = frame->payload[0];
+	uint8_t erro       = Exec_ErroSpi(SpiBus_MasterXfer(&frame->payload[1], result->dados, quantidade));
+
+	if (erro == 0U)
+	{
+		result->size = quantidade;
+	}
+
+	return erro;
+}
+
+/***********************************************************************************************************************
+ * @brief      Converte o retorno do SpiBus no codigo de erro do NACK.
+ * @param[in]  ret  Retorno do SpiBus
+ * @return     0 (ACK), PARAMETRO_INVALIDO, NAO_CONFIGURADO ou ERRO_PERIFERICO
+ **********************************************************************************************************************/
+static uint8_t Exec_ErroSpi(spiBusReturn_t ret)
+{
+	switch (ret)
+	{
+		case eSPIBUS_RETURN_OK:
+
+			return 0U;
+
+		break;
+
+		case eSPIBUS_RETURN_INVALID_ARGUMENT:
+
+			return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+
+		break;
+
+		case eSPIBUS_RETURN_NOT_CONFIGURED:
+
+			return (uint8_t)eCOMM_ERROR_NAO_CONFIGURADO;
+
+		break;
+
+		default:
+
+			return (uint8_t)eCOMM_ERROR_PERIFERICO;
+
+		break;
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      UART_CONFIG: payload [baud (u32 LE, 1200-1000000)]. 8N1 fixo; o buffer de recepcao e esvaziado.
+ * @details    Aqui so o tamanho do payload e conferido; a faixa e conferida pelo UartBus_Config, que recusa sem tocar
+ *             na UART.
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_UartConfig(const commFrame_t *frame)
+{
+	if (frame->size != dEXEC_UART_CONFIG_SIZE)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	uint32_t baud = (uint32_t)frame->payload[0]
+	              | ((uint32_t)frame->payload[1] << 8)
+	              | ((uint32_t)frame->payload[2] << 16)
+	              | ((uint32_t)frame->payload[3] << 24);
+
+	return Exec_ErroUart(UartBus_Config(baud));
+}
+
+/***********************************************************************************************************************
+ * @brief      UART_WRITE: payload [quantidade (u8)][dados (quantidade bytes)]. Envia ao DUT e so responde no fim.
+ * @details    A quantidade tem que bater com o tamanho do payload; 0 e o limite de 239 sao conferidos pelo
+ *             UartBus_Write.
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK); sem UART_CONFIG, NAO_CONFIGURADO
+ **********************************************************************************************************************/
+static uint8_t Exec_UartWrite(const commFrame_t *frame)
+{
+	if ((frame->size < dEXEC_UART_HEADER_SIZE) ||
+	    (frame->size != (dEXEC_UART_HEADER_SIZE + frame->payload[0])))
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	return Exec_ErroUart(UartBus_Write(&frame->payload[1], frame->payload[0]));
+}
+
+/***********************************************************************************************************************
+ * @brief      UART_READ: payload [maximo (u8)]; responde [quantidade (u8)][dados] com os bytes mais antigos recebidos
+ *             do DUT, tirando-os do buffer.
+ * @details    Maximo acima de 239 vale 239 (o UartBus limita); sem bytes recebidos, responde [0].
+ * @param[in]  frame   Quadro do comando
+ * @param[out] result  Recebe quantidade e dados (so no ACK)
+ * @return     0 (ACK) ou codigo commError_t (NACK); sem UART_CONFIG, NAO_CONFIGURADO
+ **********************************************************************************************************************/
+static uint8_t Exec_UartRead(const commFrame_t *frame, execResult_t *result)
+{
+	uint8_t quantidade = 0U;
+
+	if (frame->size != dEXEC_UART_READ_SIZE)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	uint8_t erro = Exec_ErroUart(UartBus_Read(frame->payload[0], &result->dados[1], &quantidade));
+
+	if (erro == 0U)
+	{
+		result->dados[0] = quantidade;
+		result->size     = (uint8_t)(dEXEC_UART_HEADER_SIZE + quantidade);
+	}
+
+	return erro;
+}
+
+/***********************************************************************************************************************
+ * @brief      Converte o retorno do UartBus no codigo de erro do NACK.
+ * @param[in]  ret  Retorno do UartBus
+ * @return     0 (ACK), PARAMETRO_INVALIDO, NAO_CONFIGURADO ou ERRO_PERIFERICO
+ **********************************************************************************************************************/
+static uint8_t Exec_ErroUart(uartBusReturn_t ret)
+{
+	switch (ret)
+	{
+		case eUARTBUS_RETURN_OK:
+
+			return 0U;
+
+		break;
+
+		case eUARTBUS_RETURN_INVALID_ARGUMENT:
+
+			return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+
+		break;
+
+		case eUARTBUS_RETURN_NOT_CONFIGURED:
 
 			return (uint8_t)eCOMM_ERROR_NAO_CONFIGURADO;
 
