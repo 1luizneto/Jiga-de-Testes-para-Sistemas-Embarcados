@@ -20,6 +20,7 @@ Quadro com CRC errado ou LEN invalido nao tem resposta.
 
 from dataclasses import dataclass, field
 
+from dut import DUT_BAUD, DUT_IDENTIFICACAO, DutSimulado, linha_dut, resposta_dut
 from versao import __version__
 
 SOF = 0x7E
@@ -581,6 +582,10 @@ class JigaSimulada:
     UART: 'uart_baud' (None = desligada) e 'uart_rx' (buffer de recepcao); recepcao_uart() faz o papel do DUT.
     Com loopback (jumper PD1 -> PD0), o que o UART_WRITE envia volta para o buffer.
 
+    DUT de referencia (CT20): com 'dut' (DutSimulado), o UART_WRITE a 115200 baud chega ao DUT e a resposta
+    dele entra no buffer da UART; o DUT mestre le e escreve a jiga escrava (i2c_mestre_externo,
+    spi_mestre_externo) e a jiga mestra le e escreve o DUT escravo.
+
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
 
@@ -599,6 +604,8 @@ class JigaSimulada:
     adc: dict = field(default_factory=lambda: {canal: 0 for canal in ADC_CANAIS})
     pwm: dict = field(default_factory=lambda: {canal: (PWM_FREQUENCIA_PADRAO, 0) for canal in PWM_CANAIS})
     i2c_papel: int = None
+    i2c_endereco: int = None
+    i2c_ponteiro: int = 0
     i2c_mapa: bytearray = field(default_factory=lambda: bytearray(I2C_TAMANHO_MAPA))
     i2c_dispositivos: dict = field(default_factory=dict)
     spi_papel: int = None
@@ -606,6 +613,11 @@ class JigaSimulada:
     spi_rx: bytearray = field(default_factory=bytearray)
     uart_baud: int = None
     uart_rx: bytearray = field(default_factory=bytearray)
+    dut: DutSimulado = None
+
+    def __post_init__(self):
+        if self.dut is not None:
+            self.dut.jiga = self
 
     def nova_sessao(self):
         """Programa abriu a porta no PC (DTR): a jiga esquece a ultima resposta e o pendente."""
@@ -657,7 +669,7 @@ class JigaSimulada:
             self.dac = {canal: 0 for canal in DAC_CANAIS}
             self.gpio = {pino: 0 for pino in GPIO_SAIDAS}
             self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
-            self.i2c_papel = None
+            self.i2c_papel, self.i2c_endereco, self.i2c_ponteiro = None, None, 0
             self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
             self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
             self.uart_baud, self.uart_rx = None, bytearray()
@@ -718,6 +730,7 @@ class JigaSimulada:
                     papel == I2C_PAPEL_ESCRAVO and not I2C_ENDERECO_MIN <= endereco <= I2C_ENDERECO_MAX):
                 return ERRO_PARAMETRO_INVALIDO, b""
             self.i2c_papel = papel
+            self.i2c_endereco = endereco if papel == I2C_PAPEL_ESCRAVO else None
             return 0, b""
         if cmd == CMD_I2C_SLAVE_LOAD:
             if len(payload) < 2 or len(payload) != 2 + payload[1]:
@@ -741,6 +754,10 @@ class JigaSimulada:
             return ERRO_PARAMETRO_INVALIDO, b""
         if self.i2c_papel != I2C_PAPEL_MESTRE:
             return ERRO_NAO_CONFIGURADO, b""
+        if self.dut is not None:
+            lidos = self.dut.i2c_jiga_mestre(endereco, bytes(payload[3:]), nr)
+            if lidos is not None:
+                return 0, lidos
         if endereco not in self.i2c_dispositivos:
             return ERRO_PERIFERICO, b""
         registros, escrita = self.i2c_dispositivos[endereco], payload[3:]
@@ -781,6 +798,10 @@ class JigaSimulada:
             return ERRO_PARAMETRO_INVALIDO, b""
         if self.spi_papel != SPI_PAPEL_MESTRE:
             return ERRO_NAO_CONFIGURADO, b""
+        if self.dut is not None:
+            lidos = self.dut.spi_jiga_mestre(bytes(dados))
+            if lidos is not None:
+                return 0, lidos
         return 0, bytes(dados) if self.loopback else bytes([SPI_BYTE_VAZIO]) * len(dados)
 
     def transacao_spi(self, enviados):
@@ -792,6 +813,29 @@ class JigaSimulada:
         self.spi_rx += bytes(enviados[:livre])
         tx = self.spi_tx + bytes([SPI_BYTE_VAZIO]) * SPI_TAMANHO_BUFFER
         return tx[:len(enviados)]
+
+    def spi_mestre_externo(self, enviados):
+        """Transacao do DUT mestre: o que a jiga escrava enviou, ou None se ela nao for escrava."""
+        return self.transacao_spi(enviados) if self.spi_papel == SPI_PAPEL_ESCRAVO else None
+
+    def i2c_mestre_externo(self, endereco, escrita, nr):
+        """Transacao do DUT mestre com a jiga escrava (24C02, como o I2cBus): None se ela nao responde.
+
+        Escrita: o 1o byte e o ponteiro e os demais vao para o mapa com auto-incremento. Leitura: a partir do
+        ponteiro, que avanca (uma leitura sem escrita continua de onde parou).
+        """
+        if self.i2c_papel != I2C_PAPEL_ESCRAVO or endereco != self.i2c_endereco:
+            return None
+        if escrita:
+            self.i2c_ponteiro = escrita[0]
+            for byte in escrita[1:]:
+                self.i2c_mapa[self.i2c_ponteiro] = byte
+                self.i2c_ponteiro = (self.i2c_ponteiro + 1) % I2C_TAMANHO_MAPA
+        lidos = bytearray()
+        for _ in range(nr):
+            lidos.append(self.i2c_mapa[self.i2c_ponteiro])
+            self.i2c_ponteiro = (self.i2c_ponteiro + 1) % I2C_TAMANHO_MAPA
+        return bytes(lidos)
 
     def _executar_uart(self, cmd, payload):
         """Espelho do Exec (tamanhos) e do UartBus (faixas, buffer, configuracao)."""
@@ -808,7 +852,10 @@ class JigaSimulada:
                 return ERRO_PARAMETRO_INVALIDO, b""
             if self.uart_baud is None:
                 return ERRO_NAO_CONFIGURADO, b""
-            if self.loopback:
+            if self.dut is not None:
+                if self.uart_baud == DUT_BAUD:
+                    self.recepcao_uart(self.dut.receber_uart(payload[1:]))
+            elif self.loopback:
                 self.recepcao_uart(payload[1:])
             return 0, b""
         if len(payload) != 1:
@@ -889,7 +936,8 @@ class CasoTeste:
     esperado: list
     respostas: list
     conferir: object = None
-    requer_loopback: bool = False   # so passa com os jumpers do CT10/CT11
+    requer_loopback: bool = False   # so passa com os jumpers do CT10/CT11/CT13
+    requer_dut: bool = False        # so passa com o DUT de referencia (ESP32-S3) ligado na jiga (CT20)
     resumo_esperado: str = ""       # texto do esperado quando a resposta varia ou tem muitos quadros
 
     def bytes_enviados(self):
@@ -1096,6 +1144,85 @@ def _caso_ct13_uart(seq):
         "CT13 UART TX -> RX", "loopback da UART4: 9600, 115200 e 1 000 000 baud",
         passos, esperado, respostas, conferir=conferir, requer_loopback=True,
         resumo_esperado=f"{len(comandos)} ACKs; cada UART_READ devolve os bytes do UART_WRITE")
+
+
+def _comando(quadro, resposta):
+    """(quadro, resposta nominal, verificador exato) para o _sequencia."""
+    return quadro, resposta, _igual(resposta)
+
+
+def _dut(seq, linha, resposta):
+    """Comando ao DUT pela UART da jiga: UART_WRITE da linha e UART_READ da resposta (dois SEQ)."""
+    return [_comando(montar_uart_write(seq, linha), montar_ack(seq, CMD_UART_WRITE)),
+            _comando(montar_uart_read(seq + 1), montar_ack(seq + 1, CMD_UART_READ, bytes([len(resposta)]) + resposta))]
+
+
+def _caso_ct20(nome, descricao, comandos, resumo):
+    passos, esperado, respostas, conferir = _sequencia(comandos)
+    return CasoTeste(nome, descricao, passos, esperado, respostas, conferir=conferir, requer_dut=True,
+                     resumo_esperado=resumo)
+
+
+def _casos_ct20(seq):
+    """CT20 com o DUT de referencia (ESP32-S3) ligado na jiga; cada caso liga a UART e deixa o DUT livre (OFF)."""
+    uart = lambda s: _comando(montar_uart_config(s, DUT_BAUD), montar_ack(s, CMD_UART_CONFIG))
+    casos = []
+
+    s = seq
+    casos.append(_caso_ct20(
+        "CT20 DUT PING", "UART4 a 115200 baud: o DUT responde OFF e PING pela UART",
+        [uart(s)] + _dut(s + 1, linha_dut("OFF"), resposta_dut()) +
+        _dut(s + 3, linha_dut("PING"), (DUT_IDENTIFICACAO + "\n").encode()),
+        f"5 ACKs; o DUT responde \"{DUT_IDENTIFICACAO}\""))
+
+    s += 5
+    mapa = bytes(range(1, 9))
+    casos.append(_caso_ct20(
+        "CT20 I2C jiga escrava", "DUT mestre le a jiga escrava 0x50 (com e sem ponteiro) e escreve nela",
+        [_comando(montar_i2c_load(s, 0x10, mapa), montar_ack(s, CMD_I2C_SLAVE_LOAD)),
+         _comando(montar_i2c_config(s + 1, I2C_PAPEL_ESCRAVO, 0x50, 0), montar_ack(s + 1, CMD_I2C_CONFIG)),
+         uart(s + 2)] +
+        _dut(s + 3, linha_dut("I2CM", "50", b"\x10", 4), resposta_dut(mapa[:4])) +
+        _dut(s + 5, linha_dut("I2CM", "50", b"", 2), resposta_dut(mapa[4:6])) +
+        _dut(s + 7, linha_dut("I2CM", "50", b"\x20\xa1\xa2\xa3", 0), resposta_dut()) +
+        [_comando(montar_i2c_dump(s + 9, 0x20, 3), montar_ack(s + 9, CMD_I2C_SLAVE_DUMP, b"\xa1\xa2\xa3"))],
+        "o DUT le 01 02 03 04, depois 05 06 (o ponteiro continua) e grava A1 A2 A3 em 0x20"))
+
+    s += 10
+    casos.append(_caso_ct20(
+        "CT20 I2C jiga mestra", "jiga mestra escreve e le o DUT escravo 0x28 (repeated start)",
+        [uart(s)] + _dut(s + 1, linha_dut("I2CS", "28"), resposta_dut()) +
+        [_comando(montar_i2c_config(s + 3, I2C_PAPEL_MESTRE, 0, 0), montar_ack(s + 3, CMD_I2C_CONFIG)),
+         _comando(montar_i2c_xfer(s + 4, 0x28, b"\x40\xb1\xb2\xb3"), montar_ack(s + 4, CMD_I2C_MASTER_XFER)),
+         _comando(montar_i2c_xfer(s + 5, 0x28, b"\x40", 3), montar_ack(s + 5, CMD_I2C_MASTER_XFER, b"\xb1\xb2\xb3"))] +
+        _dut(s + 6, linha_dut("I2CS_DUMP", "40", 3), resposta_dut(b"\xb1\xb2\xb3")) +
+        _dut(s + 8, linha_dut("OFF"), resposta_dut()),
+        "a jiga le B1 B2 B3 do DUT e o DUT confirma o que recebeu"))
+
+    s += 10
+    carga = b"\xc0\xff\xee"
+    casos.append(_caso_ct20(
+        "CT20 SPI jiga escrava", "DUT mestre (modo 0, 1 MHz) faz duas transacoes com a jiga escrava",
+        [_comando(montar_spi_config(s, SPI_PAPEL_ESCRAVO, 0), montar_ack(s, CMD_SPI_CONFIG)),
+         _comando(montar_spi_load(s + 1, carga), montar_ack(s + 1, CMD_SPI_SLAVE_LOAD)),
+         uart(s + 2)] +
+        _dut(s + 3, linha_dut("SPIM", 0, 1_000_000, bytes(range(1, 6))), resposta_dut(carga + b"\xff\xff")) +
+        _dut(s + 5, linha_dut("SPIM", 0, 1_000_000, b"\xaa\xbb"), resposta_dut(carga[:2])) +
+        [_comando(montar_spi_read(s + 7),
+                  montar_ack(s + 7, CMD_SPI_SLAVE_READ, b"\x07" + bytes(range(1, 6)) + b"\xaa\xbb"))],
+        "o DUT recebe C0 FF EE FF FF e C0 FF (do byte 0 a cada transacao); a jiga recebe os 7 bytes"))
+
+    s += 8
+    casos.append(_caso_ct20(
+        "CT20 SPI jiga mestra", "jiga mestra (modo 0, 1 MHz) transfere com o DUT escravo",
+        [uart(s)] + _dut(s + 1, linha_dut("SPIS_LOAD", b"\x12\x34"), resposta_dut()) +
+        _dut(s + 3, linha_dut("SPIS", 0), resposta_dut()) +
+        [_comando(montar_spi_config(s + 5, SPI_PAPEL_MESTRE, 0, 1_000_000), montar_ack(s + 5, CMD_SPI_CONFIG)),
+         _comando(montar_spi_xfer(s + 6, b"\xaa\xbb\xcc"), montar_ack(s + 6, CMD_SPI_MASTER_XFER, b"\x12\x34\xff"))] +
+        _dut(s + 7, linha_dut("SPIS_READ"), resposta_dut(b"\xaa\xbb\xcc")) +
+        _dut(s + 9, linha_dut("OFF"), resposta_dut()),
+        "a jiga recebe 12 34 FF e o DUT recebe AA BB CC"))
+    return casos
 
 
 def _caso_variavel(nome, descricao, quadro, resposta_nominal, verificador, resumo):
@@ -1310,15 +1437,23 @@ CASOS_TESTE = [
     _caso_ct11(150),
     _caso_ct13_spi(230),
     _caso_ct13_uart(240),
+    # Com o DUT de referencia (ESP32-S3) ligado na jiga, sem os jumpers do CT13: CT20 da monografia
+    *_casos_ct20(74),
     CasoTeste("RESET_ALL no fim", "deixa a jiga no estado seguro depois da bateria: ACK",
               [("enviar", montar_quadro(20, CMD_RESET_ALL))],
               [QUADRO_OK], [montar_ack(20, CMD_RESET_ALL)]),
 ]
 
 
-def casos_a_executar(loopback=False):
-    """Casos do 'executar todos': os de loopback so entram com os jumpers ligados."""
-    return [caso for caso in CASOS_TESTE if loopback or not caso.requer_loopback]
+def marca_caso(caso):
+    """Marca do caso nas listas: precisa dos jumpers ou do DUT ligado."""
+    return " [loopback]" if caso.requer_loopback else " [DUT]" if caso.requer_dut else ""
+
+
+def casos_a_executar(loopback=False, dut=False):
+    """Casos do 'executar todos': os de loopback so entram com os jumpers ligados e os do CT20 com o DUT."""
+    return [caso for caso in CASOS_TESTE
+            if (loopback or not caso.requer_loopback) and (dut or not caso.requer_dut)]
 
 
 # Inicio das linhas que a CommTask escreve no DebugLog para cada resultado
@@ -1343,7 +1478,7 @@ def simular(caso, jiga=None):
 
     Sem 'jiga', usa uma nova, com loopback se o caso pedir.
     """
-    jiga = jiga or JigaSimulada(loopback=caso.requer_loopback)
+    jiga = jiga or JigaSimulada(loopback=caso.requer_loopback, dut=DutSimulado() if caso.requer_dut else None)
     resultados, respostas = [], b""
     for tipo, valor in caso.passos:
         if tipo == "enviar":
@@ -1358,7 +1493,8 @@ def simular(caso, jiga=None):
 
 def simular_caso(caso, receptor=None):
     """Resultados do parser para o caso (deve bater com 'esperado')."""
-    jiga = JigaSimulada(receptor, loopback=caso.requer_loopback) if receptor else None
+    jiga = JigaSimulada(receptor, loopback=caso.requer_loopback,
+                        dut=DutSimulado() if caso.requer_dut else None) if receptor else None
     return simular(caso, jiga)[0]
 
 
