@@ -23,7 +23,7 @@ estímulos (DAC, GPIO, PWM), emula escravos (I2C, SPI, UART) e lê respostas do 
 Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de teste CT01–CT24 na 3.7).
 
 - Repositório: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados
-  (firmware em `projeto/`, app Python em `Software/`)
+  (firmware em `projeto/`, app Python em `Software/`, DUT de referência ESP32-S3 em `DUT_ESP32S3/`)
 - A monografia (`Texto/TCC_Monografia`, raiz `documento.tex`, compila com `latexmk -pdf main.tex`) fica
   num **git local**, sem remoto (desde 03/11/2026). Neste repositório entra só o PDF final, na pasta
   `Monografia/`. O Overleaf lê a pasta do LaTeX como está (sem os arquivos gerados, que o `.gitignore` exclui).
@@ -32,8 +32,10 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - Tags/releases: **v0.1.0** (USB com stream buffer), **v0.2.0** (parser de quadros), **v0.3.0** (respostas
   ACK/NACK), **v0.4.0** (fila CommTask ↔ TestExecTask, `RESET_ALL`, `DAC_SET`), **v0.5.0** (`GPIO_SET`,
   `GPIO_READ`, `ADC_READ`, CT10 e CT11), **v0.6.0** (`PWM_SET`, `PWM_STOP`, CT12), **v0.7.0** (I2C).
-- **v0.8.0** (SPI 0x60–0x63 e UART 0x70–0x72) fechada no branch **`feat_spi-uart`**: 172/172 Unity e
-  62/62 casos HIL na placa com o firmware 0.8.0; PR → `main`, merge, tag e release pelo `gh`.
+- **v0.8.0** (SPI 0x60–0x63 e UART 0x70–0x72): PR #8, tag e release (03/11/2026).
+- **v0.8.1** (DUT de referência ESP32-S3 + CT20) fechada no branch **`feat_dut-esp32`**: 172/172 Unity e
+  62/62 HIL com o firmware 0.8.1, 17 Unity do DUT no PC, 381 pytest; ESP32 gravado e testado pelo USB.
+  Falta o CT20 na bancada (ESP32 ligado na jiga): teste manual.
 - Cada versão nova nasce de um branch criado do `main` atualizado (`git checkout main && git pull &&
   git checkout -b <branch>`). Branch criado de `main` desatualizado já deu problema uma vez.
 - `gh` instalado no PC de casa (`C:\Program Files\GitHub CLI`, conta 1luizneto); o notebook da empresa não tem.
@@ -79,6 +81,27 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   Planejado (opção G, ainda não montado): filtro RC PA6 → 10 kΩ → A2 (PC3) com 10 µF ao GND, para
   conferir a razão cíclica do PWM3 pelo ADC (média = 3,3 V × razão; τ = 0,1 s, esperar ~0,5 s)
 - Timebase do HAL no TIM6; FPU habilitada; USE_NEWLIB_REENTRANT habilitado
+
+## DUT de referência (ESP32-S3, v0.8.1)
+- Kit ESP32-S3 (QFN56 rev 0.2, 16 MB de flash, 8 MB de PSRAM octal: GPIO33–37 ficam de fora), USB-serial
+  CH343 na **COM12** (UART0). ESP-IDF **v6.1** em `C:\esp\v6.1\esp-idf`; ativar no PowerShell com
+  `. C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1`. Build: `idf.py -B C:\esp\build_dut build`
+  (pasta de build curta: com o caminho do repositório, o mbedtls passa de 260 caracteres e o build quebra)
+- **Comandado por texto pela jiga**: UART1 do ESP32 (GPIO17 TX → PD0, GPIO18 RX ← PD1, 115200 8N1) na UART4
+  da jiga; o PC manda `UART_WRITE "I2CM 50 10 4\n"` e lê `UART_READ` → `OK 01020304\n`. O CT20 roda inteiro
+  pelo `teste_protocolo.py --dut`. O USB do kit (UART0) aceita os mesmos comandos (teste do ESP32 sozinho)
+- Ligação: PF0↔GPIO8 (SDA), PF1↔GPIO9 (SCL), pull-ups de 4,7 kΩ; PD7↔GPIO10 (CS, 220 Ω em série
+  recomendado), PB15↔GPIO11 (MOSI), PB10↔GPIO12 (SCK), PC2↔GPIO13 (MISO); GND comum. **Tirar os jumpers do
+  CT13** antes. Tabela em `DUT_ESP32S3/README.md` e em `Software/dut.py` (`DUT_LIGACAO`, usada no tooltip da GUI)
+- Comandos: `PING`, `OFF`, `I2CM <end> <escrita|-> <nr>`, `I2CS <end>`, `I2CS_LOAD <off> <dados>`,
+  `I2CS_DUMP <off> <n>`, `SPIM <modo> <freq> <dados>`, `SPIS <modo>`, `SPIS_LOAD <dados|->`, `SPIS_READ`;
+  respostas `OK [hex]` ou `ERR CMD|ARG|NACK|ESTADO|PERIFERICO`
+- Código: `comandos.c` e `mapa_i2c.c` em lógica pura (17 testes Unity no PC com o Unity da jiga,
+  `sh DUT_ESP32S3/test_host/rodar.sh`, também no CI); `barramentos.c` com os drivers do ESP-IDF; `main.c` com
+  uma task por UART e um mutex (o interpretador usa buffers estáticos)
+- Espelho em Python: `Software/dut.py` (`DutSimulado`), ligado à `JigaSimulada` (`dut=`): define a resposta
+  esperada dos casos do CT20 e é conferido pelos mesmos vetores do Unity do DUT (`tests/test_dut.py`)
+- Versão do DUT = versão da jiga (`DUT_ESP32S3/main/versao_dut.h`, conferida pelo `test_versao.py`)
 
 ## Tasks (FreeRTOS)
 | Task | Papel | Prioridade | Ciclo de vida |
@@ -216,6 +239,24 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
   9600 baud, 16 bytes ≈ 17 ms, cabe na `PAUSA_COMANDO`)
 - **Sem fio, nenhum caso lê a UART configurada** (RX solto pode ler lixo); a leitura de verdade fica no
   CT13. Na placa o RX solto não recebeu nada, então o pull-up no PD0 ficou dispensado
+- **DUT comandado pela UART da jiga (v0.8.1)**: um canal de controle por texto em vez de um firmware fixo.
+  O DUT fica genérico (qualquer sequência de mestre/escravo vira um caso no Python) e o CT20 não precisa de
+  um segundo cabo nem de sincronizar dois programas no PC. De quebra, a UART da jiga é exercitada com um
+  parceiro real
+- **Só um mestre por vez no barramento**: o ESP32 liga o mestre só durante o comando e os escravos até o
+  `OFF`; fora disso os pinos ficam como entrada. Cada caso do CT20 põe o outro lado como escravo antes e
+  termina com o DUT livre (`OFF`). O CS (PD7 ↔ GPIO10) é o único ponto com duas saídas push-pull: o ESP32
+  só aciona o GPIO10 dentro do `SPIM` (com 20 µs de folga entre CS e clock, para a ISR do EXTI da jiga)
+- **Escravo I2C do ESP32 não avança o ponteiro na leitura**: o driver do ESP-IDF chama o `on_request` no
+  casamento do endereço (depois de entregar a escrita pendente pelo `on_receive`) e serve os bytes de um
+  ring buffer, sem dizer quantos o mestre leu; a task põe 128 bytes do mapa a partir do ponteiro. Para ler um
+  registrador, a jiga escreve só o ponteiro antes (`I2C_MASTER_XFER` com `nw = 1`, repeated start)
+- **Escravo SPI do ESP32**: a carga vale a partir da transação armada depois do `SPIS_LOAD` (mandar o LOAD
+  antes do `SPIS`). Transação de 239 bytes, buffers de 240 com DMA; o que chega acumula até o `SPIS_READ`
+- **CT20 confere o byte a mais do F7**: o DUT lê 4 bytes de 0x10 e depois 2 sem ponteiro; se a jiga não
+  devolvesse o byte buscado a mais, viriam 06 07 em vez de 05 06
+- **Versão 0.8.1 como PATCH**: o firmware da jiga não mudou (o protocolo é o mesmo); o que entrou foi o DUT
+  e os casos de teste
 - **DebugLog com lock**: o `DebugLog_Init` recebe send/lock/unlock da BSP; o lock cobre a formatação no
   `printfBuffer` E o envio (antes, duas tasks podiam misturar mensagens). Não chamar de ISR.
 
@@ -353,6 +394,16 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - `/i2c_config`, `/i2c_load`, `/i2c_dump`, `/i2c_xfer` no terminal; linha I2C na GUI
 - **246 testes pytest**
 
+### v0.8.1 — DUT de referência e CT20 (03/11/2026)
+- `DUT_ESP32S3/`: firmware do ESP32-S3 (ver "DUT de referência"); gravado e testado pelo USB: todos os
+  comandos, NACK sem jiga, ERR ESTADO com papel em conflito, boot limpo
+- 17 testes Unity do DUT no PC (job `dut-host` no CI)
+- `Software/dut.py` (`DutSimulado`) + `JigaSimulada` com endereço e ponteiro da escrava I2C
+- **72 casos HIL**: 5 do CT20 (`[DUT]`, SEQ 74–117) — PING, I2C jiga escrava, I2C jiga mestra, SPI jiga
+  escrava, SPI jiga mestra. Sem o ESP32, cada um falha só na resposta do DUT (0 bytes), sem travar a jiga
+- `teste_protocolo.py --dut`, `/teste dut`, `/dut <comando>`, caixa "Incluir DUT" e "+\n" na UART da GUI
+- **381 testes pytest**
+
 ### v0.8.0 — SPI e UART (03/11/2026)
 **Firmware**
 - CubeMX: SPI2 em 8 bits (estava em 4), IRQs do SPI2 e da UART4 (prioridade 5)
@@ -389,7 +440,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 | ~~0.6.0~~ | `PWM_SET`, `PWM_STOP` | CT12 (osciloscópio) ✅ |
 | ~~0.7.0~~ | I2C escravo e mestre (0x50–0x53), sem task, sem validação no barramento | — (CT20 na 0.8.1) |
 | ~~0.8.0~~ | SPI (escravo e mestre, 0x60–0x63) e UART (0x70–0x72), sem task | CT13 (comandos ✅; dados no teste manual) |
-| 0.8.1 | Firmware do DUT de referência (ESP32-S3) + correções que ele revelar | **CT20**: I2C e SPI escravos, I2C e SPI mestres, UART |
+| ~~0.8.1~~ | Firmware do DUT de referência (ESP32-S3) e casos do CT20 | **CT20** (simulado ✅; bancada no teste manual) |
 | 0.9.0 | Rotinas: `RUN_ROUTINE`, `ROUTINE_STATUS`, `READ_RESULT`, `ABORT`, passos ESPERA/ESPERA_GPIO, base de tempo de 1 µs (TIM5), tempo máximo | CT14–CT19 |
 | 0.10.0 | App desktop da seção 3.6: `ClienteJiga` com retransmissão (100 ms, 3 tentativas), baterias YAML → rotinas, veredito, relatório | CT02–CT07, CT21 |
 | 0.11.0 | Validação com DUTs (ESP32, Arduino Uno) e desempenho | CT22–CT24 |
@@ -401,12 +452,9 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
   `Exec_Process` + módulo do periférico + casos no `protocolo.py`/`JigaSimulada`).
 
 ## PRÓXIMOS PASSOS
-1. v0.8.1: firmware do DUT de referência no **ESP32-S3** (ESP-IDF v6.1, pasta `DUT_ESP32S3/`) e **CT20**:
-   o ESP32 lê a jiga escrava por I2C e por SPI, serve de escravo I2C e SPI para a jiga mestra, e conversa
-   pela UART (a UART do ESP32 ligada na UART4 da jiga: o PC lê o relato pelo `UART_READ` e o CT20 roda
-   inteiro pela jiga). Conferir o byte a mais da leitura I2C (ver Decisões)
-2. Monografia: levar ao texto tudo o que mudou desde 30/09 (ver "Pendências no texto") e gerar o PDF em
+1. Monografia: levar ao texto tudo o que mudou desde 30/09 (ver "Pendências no texto") e gerar o PDF em
    `Monografia/` a cada versão
+2. v0.9.0: rotinas (`RUN_ROUTINE` etc., CT14–CT19), depois app da seção 3.6 (0.10.0), desempenho (0.11.0)
 3. Teste manual do Luiz (jumpers do CT10/CT11/CT13 e o ESP32 ligado), correções em PATCH
 4. Opcional, quando montar o filtro RC (opção G, ver Hardware): caso de loopback do PWM só no Python
    (`PWM_SET` 25/50/75 % no PWM3, esperar ~0,5 s, `ADC_READ` do A2, conferir razão × 4095 ± 41)
@@ -578,12 +626,15 @@ faixa útil, sim. Firmware não muda.
   os makefiles esquecerem o nome antigo
 - **Heredoc do bash come barras invertidas** (`\x77` virou `w` num script de edição): escrever scripts com
   o Write e usar strings raw (`r'''...'''`) quando o texto tiver `\`
+- **`sed -i` no Git Bash troca CRLF por LF no arquivo inteiro** (aconteceu com o CHANGELOG e um teste):
+  editar com Python lendo/gravando bytes ou com o Edit; conferir com `file` antes de commitar
+- **Build do ESP-IDF com caminho longo** ("opening dependency file ... No such file"): usar `-B C:\esp\build_dut`
 - **Stage perdido antes do commit**: o `chore:` dos artefatos de build saiu só com o `.gitignore`;
   conferir `git diff --cached --stat` antes de commitar
 
 ## Setup no notebook novo
 - `git fetch` e checkout do branch atual (ver "Estado do git")
-- `cd Software && pip install -r requirements-dev.txt && pytest` (335 testes)
+- `cd Software && pip install -r requirements-dev.txt && pytest` (381 testes)
 - CubeIDE: importar `projeto/`; as configurações `projeto Debug` e `projeto Test` vêm do git; se o debug
   falhar, porta 61234 (ver armadilhas)
 - Terminal do DebugLog: porta do ST-Link a 1000000 baud
