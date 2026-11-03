@@ -5,6 +5,10 @@ A versão está em `versao.py` (ver [Versionamento](../README.md#versionamento))
 
 | Arquivo | Papel |
 |---|---|
+| `app_jiga.py` | Aplicação de baterias de testes (PySide6): abre, executa e mostra os vereditos |
+| `executar_bateria.py` | A mesma execução pela linha de comando (regressão, CT21) |
+| `cliente.py`, `bateria.py`, `motor.py`, `relatorio.py` | Cliente da jiga, baterias YAML, motor de testes e relatório |
+| `baterias/` | Baterias de exemplo |
 | `terminal_gui.py` | Terminal gráfico (PySide6) |
 | `terminal_usb.py` | Terminal de linha de comando |
 | `protocolo.py` | Quadro, CRC-16/CCITT-FALSE, receptor e cálculo do PWM (espelhos do firmware) e casos de teste |
@@ -17,6 +21,87 @@ A versão está em `versao.py` (ver [Versionamento](../README.md#versionamento))
 ```
 pip install -r requirements.txt
 ```
+
+## Aplicação de baterias de testes
+
+```
+python app_jiga.py [baterias/loopback.yaml]          # janela: abrir, executar, interromper, vereditos
+python executar_bateria.py baterias/sem_fios.yaml    # a mesma execução pela linha de comando
+python executar_bateria.py baterias/loopback.yaml --repetir 10   # CT21
+python executar_bateria.py baterias/loopback.yaml --simulada --loopback
+```
+
+Os testes são descritos em **baterias** YAML (seção 3.6.3 da monografia). Cada caso vira uma rotina, enviada à
+jiga em um RUN_ROUTINE; o PC acompanha com ROUTINE_STATUS, lê as medições com READ_RESULT e dá o veredito:
+
+- **passou**: a rotina concluiu e todas as verificações bateram;
+- **falhou**: alguma verificação fora do esperado, ou a rotina terminou em ERRO (o DUT não respondeu num
+  barramento, comportamento do próprio DUT);
+- **inconclusivo**: a comunicação falhou mesmo depois das retransmissões, a rotina esgotou o tempo máximo ou foi
+  interrompida (botão "Interromper" = ABORT). A bateria para aí, porque não se sabe se os estímulos foram aplicados.
+
+A bateria inteira é validada antes de falar com a jiga (todos os erros de uma vez, com o caso e o item). A jiga
+começa e termina no estado seguro (RESET_ALL), e volta a ele sozinha no fim de cada rotina: **cada caso configura
+o que usa** (UART, I2C, SPI), sem depender do anterior. Cada execução grava um relatório CSV (uma linha por
+verificação, `;`, abre no Excel) e um JSON (com a área de resultados em hex) na pasta `relatorios/`.
+
+```yaml
+bateria: controle-ventilador
+dut: ESP32
+casos:
+  - nome: liga acima do limiar em até 100 ms
+    estimulos:
+      - dac: {canal: 1, tensao: 2.0}
+    verificar:
+      - reacao_gpio: {pino: 5, nivel: 1, max_ms: 100}
+  - nome: desliga abaixo do limiar
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+    espera_ms: 500                    # entre os estímulos e as verificações
+    verificar:
+      - gpio_in: {pino: 5, esperado: 0}
+      - adc: {canal: 0, esperado: 1.65, tolerancia: 0.05}
+```
+
+| Estímulo | Campos | Passo |
+|---|---|---|
+| `dac` | `canal` 1–2, `tensao` (V) ou `codigo` 0–4095 | DAC_SET (código = round(4095 × V / 3,3)) |
+| `gpio_out` | `pino` 1–4, `nivel` 0/1 | GPIO_SET |
+| `pwm` / `pwm_stop` | `canal` 1–3, `frequencia` (Hz), `razao` (%) | PWM_SET / PWM_STOP |
+| `espera_ms` / `espera_us` | número | ESPERA |
+| `i2c_config` | `papel` escravo/mestre, `endereco`, `velocidade` 100/400 (kHz) | I2C_CONFIG |
+| `i2c_load` | `offset`, `dados` (hex) | I2C_SLAVE_LOAD |
+| `spi_config` | `papel` escrava/mestre, `modo` 0–3, `frequencia` (mestre) | SPI_CONFIG |
+| `spi_load` | `dados` (hex) | SPI_SLAVE_LOAD |
+| `uart_config` / `uart_write` | `baud` / `texto` ou `dados` (hex) | UART_CONFIG / UART_WRITE |
+
+| Verificação | Campos | Passo e critério |
+|---|---|---|
+| `gpio_in` | `pino` 5–8, `esperado` 0/1 | GPIO_READ; nível igual |
+| `adc` | `canal` 0–2, `esperado` (V), `tolerancia` (V, padrão 0,033 = 1 % do fundo de escala) | ADC_READ; dentro da tolerância |
+| `reacao_gpio` | `pino` 5–8, `nivel`, `max_ms` | ESPERA_GPIO; a borda ocorreu antes do limite (o tempo medido vai para o relatório) |
+| `uart_read` | `esperado_texto` ou `esperado` (hex), `max` | UART_READ; bytes iguais |
+| `i2c_dump` | `offset`, `esperado` (hex) | I2C_SLAVE_DUMP; bytes iguais |
+| `i2c_xfer` | `endereco`, `escrita`, `esperado` (hex) | I2C_MASTER_XFER; bytes lidos iguais |
+| `spi_read` / `spi_xfer` | `esperado` / `dados` + `esperado` (hex) | SPI_SLAVE_READ / SPI_MASTER_XFER; bytes iguais |
+
+O tempo máximo de cada rotina é (esperas + limites + transmissão da UART) × 1,1 + 100 ms; `tempo_max_ms` no caso
+substitui o cálculo. Um caso que não cabe em um quadro (240 B) ou cujos resultados passam de 2048 B é recusado na
+validação: divida em dois.
+
+| Bateria | Ligação | Para quê |
+|---|---|---|
+| `baterias/sem_fios.yaml` | nenhuma | conferir o app com a placa (mapa I2C, buffers, estímulos e esperas) |
+| `baterias/loopback.yaml` | jumpers do CT10, CT11 e CT13 | CT21 (dez execuções com os mesmos vereditos) |
+| `baterias/exemplo_monografia.yaml` | DUT hipotético da figura | exemplo da seção 3.6.3 (compilado no CT06) |
+
+Sem os jumpers, a `loopback.yaml` falha nos casos analógicos, da UART e do SPI; os de GPIO dão resultado
+indefinido (entrada solta, sem pull).
+
+Camadas (figura de classes da seção 3.6.2): `cliente.py` (`TransporteSerial`, `TransporteSimulado` e
+`ClienteJiga`: SEQ, tempo limite de 100 ms e 3 tentativas com o mesmo SEQ), `bateria.py`
+(`CarregadorDeBaterias`, `Bateria`, `CasoDeTeste`), `motor.py` (`MotorDeTestes`), `relatorio.py` e `app_jiga.py`
+(`JanelaPrincipal`). O codec do protocolo é o `protocolo.py`.
 
 ## Terminal gráfico (estilo Termite)
 
@@ -150,4 +235,7 @@ pytest
 
 Cobrem o CRC e o cálculo do PWM (com os mesmos vetores dos testes Unity do firmware), a montagem de
 quadros, o receptor, a jiga simulada, a coerência dos casos de teste e se firmware, software e CHANGELOG estão na mesma versão.
+Os casos de unidade da monografia estão em `test_ct02_ct04.py` (CT02 a CT04), `test_cliente.py` (CT05, retransmissão),
+`test_bateria.py` (CT06) e `test_motor.py` (CT07, vereditos). O `test_app.py` abre a janela sem mostrar na tela e é
+pulado sem o PySide6 (como no GitHub Actions).
 Rodam também no GitHub Actions a cada push.
