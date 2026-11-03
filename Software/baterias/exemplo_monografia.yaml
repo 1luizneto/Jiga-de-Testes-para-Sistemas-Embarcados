@@ -1,0 +1,18 @@
+# Bateria da figura "Exemplo de bateria de testes" (secao 3.6.3 da monografia), para um firmware hipotetico que
+# liga uma saida quando a tensao de um sensor (simulada pelo DAC1) passa de um limiar.
+# Ligacao: DAC1 (PA4) -> entrada analogica do DUT; saida do DUT -> GPIO5 (PC12); A0 (PA3) -> sinal de 1,65 V do DUT.
+bateria: controle-ventilador
+dut: ESP32
+casos:
+  - nome: liga acima do limiar em até 100 ms
+    estimulos:
+      - dac: {canal: 1, tensao: 2.0}
+    verificar:
+      - reacao_gpio: {pino: 5, nivel: 1, max_ms: 100}
+  - nome: desliga abaixo do limiar
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+    espera_ms: 500
+    verificar:
+      - gpio_in: {pino: 5, esperado: 0}
+      - adc: {canal: 0, esperado: 1.65, tolerancia: 0.05}
