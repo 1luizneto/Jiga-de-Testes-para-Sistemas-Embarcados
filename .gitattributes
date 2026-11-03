@@ -1,0 +1,2 @@
+# Scripts de shell rodam no Linux do CI: sempre LF
+*.sh text eol=lf
