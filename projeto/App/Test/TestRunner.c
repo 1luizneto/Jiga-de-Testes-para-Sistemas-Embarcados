@@ -137,6 +137,10 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_AnalogIn_ReadCanalInvalido);
 		RUN_TEST(Test_AnalogIn_ReadFalhaPeriferico);
 		RUN_TEST(Test_AnalogIn_ReadValorForaDaFaixa);
+		RUN_TEST(Test_Comm_ProcessRotinaDireta);
+		RUN_TEST(Test_Comm_ProcessOcupadoDuranteRotina);
+		RUN_TEST(Test_Comm_BuildDirect);
+		RUN_TEST(Test_Comm_NackComDetalhe);
 		RUN_TEST(Test_AnalogIn_ArgumentosInvalidos);
 
 		RUN_TEST(Test_Pwm_Calcula1kHzTim1);

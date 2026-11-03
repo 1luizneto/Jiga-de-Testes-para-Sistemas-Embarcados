@@ -31,9 +31,12 @@
 #define dCOMM_PROTOCOL_VERSION (1U)
 
 // Codigos de comando
-// Codigos de comando
 #define dCOMM_CMD_PING            (0x01U)
 #define dCOMM_CMD_RESET_ALL       (0x02U)
+#define dCOMM_CMD_RUN_ROUTINE     (0x08U)
+#define dCOMM_CMD_ROUTINE_STATUS  (0x09U)
+#define dCOMM_CMD_READ_RESULT     (0x0AU)
+#define dCOMM_CMD_ABORT           (0x0BU)
 #define dCOMM_CMD_DAC_SET         (0x10U)
 #define dCOMM_CMD_GPIO_SET        (0x20U)
 #define dCOMM_CMD_GPIO_READ       (0x21U)
@@ -76,6 +79,7 @@ typedef enum commReturn
 	eCOMM_RETURN_RESENT,
 	eCOMM_RETURN_FORWARD,
 	eCOMM_RETURN_IGNORED,
+	eCOMM_RETURN_DIRECT,
 
     eCOMM_RETURN_END_ENUM
 } commReturn_t;
@@ -120,5 +124,8 @@ commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, u
 commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
 commReturn_t Comm_BuildResult(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados, uint8_t dadosSize,
                               uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
+commReturn_t Comm_BuildDirect(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados, uint8_t dadosSize,
+                              uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
+void         Comm_SetBusyCheck(uint8_t (*busyCheck)(void));
 
 #endif /* COMM_INC_COMM_H_ */
