@@ -18,6 +18,8 @@
  *   @version      <b>1.1.0 - 16/10/2026</b> \n Luiz Neto \n Inicializa o DAC, o GPIO e o ADC
  *   @version      <b>1.2.0 - 21/10/2026</b> \n Luiz Neto \n Inicializa o PWM
  *   @version      <b>1.3.0 - 27/10/2026</b> \n Luiz Neto \n Inicializa o I2C (desligado ate o I2C_CONFIG)
+ *   @version      <b>1.4.0 - 28/10/2026</b> \n Luiz Neto \n Inicializa o SPI (desligado ate o SPI_CONFIG)
+ *   @version      <b>1.5.0 - 28/10/2026</b> \n Luiz Neto \n Inicializa a UART4 (desligada ate o UART_CONFIG)
  *   @copyright
  *   @{
  **********************************************************************************************************************/
@@ -35,6 +37,8 @@
 #include "Bsp_Adc.h"
 #include "Bsp_Pwm.h"
 #include "Bsp_I2c.h"
+#include "Bsp_Spi.h"
+#include "Bsp_Uart4.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -66,6 +70,8 @@ void Bsp_Init(void)
 	BspAdc_Init();
 	BspPwm_Init();
 	BspI2c_Init();
+	BspSpi_Init();
+	BspUart4_Init();
 }
 
 /***********************************************************************************************************************

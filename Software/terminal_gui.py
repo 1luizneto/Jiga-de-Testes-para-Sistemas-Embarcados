@@ -29,9 +29,12 @@ from PySide6.QtWidgets import (
 
 from protocolo import (
     CASOS_TESTE, I2C_PAPEL_ESCRAVO, I2C_PAPEL_MESTRE, I2C_VELOCIDADES, PAYLOAD_MAX, PWM_CANAIS, PWM_FREQUENCIA_MAX,
-    PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_PADRAO, PWM_PINOS, PWM_RAZAO_MAX, QUADRO_OK, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log,
-    descrever_pwm, descrever_resposta, interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load,
-    montar_pwm_set, montar_pwm_stop, montar_quadro, porcento_para_razao,
+    PWM_FREQUENCIA_MIN, PWM_FREQUENCIA_PADRAO, PWM_PINOS, PWM_RAZAO_MAX, QUADRO_OK, SPI_CLOCK, SPI_DIVISORES,
+    SPI_FREQUENCIA_MIN, SPI_MODO_MAX, SPI_PAPEL_ESCRAVO, SPI_PAPEL_MESTRE, UART_BAUD_MAX, UART_BAUD_MIN,
+    UART_TAMANHO_MAX, ReceptorQuadros, avaliar_caso, casos_a_executar, descrever_log, descrever_pwm,
+    descrever_resposta, descrever_spi, interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load,
+    montar_pwm_set, montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read,
+    montar_spi_xfer, montar_uart_config, montar_uart_read, montar_uart_write, porcento_para_razao,
 )
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, TEMPO_MAX_RAJADA, detectar_porta, formatar_hex,
@@ -345,6 +348,66 @@ class JanelaTerminal(QMainWindow):
         linha_i2c.addWidget(QPushButton("Ler mapa", clicked=self.ler_i2c))
         layout.addLayout(linha_i2c)
 
+        # SPI: papel, modo e frequencia (so no mestre); os dados servem ao LOAD da escrava e ao XFER do mestre
+        linha_spi = QHBoxLayout()
+        self.combo_spi_papel = QComboBox()
+        self.combo_spi_papel.addItem("Escrava", SPI_PAPEL_ESCRAVO)
+        self.combo_spi_papel.addItem("Mestre", SPI_PAPEL_MESTRE)
+        self.combo_spi_modo = QComboBox()
+        for modo in range(SPI_MODO_MAX + 1):
+            self.combo_spi_modo.addItem(f"Modo {modo}", modo)
+        self.combo_spi_modo.setToolTip("Modo 0 a 3: CPOL = bit 1, CPHA = bit 0")
+        self.spin_spi_freq = QSpinBox(suffix=" Hz", minimumWidth=110)
+        self.spin_spi_freq.setRange(SPI_FREQUENCIA_MIN, SPI_CLOCK // SPI_DIVISORES[0])
+        self.spin_spi_freq.setValue(1_000_000)
+        self.lb_spi = QLabel()
+        self.lb_spi.setStyleSheet("color: #555")
+        self.campo_spi_dados = QLineEdit()
+        self.campo_spi_dados.setFont(QFont("Consolas", 10))
+        self.campo_spi_dados.setPlaceholderText("Dados em hex, ex.: 9F 00 00")
+        self.campo_spi_dados.setToolTip("Escrava: 'Carregar' define o que ela envia ao DUT (vazio = só FF)\n"
+                                        "Mestre: 'Transferir' envia os bytes e recebe a mesma quantidade")
+        for sinal in (self.combo_spi_papel.currentIndexChanged, self.spin_spi_freq.valueChanged):
+            sinal.connect(self._mudou_spi)
+        linha_spi.addWidget(QLabel("SPI:"))
+        linha_spi.addWidget(self.combo_spi_papel)
+        linha_spi.addWidget(self.combo_spi_modo)
+        linha_spi.addWidget(self.spin_spi_freq)
+        linha_spi.addWidget(self.lb_spi)
+        linha_spi.addWidget(QPushButton("Configurar", clicked=self.configurar_spi))
+        linha_spi.addSpacing(12)
+        linha_spi.addWidget(self.campo_spi_dados, 1)
+        linha_spi.addWidget(QPushButton("Carregar", clicked=self.carregar_spi))
+        linha_spi.addWidget(QPushButton("Ler recebidos", clicked=self.ler_spi))
+        linha_spi.addWidget(QPushButton("Transferir", clicked=self.transferir_spi))
+        layout.addLayout(linha_spi)
+
+        # UART: baud (8N1) e os bytes trocados com o DUT pela UART4
+        linha_uart = QHBoxLayout()
+        self.combo_uart_baud = QComboBox(editable=True)
+        self.combo_uart_baud.addItems(["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600",
+                                       "1000000"])
+        self.combo_uart_baud.setCurrentText("115200")
+        self.combo_uart_baud.setToolTip(f"Baud de {UART_BAUD_MIN} a {UART_BAUD_MAX}, 8N1")
+        self.campo_uart_dados = QLineEdit()
+        self.campo_uart_dados.setFont(QFont("Consolas", 10))
+        self.campo_uart_dados.setPlaceholderText("Texto ou hex (com 'hex' marcado) para enviar ao DUT")
+        self.campo_uart_dados.returnPressed.connect(self.escrever_uart)
+        self.ck_uart_hex = QCheckBox("hex")
+        self.spin_uart_max = QSpinBox(minimum=1, maximum=UART_TAMANHO_MAX, value=UART_TAMANHO_MAX)
+        self.spin_uart_max.setToolTip("Máximo de bytes tirados do buffer pelo 'Ler'")
+        linha_uart.addWidget(QLabel("UART:"))
+        linha_uart.addWidget(self.combo_uart_baud)
+        linha_uart.addWidget(QLabel("baud 8N1"))
+        linha_uart.addWidget(QPushButton("Configurar", clicked=self.configurar_uart))
+        linha_uart.addSpacing(12)
+        linha_uart.addWidget(self.campo_uart_dados, 1)
+        linha_uart.addWidget(self.ck_uart_hex)
+        linha_uart.addWidget(QPushButton("Enviar", clicked=self.escrever_uart))
+        linha_uart.addWidget(self.spin_uart_max)
+        linha_uart.addWidget(QPushButton("Ler", clicked=self.ler_uart))
+        layout.addLayout(linha_uart)
+
         # Casos de teste prontos
         linha_teste = QHBoxLayout()
         self.combo_caso = QComboBox()
@@ -358,9 +421,10 @@ class JanelaTerminal(QMainWindow):
         self.bt_todos = QPushButton("Executar todos", clicked=lambda: self.executar_casos(
             casos_a_executar(self.ck_loopback.isChecked())))
         self.ck_loopback = QCheckBox("Incluir loopback")
-        self.ck_loopback.setToolTip("Inclui no 'Executar todos' o CT10 e o CT11, que precisam dos jumpers:\n"
+        self.ck_loopback.setToolTip("Inclui no 'Executar todos' o CT10, o CT11 e o CT13, que precisam dos jumpers:\n"
                                     "DAC1 (PA4) → A0 (PA3), DAC2 (PA5) → A1 (PC0)\n"
-                                    "GPIO1-4 (PC8-PC11) → GPIO5-8 (PC12, PD2, PG2, PG3)")
+                                    "GPIO1-4 (PC8-PC11) → GPIO5-8 (PC12, PD2, PG2, PG3)\n"
+                                    "MOSI (PB15) → MISO (PC2), TX (PD1) → RX (PD0)")
         linha_teste.addWidget(QLabel("Caso de teste:"))
         linha_teste.addWidget(self.combo_caso)
         linha_teste.addWidget(self.lb_caso, 1)
@@ -405,6 +469,7 @@ class JanelaTerminal(QMainWindow):
 
         self._mudou_caso()
         self._mudou_pwm()
+        self._mudou_spi()
         return grupo
 
     def _carregar_config(self):
@@ -706,6 +771,64 @@ class JanelaTerminal(QMainWindow):
             self._escrever_info(f"I2C_SLAVE_DUMP inválido: {e}")
             return
         self._enviar_com_seq(quadro, f"I2C_SLAVE_DUMP {self.spin_i2c_qtd.value()} B de 0x{offset:02X}")
+
+    def _mudou_spi(self, *_):
+        mestre = self.combo_spi_papel.currentData() == SPI_PAPEL_MESTRE
+        self.spin_spi_freq.setEnabled(mestre)
+        self.lb_spi.setText(descrever_spi(self.spin_spi_freq.value()) if mestre else "segue o clock do DUT")
+
+    def configurar_spi(self):
+        papel, modo = self.combo_spi_papel.currentData(), self.combo_spi_modo.currentData()
+        frequencia = self.spin_spi_freq.value() if papel == SPI_PAPEL_MESTRE else 0
+        rotulo = descrever_spi(frequencia) if frequencia else "SPI escrava"
+        self._enviar_com_seq(montar_spi_config(self.spin_seq.value(), papel, modo, frequencia),
+                             f"SPI_CONFIG modo {modo}, {rotulo}")
+
+    def _dados_spi(self, nome):
+        """Bytes do campo de dados do SPI, ou None (com o erro na tela)."""
+        try:
+            dados = interpretar_hex(self.campo_spi_dados.text())
+            montar_spi_load(0, dados)
+        except ValueError as e:
+            self._escrever_info(f"{nome} inválido: {e}")
+            return None
+        return dados
+
+    def carregar_spi(self):
+        dados = self._dados_spi("SPI_SLAVE_LOAD")
+        if dados is not None:
+            self._enviar_com_seq(montar_spi_load(self.spin_seq.value(), dados), f"SPI_SLAVE_LOAD {len(dados)} B")
+
+    def ler_spi(self):
+        self._enviar_com_seq(montar_spi_read(self.spin_seq.value()), "SPI_SLAVE_READ")
+
+    def transferir_spi(self):
+        dados = self._dados_spi("SPI_MASTER_XFER")
+        if dados is not None:
+            self._enviar_com_seq(montar_spi_xfer(self.spin_seq.value(), dados), f"SPI_MASTER_XFER {len(dados)} B")
+
+    def configurar_uart(self):
+        try:
+            baud = int(self.combo_uart_baud.currentText())
+            quadro = montar_uart_config(self.spin_seq.value(), baud)
+        except ValueError as e:
+            self._escrever_info(f"UART_CONFIG inválido: {e}")
+            return
+        self._enviar_com_seq(quadro, f"UART_CONFIG {baud} baud")
+
+    def escrever_uart(self):
+        try:
+            texto = self.campo_uart_dados.text()
+            dados = interpretar_hex(texto) if self.ck_uart_hex.isChecked() else texto.encode("utf-8")
+            quadro = montar_uart_write(self.spin_seq.value(), dados)
+        except ValueError as e:
+            self._escrever_info(f"UART_WRITE inválido: {e}")
+            return
+        self._enviar_com_seq(quadro, f"UART_WRITE {len(dados)} B")
+
+    def ler_uart(self):
+        self._enviar_com_seq(montar_uart_read(self.spin_seq.value(), self.spin_uart_max.value()),
+                             f"UART_READ até {self.spin_uart_max.value()} B")
 
     def _mudou_caso(self, *_):
         caso = self.combo_caso.currentData()

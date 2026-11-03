@@ -7,6 +7,50 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.8.0] - 2026-11-03
+
+SPI (escravo e mestre) e UART completos, testados no Unity, pelo USB e em loopback no software. Na placa,
+sem fios, os 62 casos passam e os comandos do CT13 executam; a conferência dos dados do CT13 (jumpers
+MOSI → MISO e TX → RX) fica para o teste manual, e o escravo SPI para o CT20 (0.8.1, com o ESP32-S3).
+
+### Adicionado
+- Firmware: módulo `SpiBus` (sem HAL): papel de escrava ou mestre, modos 0 a 3, divisor do clock (o maior
+  de 54 MHz / 2..256 que não passa da frequência pedida, mínimo 210 938 Hz), buffer de transmissão da
+  escrava (cada transação do DUT recomeça do byte 0 e completa com 0xFF), buffer de recepção acumulado até
+  o `SPI_SLAVE_READ` (até 239 bytes, o excedente é descartado), transferência como mestre e estado seguro.
+  17 testes Unity com barramento falso.
+- Firmware: `Bsp_Spi` (SPI2: PB10 = SCK, PB15 = MOSI, PC2 = MISO, PD7 = CS). Como mestre, o PD7 é saída
+  (CS em nível baixo durante a transferência, por polling); como escrava, o PD7 vira entrada com EXTI nas
+  duas bordas e liga o SPI pelo bit SSI. A escrava fica armada por interrupção; na subida do CS a BSP
+  entrega o que chegou ao `SpiBus`, reinicia o SPI2 (esvazia a FIFO de transmissão) e rearma.
+- Firmware: módulo `UartBus` (sem HAL): 8N1 de 1200 a 1 000 000 baud, buffer circular de recepção de
+  256 bytes (cheio, os novos são descartados), escrita e leitura de até 239 bytes e estado seguro. 15
+  testes Unity com UART falsa.
+- Firmware: `Bsp_Uart4` (UART4: PD1 = TX, PD0 = RX): recepção byte a byte por interrupção, rearmada também
+  depois de overrun; escrita por polling, com timeout igual ao tempo dos bytes no baud configurado + 10 ms.
+- Firmware: comandos `SPI_CONFIG` (0x60, [papel][modo][frequência u32 LE]), `SPI_SLAVE_LOAD` (0x61,
+  [qtd][dados]), `SPI_SLAVE_READ` (0x62 → [qtd][dados]), `SPI_MASTER_XFER` (0x63, [qtd][dados] → dados),
+  `UART_CONFIG` (0x70, [baud u32 LE]), `UART_WRITE` (0x71, [qtd][dados]) e `UART_READ` (0x72, [máximo] →
+  [qtd][dados]). Sem configuração: XFER, WRITE e READ da UART → NACK NAO_CONFIGURADO; LOAD e READ do SPI
+  funcionam sem `SPI_CONFIG`. 23 testes Unity novos no `Exec` (172 no total, **172/172 na placa**).
+- Software: `protocolo.py` conhece os sete comandos (`montar_spi_*`, `montar_uart_*`), o divisor do SPI
+  (`spi_divisor`, espelho do firmware) e a frequência gerada (`descrever_spi`); a `JigaSimulada` simula os
+  buffers do SPI e da UART, o papel do DUT (`transacao_spi`, `recepcao_uart`) e o loopback.
+- Software: 19 casos de teste novos sem fio (62 no total, **62/62 na placa**) e o **CT13** em loopback
+  (`CT13 SPI MOSI -> MISO`: modos 0 a 3 a 1 MHz e 239 bytes a 6,75 MHz; `CT13 UART TX -> RX`: 9600, 115200
+  e 1 000 000 baud), com comparação exata.
+- Software: `/spi_config`, `/spi_load`, `/spi_read`, `/spi_xfer`, `/uart_config`, `/uart_write`,
+  `/uart_texto` e `/uart_read` no terminal; linhas SPI e UART na GUI.
+- Software: 89 testes pytest novos (335 no total).
+
+### Alterado
+- Firmware: SPI2 em 8 bits (estava em 4 bits no `.ioc`); interrupções do SPI2 e da UART4 habilitadas no
+  CubeMX, prioridade 5. A do EXTI9_5 (CS no PD7) é ligada pela `Bsp_Spi`, na mesma prioridade, só quando
+  a jiga é escrava.
+- Firmware: o `RESET_ALL` (`Exec_SafeState`) também desliga o SPI (CS em nível alto, buffers vazios) e a
+  UART (buffer vazio); no boot os dois ficam desligados até o `SPI_CONFIG`/`UART_CONFIG`.
+- Software: o terminal trata `/i2c_`, `/spi_` e `/uart_` num lugar só (`enviar_barramento`).
+
 ## [0.7.0] - 2026-10-28
 
 Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação no barramento**: o CT20

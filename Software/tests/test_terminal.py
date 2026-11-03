@@ -2,8 +2,13 @@
 
 import pytest
 
-from protocolo import montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer
-from terminal_usb import formatar_hex, interpretar_hex, interpretar_pwm, montar_comando_i2c
+from protocolo import (
+    montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_spi_config, montar_spi_load,
+    montar_spi_read, montar_spi_xfer, montar_uart_config, montar_uart_read, montar_uart_write,
+)
+from terminal_usb import (
+    formatar_hex, interpretar_hex, interpretar_pwm, montar_comando_i2c, montar_comando_spi, montar_comando_uart,
+)
 
 
 @pytest.mark.parametrize("texto, esperado", [
@@ -65,3 +70,42 @@ def test_montar_comando_i2c(comando, argumentos, esperado):
 def test_montar_comando_i2c_invalido(comando, argumentos):
     with pytest.raises(ValueError):
         montar_comando_i2c(7, comando, argumentos)
+
+
+@pytest.mark.parametrize("comando, argumentos, esperado", [
+    ("config", "1 3 1000000", montar_spi_config(7, 1, 3, 1_000_000)),
+    ("config", "0 0", montar_spi_config(7, 0, 0)),
+    ("load", "11 22 33", montar_spi_load(7, b"\x11\x22\x33")),
+    ("load", "", montar_spi_load(7, b"")),
+    ("read", "", montar_spi_read(7)),
+    ("xfer", "9F 00", montar_spi_xfer(7, b"\x9f\x00")),
+])
+def test_montar_comando_spi(comando, argumentos, esperado):
+    assert montar_comando_spi(7, comando, argumentos) == esperado
+
+
+@pytest.mark.parametrize("comando, argumentos", [
+    ("config", "1"), ("config", "1 0 1M"), ("read", "4"), ("xfer", ""), ("load", "1G"), ("dump", "10"),
+])
+def test_montar_comando_spi_invalido(comando, argumentos):
+    with pytest.raises(ValueError):
+        montar_comando_spi(7, comando, argumentos)
+
+
+@pytest.mark.parametrize("comando, argumentos, esperado", [
+    ("config", "115200", montar_uart_config(7, 115_200)),
+    ("write", "4F 4B 0A", montar_uart_write(7, b"OK\n")),
+    ("texto", "ola mundo", montar_uart_write(7, b"ola mundo")),
+    ("read", "16", montar_uart_read(7, 16)),
+    ("read", "", montar_uart_read(7)),
+])
+def test_montar_comando_uart(comando, argumentos, esperado):
+    assert montar_comando_uart(7, comando, argumentos) == esperado
+
+
+@pytest.mark.parametrize("comando, argumentos", [
+    ("config", ""), ("config", "9600 8N1"), ("write", ""), ("texto", ""), ("read", "1 2"), ("read", "256"),
+])
+def test_montar_comando_uart_invalido(comando, argumentos):
+    with pytest.raises(ValueError):
+        montar_comando_uart(7, comando, argumentos)

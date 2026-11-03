@@ -88,6 +88,29 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_I2cXferInvalido);
 		RUN_TEST(Test_Exec_I2cXferSemAck);
 		RUN_TEST(Test_Exec_ResetAllZeraMapaI2c);
+		RUN_TEST(Test_Exec_SpiConfigMestre);
+		RUN_TEST(Test_Exec_SpiConfigInvalido);
+		RUN_TEST(Test_Exec_SpiLoadValido);
+		RUN_TEST(Test_Exec_SpiLoadInvalido);
+		RUN_TEST(Test_Exec_SpiReadValido);
+		RUN_TEST(Test_Exec_SpiReadCheio);
+		RUN_TEST(Test_Exec_SpiReadComPayload);
+		RUN_TEST(Test_Exec_SpiXferNaoConfigurado);
+		RUN_TEST(Test_Exec_SpiXferValido);
+		RUN_TEST(Test_Exec_SpiXferInvalido);
+		RUN_TEST(Test_Exec_SpiXferFalhaPeriferico);
+		RUN_TEST(Test_Exec_ResetAllEsvaziaSpi);
+		RUN_TEST(Test_Exec_UartConfigValido);
+		RUN_TEST(Test_Exec_UartConfigInvalido);
+		RUN_TEST(Test_Exec_UartWriteNaoConfigurado);
+		RUN_TEST(Test_Exec_UartWriteValido);
+		RUN_TEST(Test_Exec_UartWriteInvalido);
+		RUN_TEST(Test_Exec_UartWriteFalhaPeriferico);
+		RUN_TEST(Test_Exec_UartReadNaoConfigurado);
+		RUN_TEST(Test_Exec_UartReadValido);
+		RUN_TEST(Test_Exec_UartReadMaximoGrande);
+		RUN_TEST(Test_Exec_UartReadTamanhoErrado);
+		RUN_TEST(Test_Exec_ResetAllDesligaUart);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -147,6 +170,40 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_I2cBus_MasterXfer);
 		RUN_TEST(Test_I2cBus_SafeState);
 		RUN_TEST(Test_I2cBus_SafeStateComFalha);
+
+		RUN_TEST(Test_SpiBus_InitInvalido);
+		RUN_TEST(Test_SpiBus_Divisor);
+		RUN_TEST(Test_SpiBus_DivisorForaDaFaixa);
+		RUN_TEST(Test_SpiBus_ConfigMestre);
+		RUN_TEST(Test_SpiBus_ConfigEscravoIgnoraFrequencia);
+		RUN_TEST(Test_SpiBus_ConfigInvalido);
+		RUN_TEST(Test_SpiBus_ConfigFalhaBsp);
+		RUN_TEST(Test_SpiBus_LoadPreparaTx);
+		RUN_TEST(Test_SpiBus_LoadLimites);
+		RUN_TEST(Test_SpiBus_LoadInvalido);
+		RUN_TEST(Test_SpiBus_FimTransacaoERead);
+		RUN_TEST(Test_SpiBus_RecepcaoCheia);
+		RUN_TEST(Test_SpiBus_LoadReadSemConfigTravam);
+		RUN_TEST(Test_SpiBus_MasterXferNaoConfigurado);
+		RUN_TEST(Test_SpiBus_MasterXfer);
+		RUN_TEST(Test_SpiBus_SafeState);
+		RUN_TEST(Test_SpiBus_SafeStateComFalha);
+
+		RUN_TEST(Test_UartBus_InitInvalido);
+		RUN_TEST(Test_UartBus_ConfigValido);
+		RUN_TEST(Test_UartBus_ConfigInvalido);
+		RUN_TEST(Test_UartBus_ConfigFalhaBsp);
+		RUN_TEST(Test_UartBus_SemConfig);
+		RUN_TEST(Test_UartBus_Write);
+		RUN_TEST(Test_UartBus_RecebeERead);
+		RUN_TEST(Test_UartBus_ReadParcial);
+		RUN_TEST(Test_UartBus_ReadLimitado);
+		RUN_TEST(Test_UartBus_BufferCircularVolta);
+		RUN_TEST(Test_UartBus_BufferCheio);
+		RUN_TEST(Test_UartBus_ConfigEsvazia);
+		RUN_TEST(Test_UartBus_ReadTrava);
+		RUN_TEST(Test_UartBus_SafeState);
+		RUN_TEST(Test_UartBus_SafeStateComFalha);
 
 	UNITY_END();
 
