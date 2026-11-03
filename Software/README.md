@@ -43,6 +43,10 @@ python terminal_gui.py
   "+
 " marcado, o envio termina em `
 `, como pedem os comandos do DUT de referência (ESP32-S3).
+- Linha **Rotina**: identificador, tempo máximo e os passos em hex (cada passo é o código do comando direto
+  seguido do payload dele; `78` = ESPERA, `79` = ESPERA_GPIO), com "Executar" (RUN_ROUTINE; o número de
+  passos é contado pelo tamanho de cada um), "Estado" (ROUTINE_STATUS), "Resultados" (READ_RESULT a partir
+  do offset) e "Abortar" (ABORT).
 - Linha **PWM**: canal, frequência (1 Hz a 100 kHz) e razão cíclica (0 a 100 %, passo de 0,01 %),
   com "Aplicar PWM" (PWM_SET) e "Parar PWM" (PWM_STOP). Mostra o PSC, ARR e CCR que a jiga vai usar
   e a forma de onda que sai de fato no pino: é o valor de referência para medir no osciloscópio (CT12).
@@ -79,9 +83,13 @@ Durante a execução:
 | `/uart_config 115200` | liga a UART4 (PD1 TX, PD0 RX) em 8N1 |
 | `/uart_write 4F 4B 0A`, `/uart_texto ola` | envia bytes em hex / texto ao DUT |
 | `/uart_read 16` | lê até 16 bytes recebidos do DUT (sem número, até 239) |
+| `/rotina_run 7 1000 10 01 B2 09 79 05 01 20 A1 07 00 40 00` | RUN_ROUTINE: identificador, tempo máximo (ms) e os passos em hex (no exemplo, o do Apêndice A: DAC1 em 2482, ESPERA_GPIO no GPIO5 até 500 ms e ADC do A0) |
+| `/rotina_status` | ROUTINE_STATUS: estado, passos concluídos e erro |
+| `/rotina_result 0` | READ_RESULT a partir do offset (os resultados saem em partes de até 236 B) |
+| `/rotina_abort` | ABORT: interrompe a rotina (a jiga vai ao estado seguro) |
 | `/teste`         | lista os casos de teste do protocolo   |
 | `/teste 3`, `/teste todos` | envia um caso / todos (menos os de loopback) |
-| `/teste loopback` | envia todos, incluindo o CT10, o CT11 e o CT13 |
+| `/teste loopback` | envia todos, incluindo o CT10, o CT11, o CT13 e o CT19 com jumper |
 | `/teste dut` | envia todos, incluindo o CT20 (DUT de referência ligado na jiga) |
 | `/dut PING` | manda a linha ao DUT pela UART4 da jiga e lê a resposta (antes, `/uart_config 115200`) |
 | `/modo`          | alterna entre hex e texto              |
@@ -99,14 +107,14 @@ pelo USB-CDC e confere, no DebugLog, se a CommTask logou o resultado esperado:
 python teste_protocolo.py            # detecta as duas portas
 python teste_protocolo.py --listar   # lista os casos
 python teste_protocolo.py --caso 8   # só um caso
-python teste_protocolo.py --loopback # inclui o CT10, o CT11 e o CT13 (precisa dos jumpers)
+python teste_protocolo.py --loopback # inclui o CT10, o CT11, o CT13 e o CT19 com jumper (precisa dos jumpers)
 python teste_protocolo.py --dut      # inclui o CT20 (precisa do ESP32-S3 ligado na jiga)
 python teste_protocolo.py --porta COM14 --porta-log COM8
 ```
 
 Não deixe outro terminal aberto nessas portas enquanto o script roda.
 
-Os casos marcados como `[loopback]` (CT10, CT11 e CT13) só passam com os jumpers DAC1 (PA4) → A0 (PA3),
+Os casos marcados como `[loopback]` (CT10, CT11, CT13 e o CT19 GPIO1 → GPIO5) só passam com os jumpers DAC1 (PA4) → A0 (PA3),
 DAC2 (PA5) → A1 (PC0), GPIO1–4 (PC8–PC11) → GPIO5–8 (PC12, PD2, PG2, PG3), MOSI (PB15) → MISO (PC2) e
 TX (PD1) → RX (PD0); sem `--loopback` eles são pulados. Na GUI, a mesma escolha é a caixa "Incluir loopback".
 
@@ -114,6 +122,12 @@ Os casos marcados como `[DUT]` (CT20) só passam com o DUT de referência (ESP32
 [`DUT_ESP32S3/`](../DUT_ESP32S3/README.md)) ligado na jiga, **sem** os jumpers do CT13; sem `--dut` eles são
 pulados. Na GUI, a caixa "Incluir DUT". O `dut.py` tem o espelho do firmware do ESP32 (`DutSimulado`), que
 define a resposta esperada desses casos.
+
+Os casos das rotinas (CT14 a CT18 e o CT19 "base de tempo") rodam sem jumpers: a rotina continua na jiga
+enquanto o script manda os próximos comandos, e as esperas do caso deixam ela chegar no ponto conferido (a
+jiga simulada anda o relógio dela nas mesmas esperas). Os instantes medidos pela jiga são conferidos com a
+tolerância de 50 µs do critério de tempo da monografia; o CT19 com jumper (GPIO1 → GPIO5) confere também o
+tempo de reação do ESPERA_GPIO nas duas bordas e o tempo limite.
 
 ## Medição do loopback DAC → ADC
 

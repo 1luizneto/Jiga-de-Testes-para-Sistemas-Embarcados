@@ -32,6 +32,12 @@ Comandos digitados durante a execucao:
     /uart_write 4F 4B 0A   envia os bytes (hex) ao DUT
     /uart_texto ola        envia o texto ao DUT (sem quebra de linha)
     /uart_read 16          le ate 16 bytes recebidos do DUT (sem numero, ate 239)
+    /rotina_run 7 1000 10 01 B2 09 79 05 01 20 A1 07 00 40 00
+                           RUN_ROUTINE: identificador, tempo maximo (ms) e os passos em hex (o numero de
+                           passos e contado; ex.: DAC1 2482, ESPERA_GPIO GPIO5 nivel 1 ate 500 ms, ADC A0)
+    /rotina_status         ROUTINE_STATUS: estado, passos concluidos e erro
+    /rotina_result 0       READ_RESULT a partir do offset (sem numero, 0)
+    /rotina_abort          ABORT: interrompe a rotina (estado seguro)
     /teste           lista os casos de teste do protocolo
     /teste 3         envia o caso 3 (/teste todos envia todos, menos os de loopback)
     /teste loopback  envia todos, incluindo o CT10, o CT11 e o CT13 (jumpers ligados)
@@ -56,6 +62,7 @@ from protocolo import (
     interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_pwm_set,
     montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read, montar_spi_xfer,
     montar_uart_config, montar_uart_read, montar_uart_write, marca_caso, nome_comando, porcento_para_razao,
+    montar_abort, montar_read_result, montar_routine_status, montar_run_routine, separar_passos,
 )
 from versao import __version__
 
@@ -175,11 +182,31 @@ def montar_comando_uart(seq, comando, argumentos):
     raise ValueError(f"uso invalido de /uart_{comando}")
 
 
-# Comandos de barramento: prefixo -> (montador, exemplo de uso)
+def montar_comando_rotina(seq, comando, argumentos):
+    """'/rotina_<comando> argumentos' -> quadro. Identificador, tempo e offset em decimal; passos em hex.
+
+    run: identificador tempo_ms passos... | status | result: [offset] | abort
+    """
+    campos = argumentos.split()
+    if comando == "run" and len(campos) >= 3:
+        return montar_run_routine(seq, int(campos[0]), int(campos[1]),
+                                  separar_passos(interpretar_hex(" ".join(campos[2:]))))
+    if comando == "status" and not campos:
+        return montar_routine_status(seq)
+    if comando == "result" and len(campos) <= 1:
+        return montar_read_result(seq, *(int(campo) for campo in campos))
+    if comando == "abort" and not campos:
+        return montar_abort(seq)
+    raise ValueError(f"uso invalido de /rotina_{comando}")
+
+
+# Comandos de barramento e de rotina: prefixo -> (montador, exemplo de uso)
 COMANDOS_BARRAMENTO = {
     "/i2c_": (montar_comando_i2c, "/i2c_config 0 50 0 | /i2c_load 10 DE AD | /i2c_dump 10 4 | /i2c_xfer 68 2 0F"),
     "/spi_": (montar_comando_spi, "/spi_config 1 0 1000000 | /spi_load 11 22 | /spi_read | /spi_xfer 9F 00"),
     "/uart_": (montar_comando_uart, "/uart_config 115200 | /uart_write 4F 4B | /uart_texto ola | /uart_read 16"),
+    "/rotina_": (montar_comando_rotina, "/rotina_run 7 1000 21 78 E8 03 00 00 21 | /rotina_status | "
+                                        "/rotina_result 0 | /rotina_abort"),
 }
 
 
@@ -330,7 +357,7 @@ class Terminal:
         self.enviar(quadro)
 
     def enviar_barramento(self, prefixo, linha):
-        """'/i2c_...', '/spi_...' ou '/uart_...': monta o quadro com SEQ automatico."""
+        """'/i2c_...', '/spi_...', '/uart_...' ou '/rotina_...': monta o quadro com SEQ automatico."""
         montar, uso = COMANDOS_BARRAMENTO[prefixo]
         comando, _, argumentos = linha[len(prefixo):].partition(" ")
         try:

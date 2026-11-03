@@ -44,6 +44,7 @@ typedef struct execResult
 
 execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result);
 execReturn_t Exec_SafeState(void);
+uint8_t      Exec_Passo(uint8_t cmd, const uint8_t *parametros, uint8_t size, uint8_t *dados, uint8_t *dadosSize);
 
 #endif /* EXEC_INC_EXEC_H_ */
 

@@ -4,10 +4,12 @@ import pytest
 
 from protocolo import (
     montar_i2c_config, montar_i2c_dump, montar_i2c_load, montar_i2c_xfer, montar_spi_config, montar_spi_load,
-    montar_spi_read, montar_spi_xfer, montar_uart_config, montar_uart_read, montar_uart_write,
+    montar_spi_read, montar_spi_xfer, montar_uart_config, montar_uart_read, montar_uart_write, montar_abort,
+    montar_read_result, montar_routine_status, montar_run_routine, separar_passos,
 )
 from terminal_usb import (
-    formatar_hex, interpretar_hex, interpretar_pwm, montar_comando_i2c, montar_comando_spi, montar_comando_uart,
+    formatar_hex, interpretar_hex, interpretar_pwm, montar_comando_i2c, montar_comando_rotina, montar_comando_spi,
+    montar_comando_uart,
 )
 
 
@@ -109,3 +111,26 @@ def test_montar_comando_uart(comando, argumentos, esperado):
 def test_montar_comando_uart_invalido(comando, argumentos):
     with pytest.raises(ValueError):
         montar_comando_uart(7, comando, argumentos)
+
+
+def test_comandos_de_rotina():
+    passos = [b"\x10\x01\xb2\x09", b"\x79\x05\x01\x20\xa1\x07\x00", b"\x40\x00"]
+    assert montar_comando_rotina(3, "run", "7 1000 10 01 B2 09 79 05 01 20 A1 07 00 40 00") == \
+        montar_run_routine(3, 7, 1000, passos)
+    assert montar_comando_rotina(4, "status", "") == montar_routine_status(4)
+    assert montar_comando_rotina(5, "result", "236") == montar_read_result(5, 236)
+    assert montar_comando_rotina(6, "result", "") == montar_read_result(6, 0)
+    assert montar_comando_rotina(7, "abort", "") == montar_abort(7)
+
+
+@pytest.mark.parametrize("comando, argumentos", [
+    ("run", "7 1000"), ("run", "7 1000 10 01"), ("run", "7 1000 55"), ("status", "1"), ("abort", "x"), ("xyz", ""),
+])
+def test_comandos_de_rotina_invalidos(comando, argumentos):
+    with pytest.raises(ValueError):
+        montar_comando_rotina(0, comando, argumentos)
+
+
+def test_separar_passos():
+    assert separar_passos(b"\x21\x78\xe8\x03\x00\x00\x21") == [b"\x21", b"\x78\xe8\x03\x00\x00", b"\x21"]
+    assert separar_passos(b"") == []

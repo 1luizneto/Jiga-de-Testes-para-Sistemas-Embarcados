@@ -7,6 +7,47 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.9.0] - 2026-11-03
+
+Rotinas de teste executadas na própria jiga (Apêndice A): o PC envia um caso de teste inteiro em um
+RUN_ROUTINE, acompanha com ROUTINE_STATUS e lê as medições com READ_RESULT. Os instantes e as esperas usam
+uma base de tempo de 1 µs. Na placa, sem fios, os **68 casos** passam (os 6 novos do CT14 ao CT19 inclusos)
+e os **193 testes Unity** também; o CT19 com jumper (GPIO1 → GPIO5) fica para o teste manual.
+
+### Adicionado
+- Firmware: interpretador de rotinas (`Rotina`): valida a rotina inteira antes de executar (código, tamanho e
+  faixa de cada passo, encadeamento e os 2048 B de resultados; NACK ROTINA_INVALIDA com o índice do passo, ou
+  0xFF no cabeçalho), executa os passos com as funções dos comandos diretos (`Exec_Passo`), grava os
+  registros [índice][instante µs][quantidade][dados] e aplica o estado seguro no fim, antes de publicar o
+  estado final. Tempo máximo de 1 ms a 1 h.
+- Firmware: comandos RUN_ROUTINE (0x08) e READ_RESULT (0x0A, em partes de até 236 B) no `Exec`;
+  ROUTINE_STATUS (0x09) e ABORT (0x0B) atendidos pela CommTask, mesmo com a rotina em execução.
+- Firmware: passos ESPERA (0x78) e ESPERA_GPIO (0x79). A espera bloqueia a TestExecTask até o compare do TIM5,
+  a borda na entrada (EXTI; o instante é lido do TIM5 na interrupção) ou o ABORT, sem ocupar o processador.
+- CubeMX: TIM5 como base de tempo livre de 32 bits a 1 MHz (108 MHz / 108), IRQ com prioridade 5.
+- Firmware: 21 testes Unity (17 do `Exec`/`Rotina` com base de tempo falsa e 4 do `Comm`): **193 no total**.
+  Os testes do `Exec` e da `Rotina` também rodam no PC (`projeto/App/Test/host/rodar.sh`, job
+  `firmware-host` no GitHub Actions).
+- Software: montagem de rotinas (`passo`, `passo_espera`, `passo_espera_gpio`, `montar_run_routine`, ...),
+  validação igual à do firmware, `StatusRotina` e `interpretar_resultados`; a `JigaSimulada` executa as
+  rotinas num relógio simulado (as esperas dos casos andam o relógio).
+- Software: casos **CT14** (rotina inválida), **CT15** (comandos durante a rotina), **CT16** (ABORT na espera),
+  **CT17** (tempo máximo), **CT18** (RUN_ROUTINE retransmitido) e **CT19** (base de tempo, sem fios, e GPIO1 →
+  GPIO5 com jumper), com os instantes conferidos com a tolerância de 50 µs.
+- Software: `/rotina_run`, `/rotina_status`, `/rotina_result` e `/rotina_abort` no terminal e a linha
+  **Rotina** na GUI; 54 testes pytest novos (435 no total).
+
+### Alterado
+- Protocolo: o NACK pode trazer um detalhe depois do código de erro (o índice do passo no ROTINA_INVALIDA).
+- Firmware: durante uma rotina, só PING, ROUTINE_STATUS, ABORT e retransmissões são atendidos; os outros
+  comandos recebem NACK OCUPADO (`Comm_SetBusyCheck`). O RESET_ALL também descarta os resultados.
+- Firmware: o `HAL_GPIO_EXTI_Callback` (Bsp_Spi) repassa as bordas das entradas GPIO5–8 ao `Bsp_Tempo`.
+
+### Medido
+- Na placa: ESPERA de 1, 10 e 100 ms entre dois GPIO_READ deram 1028, 10 029 e 100 029 µs (≈ 28 µs a mais por
+  passo, com o GPIO_READ e o retorno da notificação), dentro dos 50 µs do critério; ABORT durante uma ESPERA de
+  10 s interrompe na hora.
+
 ## [0.8.1] - 2026-11-03
 
 DUT de referência (ESP32-S3) e os casos do **CT20**. O firmware da jiga não muda (só a versão): a versão sobe

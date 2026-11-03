@@ -23,6 +23,9 @@
  *   @version      <b>1.3.0 - 13/10/2026</b> \n Luiz Neto \n Comandos alem do PING sao repassados (FORWARD) e
  *                 respondidos pelo Comm_BuildResult; um comando pendente por vez (retransmissao ignorada,
  *                 outro comando recebe NACK OCUPADO)
+ *   @version      <b>1.4.0 - 03/11/2026</b> \n Luiz Neto \n ROUTINE_STATUS e ABORT respondidos pela CommTask
+ *                 (DIRECT, Comm_BuildDirect); OCUPADO tambem durante uma rotina (Comm_SetBusyCheck); NACK com
+ *                 detalhe depois do codigo de erro (indice do passo no ROTINA_INVALIDA)
  *
  *   @copyright
  *   @{
@@ -98,6 +101,9 @@ static struct comm
 
 } comm;
 
+/// Consulta "ha uma rotina em execucao?" (registrada uma vez; o Comm_Init nao apaga)
+static uint8_t (*commBusyCheck)(void) = NULL;
+
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
  **********************************************************************************************************************/
@@ -108,8 +114,12 @@ static struct comm
 
 static commReturn_t Comm_ValidaQuadro(commFrame_t *frame);
 static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
-static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error,
-									uint8_t *response, uint16_t responseSize, uint16_t *responseLen);
+static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error, const uint8_t *detalhe,
+                                      uint8_t detalheSize, uint8_t *response, uint16_t responseSize,
+                                      uint16_t *responseLen);
+static commReturn_t Comm_MontaResultado(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados,
+                                        uint8_t dadosSize, uint8_t *response, uint16_t responseSize,
+                                        uint16_t *responseLen);
 static void Comm_GuardaResposta(uint8_t seq, const uint8_t *response, uint16_t responseLen);
 
 /***********************************************************************************************************************
@@ -125,6 +135,16 @@ commReturn_t Comm_Init(void)
 	comm.pendingSeq       = 0U;
 
 	return Comm_Reset();
+}
+
+/***********************************************************************************************************************
+ * @brief      Registra a consulta de rotina em execucao: enquanto ela devolver 1, so PING, ROUTINE_STATUS, ABORT e
+ *             retransmissoes sao atendidos; os outros comandos recebem NACK OCUPADO.
+ * @param[in]  busyCheck  Consulta (NULL desliga)
+ **********************************************************************************************************************/
+void Comm_SetBusyCheck(uint8_t (*busyCheck)(void))
+{
+	commBusyCheck = busyCheck;
 }
 
 commReturn_t Comm_Reset(void)
@@ -287,12 +307,15 @@ commReturn_t Comm_BuildFrame(uint8_t seq, uint8_t cmd, const uint8_t *payload, u
  *             - mesmo SEQ do pendente: retransmissao, nada a responder (a resposta sai no Comm_BuildResult);
  *             - PING: atendido normalmente;
  *             - outro comando: NACK OCUPADO, sem guardar no cache (um novo envio desse SEQ sera executado).
+ *             ROUTINE_STATUS e ABORT voltam DIRECT, mesmo com um pendente ou uma rotina em execucao: quem chamou
+ *             atende e monta a resposta com o Comm_BuildDirect. Durante uma rotina (Comm_SetBusyCheck), os
+ *             demais comandos tambem recebem OCUPADO.
  * @param[in]  frame         Quadro recebido e validado pelo Comm_ProcessByte
  * @param[out] response      Onde a resposta e montada (quando houver)
  * @param[in]  responseSize  Capacidade do buffer de resposta
  * @param[out] responseLen   Tamanho da resposta montada (0 em FORWARD e IGNORED)
  * @return     eCOMM_RETURN_OK (resposta nova), eCOMM_RETURN_RESENT (resposta guardada), eCOMM_RETURN_FORWARD,
- *             eCOMM_RETURN_IGNORED, eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR
+ *             eCOMM_RETURN_DIRECT, eCOMM_RETURN_IGNORED, eCOMM_RETURN_INVALID_ARGUMENT ou eCOMM_RETURN_ERROR
  **********************************************************************************************************************/
 commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint16_t responseSize,
                                uint16_t *responseLen)
@@ -339,10 +362,17 @@ commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint
 		return ret;
 	}
 
-	// Outro comando enquanto um esta executando: recusa, sem guardar no cache
-	if (comm.hasPending != 0U)
+	// Consulta e interrupcao da rotina: atendidas por quem chamou, mesmo durante a execucao
+	if ((frame->cmd == dCOMM_CMD_ROUTINE_STATUS) || (frame->cmd == dCOMM_CMD_ABORT))
 	{
-		return Comm_RespondeNack(frame->seq, frame->cmd, eCOMM_ERROR_OCUPADO, response, responseSize, responseLen);
+		return eCOMM_RETURN_DIRECT;
+	}
+
+	// Outro comando enquanto um esta executando, ou durante uma rotina: recusa, sem guardar no cache
+	if ((comm.hasPending != 0U) || ((commBusyCheck != NULL) && (commBusyCheck() != 0U)))
+	{
+		return Comm_RespondeNack(frame->seq, frame->cmd, eCOMM_ERROR_OCUPADO, NULL, 0U, response, responseSize,
+		                         responseLen);
 	}
 
 	// Demais comandos: quem executa e o Exec; a resposta e montada no Comm_BuildResult
@@ -354,7 +384,7 @@ commReturn_t Comm_ProcessFrame(const commFrame_t *frame, uint8_t *response, uint
 
 /***********************************************************************************************************************
  * @brief      Monta a resposta de um comando repassado, a partir do resultado da execucao.
- * @details    erro 0 -> ACK (CMD | 0x80) com os dados; senao NACK [cmd, erro]. Guarda a resposta no cache de SEQ
+ * @details    erro 0 -> ACK (CMD | 0x80) com os dados; senao NACK [cmd, erro, dados]. Guarda a resposta no cache de SEQ
  *             e libera o pendente. Resultado que nao e do comando pendente (ex.: chegou depois de uma sessao nova)
  *             e descartado.
  * @param[in]  seq, cmd   SEQ e CMD do comando executado
@@ -381,22 +411,35 @@ commReturn_t Comm_BuildResult(uint8_t seq, uint8_t cmd, uint8_t erro, const uint
 		return eCOMM_RETURN_ERROR;
 	}
 
-	if (erro == 0U)
-	{
-		ret = Comm_BuildFrame(seq, (uint8_t)(cmd | dCOMM_ACK_FLAG), dados, dadosSize, response, responseSize, responseLen);
-	}
-	else
-	{
-		ret = Comm_RespondeNack(seq, cmd, (commError_t)erro, response, responseSize, responseLen);
-	}
+	ret = Comm_MontaResultado(seq, cmd, erro, dados, dadosSize, response, responseSize, responseLen);
 
 	if (ret == eCOMM_RETURN_OK)
 	{
-		Comm_GuardaResposta(seq, response, *responseLen);
 		comm.hasPending = 0U;
 	}
 
 	return ret;
+}
+
+/***********************************************************************************************************************
+ * @brief      Monta a resposta de um comando DIRECT (ROUTINE_STATUS, ABORT), atendido por quem chamou.
+ * @details    Como o Comm_BuildResult, mas sem comando pendente: a resposta vai para o cache de SEQ (uma
+ *             retransmissao recebe a mesma resposta) e um pendente que exista continua pendente.
+ * @param[in]  seq, cmd, erro, dados, dadosSize  Como no Comm_BuildResult
+ * @param[out] response, responseSize, responseLen  Como no Comm_ProcessFrame
+ * @return     eCOMM_RETURN_OK ou eCOMM_RETURN_INVALID_ARGUMENT
+ **********************************************************************************************************************/
+commReturn_t Comm_BuildDirect(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados, uint8_t dadosSize,
+                              uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+{
+	if ((response == NULL) || (responseLen == NULL) || ((dados == NULL) && (dadosSize > 0U)))
+	{
+		return eCOMM_RETURN_INVALID_ARGUMENT;
+	}
+
+	*responseLen = 0U;
+
+	return Comm_MontaResultado(seq, cmd, erro, dados, dadosSize, response, responseSize, responseLen);
 }
 
 /***********************************************************************************************************************
@@ -450,14 +493,57 @@ static commReturn_t Comm_RespondePing(uint8_t seq, uint8_t *response, uint16_t r
 }
 
 /***********************************************************************************************************************
- * @brief      NACK: payload com o comando recusado e o codigo do erro.
+ * @brief      NACK: payload com o comando recusado, o codigo do erro e, se houver, o detalhe (ex.: indice do passo).
  **********************************************************************************************************************/
-static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error,
-                                      uint8_t *response, uint16_t responseSize, uint16_t *responseLen)
+static commReturn_t Comm_RespondeNack(uint8_t seq, uint8_t cmd, commError_t error, const uint8_t *detalhe,
+                                      uint8_t detalheSize, uint8_t *response, uint16_t responseSize,
+                                      uint16_t *responseLen)
 {
-	const uint8_t payload[] = {cmd, (uint8_t)error};
+	// static: fora da stack da CommTask (so ela monta respostas)
+	static uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
 
-	return Comm_BuildFrame(seq, dCOMM_CMD_NACK, payload, sizeof(payload), response, responseSize, responseLen);
+	if (detalheSize > (dCOMM_PAYLOAD_MAX_SIZE - 2U))
+	{
+		return eCOMM_RETURN_INVALID_ARGUMENT;
+	}
+
+	payload[0] = cmd;
+	payload[1] = (uint8_t)error;
+
+	if (detalheSize > 0U)
+	{
+		memcpy(&payload[2], detalhe, detalheSize);
+	}
+
+	return Comm_BuildFrame(seq, dCOMM_CMD_NACK, payload, (uint8_t)(2U + detalheSize), response, responseSize,
+	                       responseLen);
+}
+
+/***********************************************************************************************************************
+ * @brief      ACK (erro 0) com os dados ou NACK com os dados como detalhe; guarda a resposta no cache de SEQ.
+ **********************************************************************************************************************/
+static commReturn_t Comm_MontaResultado(uint8_t seq, uint8_t cmd, uint8_t erro, const uint8_t *dados,
+                                        uint8_t dadosSize, uint8_t *response, uint16_t responseSize,
+                                        uint16_t *responseLen)
+{
+	commReturn_t ret;
+
+	if (erro == 0U)
+	{
+		ret = Comm_BuildFrame(seq, (uint8_t)(cmd | dCOMM_ACK_FLAG), dados, dadosSize, response, responseSize,
+		                      responseLen);
+	}
+	else
+	{
+		ret = Comm_RespondeNack(seq, cmd, (commError_t)erro, dados, dadosSize, response, responseSize, responseLen);
+	}
+
+	if (ret == eCOMM_RETURN_OK)
+	{
+		Comm_GuardaResposta(seq, response, *responseLen);
+	}
+
+	return ret;
 }
 
 /***********************************************************************************************************************

@@ -8,7 +8,11 @@ on:
       - "Software/**"
       - "DUT_ESP32S3/**"
       - "projeto/App/Test/Unity/**"
-      - "projeto/App/System/Inc/Version.h"
+      - "projeto/App/Exec/**"
+      - "projeto/App/System/**"
+      - "projeto/App/Comm/Inc/**"
+      - "projeto/App/Test/Suites/Test_Exec.c"
+      - "projeto/App/Test/host/**"
       - "CHANGELOG.md"
       - ".github/workflows/software.yml"
   pull_request:
@@ -16,7 +20,11 @@ on:
       - "Software/**"
       - "DUT_ESP32S3/**"
       - "projeto/App/Test/Unity/**"
-      - "projeto/App/System/Inc/Version.h"
+      - "projeto/App/Exec/**"
+      - "projeto/App/System/**"
+      - "projeto/App/Comm/Inc/**"
+      - "projeto/App/Test/Suites/Test_Exec.c"
+      - "projeto/App/Test/host/**"
       - "CHANGELOG.md"
       - ".github/workflows/software.yml"
 
@@ -41,3 +49,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sh DUT_ESP32S3/test_host/rodar.sh
+
+  # Exec e Rotina (Test_Exec.c) compilados no PC com o Unity e os perifericos falsos da suite
+  firmware-host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh projeto/App/Test/host/rodar.sh

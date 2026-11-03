@@ -20,11 +20,14 @@
  *     o 1o byte ja esta no FIFO antes do 1o clock do DUT. Na subida do CS: esvazia o FIFO de recepcao, entrega o
  *     recebido ao SpiBus, reseta o SPI2 pelo RCC (unico jeito de limpar o FIFO de transmissao do F7) e rearma.
  *   - Um byte por interrupcao: o clock do DUT como mestre deve ficar em ate ~1 MHz.
- *   - Define o EXTI9_5_IRQHandler e o HAL_GPIO_EXTI_Callback: se outro modulo precisar de EXTI, unificar aqui.
+ *   - Define o EXTI9_5_IRQHandler e o HAL_GPIO_EXTI_Callback: as bordas de outros pinos (entradas do ESPERA_GPIO)
+ *     sao repassadas ao BspTempo_Borda.
  *   - Desligado (boot e RESET_ALL) = HAL_SPI_DeInit: pinos soltos e PD7 como saida em nivel alto (CS inativo).
  *
  *   Changelog
  *   @version      <b>1.0.0 - 28/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 03/11/2026</b> \n Luiz Neto \n HAL_GPIO_EXTI_Callback repassa as bordas das entradas
+ *                 ao BspTempo_Borda (ESPERA_GPIO das rotinas)
  *
  *   @copyright
  *   @{
@@ -36,6 +39,7 @@
 
 #include "Bsp_Spi.h"
 #include "SpiBus.h"
+#include "Bsp_Tempo.h"
 #include "DebugLog.h"
 #include "spi.h"
 #include "main.h"
@@ -126,11 +130,18 @@ void EXTI9_5_IRQHandler(void)
 
 /***********************************************************************************************************************
  * @brief      Borda no CS do DUT: descida seleciona a escrava; subida encerra a transacao.
+ * @details    Borda de outro pino e de uma entrada monitorada pelo ESPERA_GPIO: vai para o BspTempo_Borda.
  * @param[in]  GPIO_Pin  Pino que gerou a interrupcao
  **********************************************************************************************************************/
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if ((GPIO_Pin != SPI_CS_Pin) || (bspSpi.escravo == 0U))
+	if (GPIO_Pin != SPI_CS_Pin)
+	{
+		BspTempo_Borda(GPIO_Pin);
+		return;
+	}
+
+	if (bspSpi.escravo == 0U)
 	{
 		return;
 	}
