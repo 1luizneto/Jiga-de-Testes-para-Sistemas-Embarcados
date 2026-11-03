@@ -14,8 +14,9 @@ software e os casos de teste enviados para a placa usam os dois para saber o
 resultado esperado no DebugLog e a resposta esperada no USB.
 
 Respostas da jiga (Apendice A): ACK = mesmo SEQ, CMD | 0x80, payload com os
-dados; NACK = mesmo SEQ, CMD 0xFF, payload [comando recusado, codigo do erro].
-Quadro com CRC errado ou LEN invalido nao tem resposta.
+dados; NACK = mesmo SEQ, CMD 0xFF, payload [comando recusado, codigo do erro] e,
+no ROTINA_INVALIDA, o indice do passo. Quadro com CRC errado ou LEN invalido nao
+tem resposta.
 """
 
 from dataclasses import dataclass, field
@@ -33,6 +34,10 @@ CRC_POLINOMIO = 0x1021
 # Comandos ja implementados no firmware (os demais entram com o Apendice A)
 CMD_PING = 0x01
 CMD_RESET_ALL = 0x02
+CMD_RUN_ROUTINE = 0x08
+CMD_ROUTINE_STATUS = 0x09
+CMD_READ_RESULT = 0x0A
+CMD_ABORT = 0x0B
 CMD_DAC_SET = 0x10
 CMD_GPIO_SET = 0x20
 CMD_GPIO_READ = 0x21
@@ -58,7 +63,8 @@ FLAG_ACK = 0x80
 CMD_INEXISTENTE = 0x55
 
 NOMES_COMANDO = {
-    CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_DAC_SET: "DAC_SET",
+    CMD_PING: "PING", CMD_RESET_ALL: "RESET_ALL", CMD_RUN_ROUTINE: "RUN_ROUTINE",
+    CMD_ROUTINE_STATUS: "ROUTINE_STATUS", CMD_READ_RESULT: "READ_RESULT", CMD_ABORT: "ABORT", CMD_DAC_SET: "DAC_SET",
     CMD_GPIO_SET: "GPIO_SET", CMD_GPIO_READ: "GPIO_READ", CMD_PWM_SET: "PWM_SET",
     CMD_PWM_STOP: "PWM_STOP", CMD_ADC_READ: "ADC_READ", CMD_I2C_CONFIG: "I2C_CONFIG",
     CMD_I2C_SLAVE_LOAD: "I2C_SLAVE_LOAD", CMD_I2C_SLAVE_DUMP: "I2C_SLAVE_DUMP",
@@ -133,6 +139,28 @@ UART_BAUD_MAX = 1_000_000
 UART_TAMANHO_RX = 256
 UART_TAMANHO_MAX = 239           # maior WRITE e maior READ: [quantidade][dados] cabe nos 240 bytes
 
+# Rotinas (Apendice A): RUN_ROUTINE [identificador u16][tempo maximo ms u32][numero de passos u8][passos].
+# Cada passo e o codigo de um comando direto seguido do payload dele; ESPERA e ESPERA_GPIO so existem em rotina.
+# A jiga valida a rotina inteira antes de executar (NACK ROTINA_INVALIDA com o indice do passo, ou 0xFF quando o
+# erro e do cabecalho ou de bytes sobrando), responde o ACK e executa; o PC acompanha com ROUTINE_STATUS e le os
+# registros com READ_RESULT. Cada passo de aquisicao gera [indice u8][instante us u32][quantidade u8][dados]
+PASSO_ESPERA = 0x78
+PASSO_ESPERA_GPIO = 0x79
+NOMES_PASSO = {PASSO_ESPERA: "ESPERA", PASSO_ESPERA_GPIO: "ESPERA_GPIO"}
+ROTINA_CABECALHO = 7
+ROTINA_PASSOS_MAX = PAYLOAD_MAX - ROTINA_CABECALHO
+ROTINA_TEMPO_MAX_MS = 3_600_000          # 1 h: em us cabe nos 32 bits do TIM5 (~71 min ate dar a volta)
+ROTINA_RESULTADOS_MAX = 2048
+ROTINA_REGISTRO_CABECALHO = 6
+ROTINA_LEITURA_MAX = 236                 # bytes de resultados por READ_RESULT
+ROTINA_INDICE_CABECALHO = 0xFF
+ROTINA_ENTRADAS = (5, 6, 7, 8)           # ESPERA_GPIO: GPIO5 a GPIO8
+GPIO_OCORREU, GPIO_ESGOTOU = 0, 1        # resultado do ESPERA_GPIO
+ESTADO_OCIOSA, ESTADO_EM_EXECUCAO, ESTADO_CONCLUIDA = 0, 1, 2
+ESTADO_ABORTADA, ESTADO_TEMPO_ESGOTADO, ESTADO_ERRO = 3, 4, 5
+ESTADOS_ROTINA = {0: "OCIOSA", 1: "EM_EXECUCAO", 2: "CONCLUIDA", 3: "ABORTADA", 4: "TEMPO_ESGOTADO", 5: "ERRO"}
+ESTADOS_FINAIS = (ESTADO_CONCLUIDA, ESTADO_ABORTADA, ESTADO_TEMPO_ESGOTADO, ESTADO_ERRO)
+
 # Loopback dos casos CT10, CT11 e CT13 (jumpers na placa): DAC1 (PA4) -> A0 (PA3), DAC2 (PA5) -> A1 (PC0),
 # GPIO1-4 (PC8-PC11) -> GPIO5-8 (PC12, PD2, PG2, PG3), MOSI (PB15) -> MISO (PC2) e TX (PD1) -> RX (PD0)
 LOOPBACK_DAC_ADC = {1: 0, 2: 1}
@@ -153,6 +181,8 @@ ERRO_PARAMETRO_INVALIDO = 0x02
 ERRO_NAO_CONFIGURADO = 0x03
 ERRO_PERIFERICO = 0x06
 ERRO_OCUPADO = 0x07
+ERRO_ROTINA_INVALIDA = 0x08
+ERRO_SEM_RESULTADO = 0x09
 CODIGOS_ERRO = {
     0x01: "CMD_DESCONHECIDO",
     0x02: "PARAMETRO_INVALIDO",
@@ -286,8 +316,9 @@ def montar_ack(seq, cmd, dados=b""):
     return montar_quadro(seq, cmd | FLAG_ACK, dados)
 
 
-def montar_nack(seq, cmd, erro):
-    return montar_quadro(seq, CMD_NACK, bytes([cmd, erro]))
+def montar_nack(seq, cmd, erro, detalhe=b""):
+    """NACK [cmd][erro][detalhe]: o detalhe so existe no ROTINA_INVALIDA (indice do passo)."""
+    return montar_quadro(seq, CMD_NACK, bytes([cmd, erro]) + bytes(detalhe))
 
 
 def montar_ack_ping(seq, versao=__version__):
@@ -423,6 +454,209 @@ def montar_uart_read(seq, maximo=UART_TAMANHO_MAX):
     return montar_quadro(seq, CMD_UART_READ, bytes([maximo]))
 
 
+# --- rotinas ---------------------------------------------------------------------------------------------
+
+def passo(quadro):
+    """Passo de rotina a partir do quadro de um comando direto: [codigo][payload] (sem SOF, LEN, SEQ e CRC)."""
+    return bytes([quadro[3]]) + bytes(quadro[4:-2])
+
+
+def passo_espera(duracao_us):
+    """ESPERA: [0x78][duracao em us (u32)]."""
+    return bytes([PASSO_ESPERA]) + int(duracao_us).to_bytes(4, "little")
+
+
+def passo_espera_gpio(entrada, nivel, limite_us):
+    """ESPERA_GPIO: [0x79][entrada 5-8][nivel][tempo limite em us (u32)]."""
+    return bytes([PASSO_ESPERA_GPIO, entrada, nivel]) + int(limite_us).to_bytes(4, "little")
+
+
+def montar_rotina(identificador, tempo_max_ms, passos):
+    """Payload do RUN_ROUTINE; ValueError se nao couber em um quadro (sem validar os passos: a jiga valida)."""
+    if not 0 <= identificador <= 0xFFFF or not 0 <= tempo_max_ms <= 0xFFFF_FFFF or len(passos) > 0xFF:
+        raise ValueError("identificador u16, tempo maximo u32 e ate 255 passos")
+    corpo = b"".join(bytes(p) for p in passos)
+    payload = identificador.to_bytes(2, "little") + tempo_max_ms.to_bytes(4, "little") + bytes([len(passos)]) + corpo
+    if len(payload) > PAYLOAD_MAX:
+        raise ValueError(f"rotina com {len(payload)} B; cabem {PAYLOAD_MAX} B ({ROTINA_PASSOS_MAX} B de passos)")
+    return payload
+
+
+def montar_run_routine(seq, identificador, tempo_max_ms, passos):
+    return montar_quadro(seq, CMD_RUN_ROUTINE, montar_rotina(identificador, tempo_max_ms, passos))
+
+
+def montar_routine_status(seq):
+    return montar_quadro(seq, CMD_ROUTINE_STATUS)
+
+
+def montar_read_result(seq, offset=0):
+    if not 0 <= offset <= 0xFFFF:
+        raise ValueError("offset precisa caber em 2 bytes")
+    return montar_quadro(seq, CMD_READ_RESULT, offset.to_bytes(2, "little"))
+
+
+def montar_abort(seq):
+    return montar_quadro(seq, CMD_ABORT)
+
+
+def _le32(dados, i):
+    return int.from_bytes(dados[i:i + 4], "little")
+
+
+def tamanho_passo(passos, i):
+    """Espelho do Rotina_ValidaPasso: (tamanho, maior registro) do passo em passos[i], ou None se invalido."""
+    disponivel = len(passos) - i
+    fixos = {CMD_DAC_SET: 4, CMD_GPIO_SET: 3, CMD_GPIO_READ: 1, CMD_PWM_SET: 8, CMD_PWM_STOP: 2, CMD_ADC_READ: 2,
+             CMD_I2C_CONFIG: 4, CMD_I2C_SLAVE_LOAD: 3, CMD_I2C_SLAVE_DUMP: 3, CMD_I2C_MASTER_XFER: 4,
+             CMD_SPI_CONFIG: 7, CMD_SPI_SLAVE_LOAD: 2, CMD_SPI_SLAVE_READ: 1, CMD_SPI_MASTER_XFER: 2,
+             CMD_UART_CONFIG: 5, CMD_UART_WRITE: 2, CMD_UART_READ: 2, PASSO_ESPERA: 5, PASSO_ESPERA_GPIO: 7}
+    if disponivel <= 0 or passos[i] not in fixos or fixos[passos[i]] > disponivel:
+        return None
+    p, t, registro = passos[i:], fixos[passos[i]], 0
+    cmd = p[0]
+    if cmd == CMD_DAC_SET:
+        valido = p[1] in DAC_CANAIS and int.from_bytes(p[2:4], "little") <= DAC_VALOR_MAX
+    elif cmd == CMD_GPIO_SET:
+        valido = p[1] in GPIO_SAIDAS and p[2] in GPIO_NIVEIS
+    elif cmd == CMD_GPIO_READ:
+        valido, registro = True, 1
+    elif cmd == CMD_PWM_SET:
+        valido = (p[1] in PWM_CANAIS and PWM_FREQUENCIA_MIN <= _le32(p, 2) <= PWM_FREQUENCIA_MAX
+                  and int.from_bytes(p[6:8], "little") <= PWM_RAZAO_MAX)
+    elif cmd == CMD_PWM_STOP:
+        valido = p[1] in PWM_CANAIS
+    elif cmd == CMD_ADC_READ:
+        valido, registro = p[1] in ADC_CANAIS, 3
+    elif cmd == CMD_I2C_CONFIG:
+        valido = (p[1] <= I2C_PAPEL_MESTRE and p[3] in I2C_VELOCIDADES and
+                  (p[1] == I2C_PAPEL_MESTRE or I2C_ENDERECO_MIN <= p[2] <= I2C_ENDERECO_MAX))
+    elif cmd == CMD_I2C_SLAVE_LOAD:
+        valido, t = p[2] > 0 and p[1] + p[2] <= I2C_TAMANHO_MAPA, t + p[2]
+    elif cmd == CMD_I2C_SLAVE_DUMP:
+        valido, registro = 0 < p[2] <= PAYLOAD_MAX and p[1] + p[2] <= I2C_TAMANHO_MAPA, p[2]
+    elif cmd == CMD_I2C_MASTER_XFER:
+        valido = I2C_ENDERECO_MIN <= p[1] <= I2C_ENDERECO_MAX and (p[2] or p[3]) and p[3] <= PAYLOAD_MAX
+        t, registro = t + p[2], p[3]
+    elif cmd == CMD_SPI_CONFIG:
+        valido = p[1] <= SPI_PAPEL_MESTRE and p[2] <= SPI_MODO_MAX
+    elif cmd == CMD_SPI_SLAVE_LOAD:
+        valido, t = p[1] <= SPI_TAMANHO_BUFFER, t + p[1]
+    elif cmd == CMD_SPI_SLAVE_READ:
+        valido, registro = True, 1 + SPI_TAMANHO_BUFFER
+    elif cmd == CMD_SPI_MASTER_XFER:
+        valido, t, registro = 0 < p[1] <= SPI_TAMANHO_BUFFER, t + p[1], p[1]
+    elif cmd == CMD_UART_CONFIG:
+        valido = UART_BAUD_MIN <= _le32(p, 1) <= UART_BAUD_MAX
+    elif cmd == CMD_UART_WRITE:
+        valido, t = 0 < p[1] <= UART_TAMANHO_MAX, t + p[1]
+    elif cmd == CMD_UART_READ:
+        valido, registro = p[1] <= UART_TAMANHO_MAX, 1 + p[1]
+    elif cmd == PASSO_ESPERA:
+        valido = True
+    else:
+        valido, registro = p[1] in ROTINA_ENTRADAS and p[2] in GPIO_NIVEIS, 5
+    if not valido or t > disponivel:
+        return None
+    return t, registro
+
+
+def separar_passos(passos):
+    """Bytes dos passos -> lista de passos (pelo tamanho de cada um); ValueError no passo que nao fecha."""
+    lista, i = [], 0
+    while i < len(passos):
+        medida = tamanho_passo(passos, i)
+        if medida is None:
+            raise ValueError(f"passo {len(lista)} invalido ou truncado (byte {i})")
+        lista.append(passos[i:i + medida[0]])
+        i += medida[0]
+    return lista
+
+
+def validar_rotina(payload):
+    """Espelho do Rotina_Carrega: (None, passos decodificados) se valida; senao (indice, None).
+
+    Cada passo decodificado e (codigo, parametros). O indice e o do passo invalido, ou ROTINA_INDICE_CABECALHO.
+    """
+    payload = bytes(payload)
+    if len(payload) < ROTINA_CABECALHO:
+        return ROTINA_INDICE_CABECALHO, None
+    tempo, quantidade = _le32(payload, 2), payload[6]
+    if quantidade == 0 or not 0 < tempo <= ROTINA_TEMPO_MAX_MS:
+        return ROTINA_INDICE_CABECALHO, None
+    passos, i, registros = [], ROTINA_CABECALHO, 0
+    for indice in range(quantidade):
+        medida = tamanho_passo(payload, i)
+        if medida is None:
+            return indice, None
+        tamanho, registro = medida
+        if registro:
+            registros += ROTINA_REGISTRO_CABECALHO + registro
+            if registros > ROTINA_RESULTADOS_MAX:
+                return indice, None
+        passos.append((payload[i], payload[i + 1:i + tamanho]))
+        i += tamanho
+    if i != len(payload):
+        return ROTINA_INDICE_CABECALHO, None
+    return None, passos
+
+
+@dataclass
+class StatusRotina:
+    """Payload do ACK do ROUTINE_STATUS."""
+
+    estado: int
+    passos: int
+    identificador: int
+    erro: int
+
+    @classmethod
+    def de_bytes(cls, dados):
+        if len(dados) != 5:
+            raise ValueError(f"ROUTINE_STATUS com {len(dados)} B; esperado 5")
+        return cls(dados[0], dados[1], int.from_bytes(dados[2:4], "little"), dados[4])
+
+    def em_bytes(self):
+        return bytes([self.estado, self.passos]) + self.identificador.to_bytes(2, "little") + bytes([self.erro])
+
+    @property
+    def finalizada(self):
+        return self.estado in ESTADOS_FINAIS
+
+    def descrever(self):
+        texto = f"rotina {self.identificador}: {ESTADOS_ROTINA.get(self.estado, self.estado)}, {self.passos} passo(s)"
+        if self.erro:
+            texto += f", erro {CODIGOS_ERRO.get(self.erro, self.erro)}"
+        return texto
+
+
+@dataclass
+class Registro:
+    """Registro de um passo de aquisicao: indice do passo, instante desde o inicio da rotina (us) e dados."""
+
+    indice: int
+    instante_us: int
+    dados: bytes
+
+    def em_bytes(self):
+        return bytes([self.indice]) + self.instante_us.to_bytes(4, "little") + bytes([len(self.dados)]) + self.dados
+
+
+def interpretar_resultados(dados):
+    """Area de resultados (todos os READ_RESULT juntos) -> lista de Registro; ValueError se truncada."""
+    registros, i = [], 0
+    while i < len(dados):
+        if i + ROTINA_REGISTRO_CABECALHO > len(dados):
+            raise ValueError("registro truncado")
+        quantidade = dados[i + 5]
+        fim = i + ROTINA_REGISTRO_CABECALHO + quantidade
+        if fim > len(dados):
+            raise ValueError("dados do registro truncados")
+        registros.append(Registro(dados[i], _le32(dados, i + 1), bytes(dados[i + 6:fim])))
+        i = fim
+    return registros
+
+
 def spi_divisor(frequencia):
     """Espelho do SpiBus_Divisor: menor divisor cuja frequencia nao passa da pedida; ValueError se nao houver."""
     for divisor in SPI_DIVISORES:
@@ -503,13 +737,16 @@ class Resposta:
     seq: int
     ack: bool
     cmd: int            # comando ao qual a jiga respondeu
-    dados: bytes = b""  # payload do ACK
+    dados: bytes = b""  # payload do ACK (no NACK, o detalhe depois do codigo do erro)
     erro: int = 0       # codigo do erro, no NACK
 
     def descrever(self):
         if not self.ack:
             nome = CODIGOS_ERRO.get(self.erro, f"0x{self.erro:02X}")
-            return f"NACK {nome_comando(self.cmd)} SEQ={self.seq}: {nome}"
+            texto = f"NACK {nome_comando(self.cmd)} SEQ={self.seq}: {nome}"
+            if self.erro == ERRO_ROTINA_INVALIDA and len(self.dados) == 1:
+                texto += " (cabecalho)" if self.dados[0] == ROTINA_INDICE_CABECALHO else f" (passo {self.dados[0]})"
+            return texto
         texto = f"ACK {nome_comando(self.cmd)} SEQ={self.seq}"
         if self.cmd == CMD_PING and len(self.dados) == 4:
             protocolo, maior, menor, correcao = self.dados
@@ -522,6 +759,11 @@ class Resposta:
             canal, valor = self.dados[0], int.from_bytes(self.dados[1:3], "little")
             tensao = f"{codigo_para_tensao(valor):.3f}".replace(".", ",")
             texto += f" canal {canal} = {valor} ({tensao} V)"
+        elif self.cmd == CMD_ROUTINE_STATUS and len(self.dados) == 5:
+            texto += " " + StatusRotina.de_bytes(self.dados).descrever()
+        elif self.cmd == CMD_READ_RESULT and len(self.dados) >= 4:
+            texto += (f" rotina {int.from_bytes(self.dados[0:2], 'little')}: {len(self.dados) - 4} B de "
+                      f"{int.from_bytes(self.dados[2:4], 'little')} B de resultados")
         elif self.cmd in (CMD_SPI_SLAVE_READ, CMD_UART_READ) and self.dados and self.dados[0] == len(self.dados) - 1:
             texto += f" {self.dados[0]} B do DUT"
             if self.dados[0]:
@@ -534,9 +776,10 @@ class Resposta:
 def interpretar_resposta(quadro):
     """Converte um Quadro vindo da jiga em Resposta; ValueError se nao for ACK nem NACK valido."""
     if quadro.cmd == CMD_NACK:
-        if len(quadro.payload) != 2:
+        if len(quadro.payload) < 2:
             raise ValueError(f"NACK com {len(quadro.payload)} B de payload; esperado [cmd, erro]")
-        return Resposta(seq=quadro.seq, ack=False, cmd=quadro.payload[0], erro=quadro.payload[1])
+        return Resposta(seq=quadro.seq, ack=False, cmd=quadro.payload[0], erro=quadro.payload[1],
+                        dados=bytes(quadro.payload[2:]))
     if quadro.cmd & FLAG_ACK:
         return Resposta(seq=quadro.seq, ack=True, cmd=quadro.cmd & ~FLAG_ACK, dados=quadro.payload)
     raise ValueError(f"CMD 0x{quadro.cmd:02X} nao e ACK nem NACK")
@@ -586,6 +829,12 @@ class JigaSimulada:
     dele entra no buffer da UART; o DUT mestre le e escreve a jiga escrava (i2c_mestre_externo,
     spi_mestre_externo) e a jiga mestra le e escreve o DUT escravo.
 
+    Rotinas: RUN_ROUTINE valida (validar_rotina), responde o ACK e comeca a executar no relogio simulado
+    ('relogio_us'): os passos sem espera levam 0 us e o relogio so anda com avancar() (os passos "esperar" dos
+    casos). ROUTINE_STATUS e ABORT sao atendidos na hora; durante a rotina os outros comandos recebem OCUPADO.
+    O ESPERA_GPIO confere a entrada no inicio: no nivel, registra na hora; senao, ninguem muda a entrada durante
+    a espera (os estimulos sao da propria rotina) e ela esgota o tempo limite.
+
     Como no firmware, o resultado do pendente so e respondido depois do bloco de bytes inteiro
     (TAMANHO_BLOCO_RX): por isso um comando que chega junto recebe OCUPADO antes.
 
@@ -614,6 +863,10 @@ class JigaSimulada:
     uart_baud: int = None
     uart_rx: bytearray = field(default_factory=bytearray)
     dut: DutSimulado = None
+    relogio_us: int = 0
+    rotina: StatusRotina = field(default_factory=lambda: StatusRotina(ESTADO_OCIOSA, 0, 0, 0))
+    rotina_resultados: bytearray = field(default_factory=bytearray)
+    _execucao: dict = None             # rotina em execucao: passos, proximo, inicio, limite e a espera atual
 
     def __post_init__(self):
         if self.dut is not None:
@@ -638,10 +891,120 @@ class JigaSimulada:
             return self.ultima_resposta
         if quadro.cmd == CMD_PING:
             return self._guardar(quadro.seq, montar_ack_ping(quadro.seq))
-        if self.pendente is not None:
+        if quadro.cmd in (CMD_ROUTINE_STATUS, CMD_ABORT):
+            return self._guardar(quadro.seq, self._responder_rotina(quadro))
+        if self.pendente is not None or self.rotina.estado == ESTADO_EM_EXECUCAO:
             return montar_nack(quadro.seq, quadro.cmd, ERRO_OCUPADO)
         self.pendente = quadro
         return b""
+
+    def _responder_rotina(self, quadro):
+        """Equivale ao CommTask_RespondeRotina: ROUTINE_STATUS e ABORT, sem payload."""
+        if quadro.payload:
+            return montar_nack(quadro.seq, quadro.cmd, ERRO_PARAMETRO_INVALIDO)
+        if quadro.cmd == CMD_ROUTINE_STATUS:
+            return montar_ack(quadro.seq, CMD_ROUTINE_STATUS, self.rotina.em_bytes())
+        if self.rotina.estado == ESTADO_EM_EXECUCAO:
+            self._finalizar_rotina(ESTADO_ABORTADA)
+        return montar_ack(quadro.seq, CMD_ABORT)
+
+    def _estado_seguro(self):
+        """Exec_SafeState: DAC 0, GPIO baixo, PWM parado, I2C/SPI/UART desligados (mapa e buffers vazios)."""
+        self.dac = {canal: 0 for canal in DAC_CANAIS}
+        self.gpio = {pino: 0 for pino in GPIO_SAIDAS}
+        self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
+        self.i2c_papel, self.i2c_endereco, self.i2c_ponteiro = None, None, 0
+        self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
+        self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
+        self.uart_baud, self.uart_rx = None, bytearray()
+
+    def _carregar_rotina(self, payload):
+        """Rotina_Carrega: (0, b"") e a rotina comeca, ou (ROTINA_INVALIDA, indice)."""
+        indice, passos = validar_rotina(payload)
+        if passos is None:
+            return ERRO_ROTINA_INVALIDA, bytes([indice])
+        tempo_ms = _le32(payload, 2)
+        self.rotina = StatusRotina(ESTADO_EM_EXECUCAO, 0, int.from_bytes(payload[0:2], "little"), 0)
+        self.rotina_resultados = bytearray()
+        self._execucao = {"passos": passos, "proximo": 0, "inicio": self.relogio_us,
+                          "limite": self.relogio_us + tempo_ms * 1000, "espera": None}
+        return 0, b""
+
+    def _registrar(self, indice, instante, dados):
+        self.rotina_resultados += Registro(indice, instante - self._execucao["inicio"], bytes(dados)).em_bytes()
+
+    def _finalizar_rotina(self, estado, erro=0):
+        """Rotina_Finaliza: estado seguro e so depois o estado final."""
+        self._estado_seguro()
+        self.rotina = StatusRotina(estado, self.rotina.passos, self.rotina.identificador, erro)
+        self._execucao = None
+
+    def _rodar_rotina(self):
+        """Executa os passos a partir do relogio atual, ate o fim ou ate uma espera que ainda nao terminou."""
+        while self._execucao is not None:
+            ex = self._execucao
+            if ex["espera"] is not None:
+                fim, inicio_passo, limitado, gpio = ex["espera"]
+                if self.relogio_us < fim:
+                    return
+                ex["espera"] = None
+                if limitado:
+                    self._finalizar_rotina(ESTADO_TEMPO_ESGOTADO)
+                    return
+                if gpio:
+                    self._registrar(ex["proximo"], fim, bytes([GPIO_ESGOTOU]) + (fim - inicio_passo).to_bytes(4, "little"))
+                ex["proximo"] += 1
+                self.rotina.passos = ex["proximo"]
+                continue
+            if ex["proximo"] == len(ex["passos"]):
+                self._finalizar_rotina(ESTADO_CONCLUIDA)
+                return
+            if self.relogio_us >= ex["limite"]:
+                self._finalizar_rotina(ESTADO_TEMPO_ESGOTADO)
+                return
+            cmd, parametros = ex["passos"][ex["proximo"]]
+            agora = self.relogio_us
+            if cmd == PASSO_ESPERA:
+                fim = agora + _le32(parametros, 0)
+                ex["espera"] = (min(fim, ex["limite"]), agora, fim > ex["limite"], False)
+                continue
+            if cmd == PASSO_ESPERA_GPIO:
+                entrada, nivel, limite_gpio = parametros[0], parametros[1], _le32(parametros, 2)
+                if (self.ler_entradas() >> (entrada - ROTINA_ENTRADAS[0])) & 1 == nivel:
+                    self._registrar(ex["proximo"], agora, bytes([GPIO_OCORREU]) + bytes(4))
+                else:
+                    fim = agora + limite_gpio
+                    ex["espera"] = (min(fim, ex["limite"]), agora, fim > ex["limite"], True)
+                    continue
+            else:
+                erro, dados = self._executar(Quadro(0, cmd, bytes(parametros)))
+                if erro:
+                    self._finalizar_rotina(ESTADO_ERRO, erro)
+                    return
+                if tamanho_passo(bytes([cmd]) + bytes(parametros), 0)[1]:
+                    self._registrar(ex["proximo"], agora, dados)
+            ex["proximo"] += 1
+            self.rotina.passos = ex["proximo"]
+
+    def avancar(self, segundos):
+        """Passa o tempo no relogio simulado, executando as esperas da rotina que terminam nesse intervalo."""
+        alvo = self.relogio_us + round(segundos * 1_000_000)
+        while self._execucao is not None and self._execucao["espera"] is not None and self._execucao["espera"][0] <= alvo:
+            self.relogio_us = max(self.relogio_us, self._execucao["espera"][0])
+            self._rodar_rotina()
+        self.relogio_us = alvo
+
+    def _ler_resultado(self, payload):
+        """Rotina_LeResultado: [identificador][total][ate 236 bytes a partir do offset]."""
+        if len(payload) != 2:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        if self.rotina.estado not in ESTADOS_FINAIS:
+            return ERRO_SEM_RESULTADO, b""
+        offset, total = int.from_bytes(payload, "little"), len(self.rotina_resultados)
+        if offset > total:
+            return ERRO_PARAMETRO_INVALIDO, b""
+        parte = bytes(self.rotina_resultados[offset:offset + ROTINA_LEITURA_MAX])
+        return 0, self.rotina.identificador.to_bytes(2, "little") + total.to_bytes(2, "little") + parte
 
     def ler_entradas(self):
         """Mascara do GPIO_READ (bit 0 = GPIO5): com loopback, GPIO1-4 ligados a GPIO5-8."""
@@ -666,14 +1029,13 @@ class JigaSimulada:
         if quadro.cmd == CMD_RESET_ALL:
             if payload:
                 return ERRO_PARAMETRO_INVALIDO, b""
-            self.dac = {canal: 0 for canal in DAC_CANAIS}
-            self.gpio = {pino: 0 for pino in GPIO_SAIDAS}
-            self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
-            self.i2c_papel, self.i2c_endereco, self.i2c_ponteiro = None, None, 0
-            self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
-            self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
-            self.uart_baud, self.uart_rx = None, bytearray()
+            self.rotina, self.rotina_resultados = StatusRotina(ESTADO_OCIOSA, 0, 0, 0), bytearray()
+            self._estado_seguro()
             return 0, b""
+        if quadro.cmd == CMD_RUN_ROUTINE:
+            return self._carregar_rotina(payload)
+        if quadro.cmd == CMD_READ_RESULT:
+            return self._ler_resultado(payload)
         if quadro.cmd == CMD_DAC_SET:
             if len(payload) != 3:
                 return ERRO_PARAMETRO_INVALIDO, b""
@@ -880,8 +1242,12 @@ class JigaSimulada:
         if erro == 0:
             resposta = montar_ack(quadro.seq, quadro.cmd, dados)
         else:
-            resposta = montar_nack(quadro.seq, quadro.cmd, erro)
-        return self._guardar(quadro.seq, resposta)
+            resposta = montar_nack(quadro.seq, quadro.cmd, erro, dados)
+        self._guardar(quadro.seq, resposta)
+        # RUN_ROUTINE aceito: o ACK ja saiu; a TestExecTask executa a rotina
+        if quadro.cmd == CMD_RUN_ROUTINE and erro == 0:
+            self._rodar_rotina()
+        return resposta
 
     def processar(self, dados):
         """Retorna (resultados do parser diferentes de LENDO, bytes que a jiga responde)."""
@@ -1485,9 +1851,10 @@ def simular(caso, jiga=None):
             novos, resposta = jiga.processar(valor)
             resultados += novos
             respostas += resposta
-        elif valor * 1000 > TIMEOUT_PACOTE_MS:
-            if jiga.timeout() == TIMEOUT:
+        else:
+            if valor * 1000 > TIMEOUT_PACOTE_MS and jiga.timeout() == TIMEOUT:
                 resultados.append(TIMEOUT)
+            jiga.avancar(valor)
     return resultados, respostas
 
 
