@@ -555,3 +555,123 @@ void Test_Comm_ResultArgumentosInvalidos(void)
 	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT,
 	                  Comm_BuildResult(1, 0x10, 0, NULL, 3, resposta, sizeof(resposta), &tamResposta));
 }
+
+// Consulta de rotina em execucao falsa (Comm_SetBusyCheck)
+static uint8_t rotinaFalsaAtiva;
+
+static uint8_t RotinaFalsa_EmExecucao(void)
+{
+	return rotinaFalsaAtiva;
+}
+
+// 31. ROUTINE_STATUS e ABORT voltam DIRECT, inclusive com um comando pendente; o pendente continua pendente
+void Test_Comm_ProcessRotinaDireta(void)
+{
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x10, dCOMM_CMD_DAC_SET);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	MontaRequisicao(&frame, 0x11, dCOMM_CMD_ROUTINE_STATUS);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_DIRECT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_UINT16(0, tamResposta);
+
+	MontaRequisicao(&frame, 0x12, dCOMM_CMD_ABORT);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_DIRECT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildResult(0x10, dCOMM_CMD_DAC_SET, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta));
+}
+
+// 32. Durante uma rotina: OCUPADO para os comandos repassados; PING, ROUTINE_STATUS, ABORT e retransmissao atendidos
+void Test_Comm_ProcessOcupadoDuranteRotina(void)
+{
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint8_t nack[] = {dCOMM_CMD_RUN_ROUTINE, eCOMM_ERROR_OCUPADO};
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	Comm_SetBusyCheck(RotinaFalsa_EmExecucao);
+
+	// O RUN_ROUTINE e aceito antes da rotina comecar
+	rotinaFalsaAtiva = 0U;
+	MontaRequisicao(&frame, 0x20, dCOMM_CMD_RUN_ROUTINE);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildResult(0x20, dCOMM_CMD_RUN_ROUTINE, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta));
+	rotinaFalsaAtiva = 1U;
+
+	// Retransmissao do RUN_ROUTINE: a resposta guardada, sem reexecutar (CT18)
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_RESENT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	MontaRequisicao(&frame, 0x21, dCOMM_CMD_RUN_ROUTINE);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	tamEsperado = RespostaEsperada(esperado, 0x21, dCOMM_CMD_NACK, nack, sizeof(nack));
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+
+	MontaRequisicao(&frame, 0x22, dCOMM_CMD_PING);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	MontaRequisicao(&frame, 0x23, dCOMM_CMD_ROUTINE_STATUS);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_DIRECT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	// Fim da rotina: os comandos voltam a ser repassados (o SEQ recusado com OCUPADO pode ser reenviado)
+	rotinaFalsaAtiva = 0U;
+	MontaRequisicao(&frame, 0x21, dCOMM_CMD_DAC_SET);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	Comm_SetBusyCheck(NULL);
+}
+
+// 33. Comm_BuildDirect: ACK com os dados no cache de SEQ, sem mexer no pendente
+void Test_Comm_BuildDirect(void)
+{
+	const uint8_t status[] = {0x01, 0x02, 0x07, 0x00, 0x00};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x30, dCOMM_CMD_DAC_SET);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildDirect(0x31, dCOMM_CMD_ROUTINE_STATUS, 0, status, sizeof(status),
+	                                                    resposta, sizeof(resposta), &tamResposta));
+	tamEsperado = RespostaEsperada(esperado, 0x31, dCOMM_CMD_ROUTINE_STATUS | dCOMM_ACK_FLAG, status, sizeof(status));
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+
+	// Retransmissao do ROUTINE_STATUS: a mesma resposta
+	MontaRequisicao(&frame, 0x31, dCOMM_CMD_ROUTINE_STATUS);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_RESENT, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+
+	// O DAC_SET continua pendente
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK,
+	                  Comm_BuildResult(0x30, dCOMM_CMD_DAC_SET, 0, NULL, 0, resposta, sizeof(resposta), &tamResposta));
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_INVALID_ARGUMENT,
+	                  Comm_BuildDirect(1, dCOMM_CMD_ABORT, 0, NULL, 2, resposta, sizeof(resposta), &tamResposta));
+}
+
+// 34. NACK com detalhe: [cmd][erro][indice do passo] no ROTINA_INVALIDA
+void Test_Comm_NackComDetalhe(void)
+{
+	const uint8_t indice[] = {0x02};
+	const uint8_t nack[] = {dCOMM_CMD_RUN_ROUTINE, eCOMM_ERROR_ROTINA_INVALIDA, 0x02};
+	uint8_t esperado[dCOMM_FRAME_MAX_SIZE];
+	uint8_t resposta[dCOMM_FRAME_MAX_SIZE];
+	uint16_t tamEsperado, tamResposta = 0;
+	commFrame_t frame;
+	IniciaTeste(&frame);
+	MontaRequisicao(&frame, 0x40, dCOMM_CMD_RUN_ROUTINE);
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_FORWARD, Comm_ProcessFrame(&frame, resposta, sizeof(resposta), &tamResposta));
+
+	TEST_ASSERT_EQUAL(eCOMM_RETURN_OK, Comm_BuildResult(0x40, dCOMM_CMD_RUN_ROUTINE, eCOMM_ERROR_ROTINA_INVALIDA,
+	                                                    indice, sizeof(indice), resposta, sizeof(resposta), &tamResposta));
+	tamEsperado = RespostaEsperada(esperado, 0x40, dCOMM_CMD_NACK, nack, sizeof(nack));
+	TEST_ASSERT_EQUAL_UINT16(tamEsperado, tamResposta);
+	TEST_ASSERT_EQUAL_HEX8_ARRAY(esperado, resposta, tamEsperado);
+}
