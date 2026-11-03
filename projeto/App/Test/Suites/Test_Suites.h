@@ -103,6 +103,23 @@ void Test_Exec_UartReadValido(void);
 void Test_Exec_UartReadMaximoGrande(void);
 void Test_Exec_UartReadTamanhoErrado(void);
 void Test_Exec_ResetAllDesligaUart(void);
+void Test_Exec_RotinaExemploApendice(void);
+void Test_Exec_RotinaPassoDesconhecido(void);
+void Test_Exec_RotinaCabecalhoInvalido(void);
+void Test_Exec_RotinaEncadeamentoInvalido(void);
+void Test_Exec_RotinaParametroInvalido(void);
+void Test_Exec_RotinaResultadosDemais(void);
+void Test_Exec_RotinaOcupada(void);
+void Test_Exec_RotinaAbortDuranteEspera(void);
+void Test_Exec_RotinaTempoEsgotado(void);
+void Test_Exec_RotinaEsperaGpioEsgota(void);
+void Test_Exec_RotinaErroNoPasso(void);
+void Test_Exec_RotinaReadResultInvalido(void);
+void Test_Exec_RotinaLeituraEmPartes(void);
+void Test_Exec_RotinaResetAllLimpa(void);
+void Test_Exec_RotinaEsperaInstante(void);
+void Test_Exec_PassoInvalido(void);
+void Test_Exec_RotinaArgumentosInvalidos(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -113,6 +130,10 @@ void Test_Comm_PendenteOcupado(void);
 void Test_Comm_PendentePingAtendido(void);
 void Test_Comm_ResultInesperado(void);
 void Test_Comm_ResultArgumentosInvalidos(void);
+void Test_Comm_ProcessRotinaDireta(void);
+void Test_Comm_ProcessOcupadoDuranteRotina(void);
+void Test_Comm_BuildDirect(void);
+void Test_Comm_NackComDetalhe(void);
 
 // Testes das entradas e saidas digitais (DigitalIo)
 void Test_DigitalIo_SetValido(void);
@@ -130,10 +151,6 @@ void Test_DigitalIo_ArgumentosInvalidos(void);
 void Test_AnalogIn_ReadValido(void);
 void Test_AnalogIn_ReadLimites(void);
 void Test_AnalogIn_ReadCanalInvalido(void);
-void Test_Comm_ProcessRotinaDireta(void);
-void Test_Comm_ProcessOcupadoDuranteRotina(void);
-void Test_Comm_BuildDirect(void);
-void Test_Comm_NackComDetalhe(void);
 void Test_AnalogIn_ReadFalhaPeriferico(void);
 void Test_AnalogIn_ReadValorForaDaFaixa(void);
 void Test_AnalogIn_ArgumentosInvalidos(void);

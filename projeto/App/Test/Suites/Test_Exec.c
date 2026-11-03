@@ -15,6 +15,7 @@
 #include "I2cBus.h"
 #include "SpiBus.h"
 #include "UartBus.h"
+#include "Rotina.h"
 
 /// Payload do PWM_SET: canal + frequencia (u32) + razao ciclica (u16)
 #define dEXEC_TESTE_PWM_SET_SIZE (7U)
@@ -1500,4 +1501,562 @@ void Test_Exec_ResetAllDesligaUart(void)
 	Exec_Process(&frame, &result);
 	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
 	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+}
+
+// --- Rotinas (RUN_ROUTINE, ROUTINE_STATUS, READ_RESULT, ABORT) -------------------------------------------------------
+
+/// A entrada nunca assume o nivel (ESPERA_GPIO esgota o tempo limite)
+#define dTEMPO_FALSO_NUNCA (0xFFFFFFFFU)
+
+/// Base de tempo falsa: o tempo so anda nas esperas, ate o alvo ou ate a "reacao" da entrada
+static struct tempoFalso
+{
+	uint32_t agora;
+	uint8_t  esperas;
+	uint32_t alvo[8];
+	uint8_t  entrada[8];
+	uint8_t  nivel[8];
+	uint32_t reacao;           ///< us depois do inicio da espera em que a entrada assume o nivel
+	uint8_t  abortaNaEspera;   ///< numero da espera (a partir de 1) em que chega um ABORT
+	uint8_t  acordou;          ///< chamadas ao acorda
+} tempoFalso;
+
+static uint32_t TempoFalso_Agora(void)
+{
+	return tempoFalso.agora;
+}
+
+static rotinaEvento_t TempoFalso_Espera(uint32_t alvo, uint8_t entrada, uint8_t nivel, uint32_t *instante)
+{
+	uint8_t n = tempoFalso.esperas;
+
+	if (n < 8U)
+	{
+		tempoFalso.alvo[n]    = alvo;
+		tempoFalso.entrada[n] = entrada;
+		tempoFalso.nivel[n]   = nivel;
+	}
+	tempoFalso.esperas++;
+
+	// ABORT 100 us depois do inicio da espera: a CommTask chama Rotina_Aborta, que acorda a espera
+	if (tempoFalso.abortaNaEspera == tempoFalso.esperas)
+	{
+		tempoFalso.agora += 100U;
+		Rotina_Aborta();
+		*instante = tempoFalso.agora;
+		return eROTINA_EVENTO_ACORDOU;
+	}
+
+	if ((entrada != 0U) && (tempoFalso.reacao != dTEMPO_FALSO_NUNCA) &&
+	    ((int32_t)(tempoFalso.agora + tempoFalso.reacao - alvo) < 0))
+	{
+		tempoFalso.agora += tempoFalso.reacao;
+		*instante = tempoFalso.agora;
+		return eROTINA_EVENTO_ENTRADA;
+	}
+
+	tempoFalso.agora = alvo;
+	*instante = alvo;
+	return eROTINA_EVENTO_TEMPO;
+}
+
+static void TempoFalso_Acorda(void)
+{
+	tempoFalso.acordou++;
+}
+
+static const rotinaFunc_t tempoFalsoFunc =
+{
+	TempoFalso_Agora, TempoFalso_Espera, TempoFalso_Acorda,
+};
+
+// Perifericos falsos e base de tempo falsa; a base comeca perto da volta dos 32 bits (a conta tem que aguentar)
+static void IniciaRotina(void)
+{
+	IniciaExec();
+	memset(&tempoFalso, 0, sizeof(tempoFalso));
+	tempoFalso.agora  = 0xFFFFF000U;
+	tempoFalso.reacao = dTEMPO_FALSO_NUNCA;
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Init(&tempoFalsoFunc));
+}
+
+// Payload do RUN_ROUTINE: identificador, tempo maximo (ms), numero de passos e os passos
+static uint8_t MontaRotina(uint8_t *payload, uint16_t id, uint32_t tempoMs, uint8_t quantidade, const uint8_t *passos,
+                           uint8_t size)
+{
+	payload[0] = (uint8_t)(id & 0xFFU);
+	payload[1] = (uint8_t)(id >> 8);
+	payload[2] = (uint8_t)(tempoMs & 0xFFU);
+	payload[3] = (uint8_t)((tempoMs >> 8) & 0xFFU);
+	payload[4] = (uint8_t)((tempoMs >> 16) & 0xFFU);
+	payload[5] = (uint8_t)(tempoMs >> 24);
+	payload[6] = quantidade;
+	memcpy(&payload[7], passos, size);
+	return (uint8_t)(7U + size);
+}
+
+// Envia o RUN_ROUTINE pelo Exec (como a TestExecTask) e devolve o resultado
+static void EnviaRotina(execResult_t *result, uint16_t id, uint32_t tempoMs, uint8_t quantidade, const uint8_t *passos,
+                        uint8_t size)
+{
+	uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
+	commFrame_t frame;
+	uint8_t total = MontaRotina(payload, id, tempoMs, quantidade, passos, size);
+	MontaComando(&frame, 0x80, dCOMM_CMD_RUN_ROUTINE, payload, total);
+	Exec_Process(&frame, result);
+}
+
+static void LeStatus(uint8_t *status)
+{
+	uint8_t size = 0U;
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Status(status, &size));
+	TEST_ASSERT_EQUAL_UINT8(dROTINA_STATUS_SIZE, size);
+}
+
+static void LeResultado(execResult_t *result, uint16_t offset)
+{
+	const uint8_t payload[] = {(uint8_t)(offset & 0xFFU), (uint8_t)(offset >> 8)};
+	commFrame_t frame;
+	MontaComando(&frame, 0x81, dCOMM_CMD_READ_RESULT, payload, sizeof(payload));
+	Exec_Process(&frame, result);
+}
+
+static uint32_t Le32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+// 60. Rotina do Apendice A (DAC 2482, ESPERA_GPIO GPIO5 nivel 1 ate 500 ms, ADC A0): ACK, EM_EXECUCAO, CONCLUIDA,
+//     estado seguro no fim e os dois registros com indice, instante e dados
+void Test_Exec_RotinaExemploApendice(void)
+{
+	const uint8_t passos[] = {0x10, 0x01, 0xB2, 0x09, 0x79, 0x05, 0x01, 0x20, 0xA1, 0x07, 0x00, 0x40, 0x00};
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+	tempoFalso.reacao = 42350U;
+	adcFalso.valor    = 0x07FFU;
+
+	EnviaRotina(&result, 7U, 1000U, 3U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, Rotina_EmExecucao());
+	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);   // nada executado antes do ACK
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_EM_EXECUCAO, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, status[1]);
+	TEST_ASSERT_EQUAL_UINT8(7, status[2]);
+	TEST_ASSERT_EQUAL_UINT8(0, status[3]);
+
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Executa());
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_CONCLUIDA, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(3, status[1]);
+	TEST_ASSERT_EQUAL_UINT8(0, status[4]);
+	TEST_ASSERT_EQUAL_UINT8(0, Rotina_EmExecucao());
+
+	// DAC1 em 2482 e, no estado seguro, os dois canais em 0
+	TEST_ASSERT_EQUAL_UINT8(3, dacFalso.chamadas);
+	TEST_ASSERT_EQUAL_UINT16(2482, dacFalso.valor[0]);
+	TEST_ASSERT_EQUAL_UINT16(0, dacFalso.valor[1]);
+
+	// A espera foi pela entrada 1 do DigitalIo (GPIO5), nivel 1, ate 500 ms depois do inicio do passo
+	TEST_ASSERT_EQUAL_UINT8(1, tempoFalso.esperas);
+	TEST_ASSERT_EQUAL_UINT8(1, tempoFalso.entrada[0]);
+	TEST_ASSERT_EQUAL_UINT8(1, tempoFalso.nivel[0]);
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFF000U + 500000U, tempoFalso.alvo[0]);
+
+	// [id][total = (6 + 5) + (6 + 3) = 20][registro 1: indice 1, instante 42350, 5 B: ocorreu, decorrido 42350]
+	// [registro 2: indice 2, instante 42350, 3 B: canal 0, 0x07FF]
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(4U + 20U, result.size);
+	TEST_ASSERT_EQUAL_UINT8(7, result.dados[0]);
+	TEST_ASSERT_EQUAL_UINT8(20, result.dados[2]);
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[4]);
+	TEST_ASSERT_EQUAL_UINT32(42350U, Le32(&result.dados[5]));
+	TEST_ASSERT_EQUAL_UINT8(5, result.dados[9]);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[10]);
+	TEST_ASSERT_EQUAL_UINT32(42350U, Le32(&result.dados[11]));
+	TEST_ASSERT_EQUAL_UINT8(2, result.dados[15]);
+	TEST_ASSERT_EQUAL_UINT32(42350U, Le32(&result.dados[16]));
+	TEST_ASSERT_EQUAL_UINT8(3, result.dados[20]);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[21]);
+	TEST_ASSERT_EQUAL_UINT8(0xFF, result.dados[22]);
+	TEST_ASSERT_EQUAL_UINT8(0x07, result.dados[23]);
+}
+
+// 61. Passo de codigo inexistente no meio (CT14): NACK ROTINA_INVALIDA com o indice; nenhum passo executado
+void Test_Exec_RotinaPassoDesconhecido(void)
+{
+	const uint8_t passos[] = {0x10, 0x01, 0x00, 0x08, 0x55, 0x20, 0x01, 0x01};
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 1U, 1000U, 3U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, result.size);
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, Rotina_EmExecucao());
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_ERROR, Rotina_Executa());
+	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
+	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_OCIOSA, status[0]);
+}
+
+// 62. Cabecalho invalido (curto, sem passos, tempo 0 ou acima de 1 h): indice 0xFF
+void Test_Exec_RotinaCabecalhoInvalido(void)
+{
+	const uint8_t passo[] = {0x21};
+	uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
+	commFrame_t frame;
+	execResult_t result;
+	IniciaRotina();
+
+	MontaRotina(payload, 1U, 1000U, 1U, passo, sizeof(passo));
+	MontaComando(&frame, 0x80, dCOMM_CMD_RUN_ROUTINE, payload, 6U);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(dROTINA_INDICE_CABECALHO, result.dados[0]);
+
+	EnviaRotina(&result, 1U, 1000U, 0U, passo, sizeof(passo));
+	TEST_ASSERT_EQUAL_UINT8(dROTINA_INDICE_CABECALHO, result.dados[0]);
+	EnviaRotina(&result, 1U, 0U, 1U, passo, sizeof(passo));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	EnviaRotina(&result, 1U, dROTINA_TEMPO_MAX_MS + 1U, 1U, passo, sizeof(passo));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+
+	EnviaRotina(&result, 1U, dROTINA_TEMPO_MAX_MS, 1U, passo, sizeof(passo));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+}
+
+// 63. Encadeamento: passo truncado, menos passos que o informado e bytes sobrando
+void Test_Exec_RotinaEncadeamentoInvalido(void)
+{
+	const uint8_t truncado[] = {0x21, 0x10, 0x01};
+	const uint8_t doisPassos[] = {0x21, 0x21};
+	const uint8_t dadosI2c[] = {0x51, 0x00, 0x03, 0xAA, 0xBB};   // diz 3 bytes, traz 2
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 1U, 1000U, 2U, truncado, sizeof(truncado));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[0]);
+
+	EnviaRotina(&result, 1U, 1000U, 3U, doisPassos, sizeof(doisPassos));
+	TEST_ASSERT_EQUAL_UINT8(2, result.dados[0]);
+
+	EnviaRotina(&result, 1U, 1000U, 1U, doisPassos, sizeof(doisPassos));
+	TEST_ASSERT_EQUAL_UINT8(dROTINA_INDICE_CABECALHO, result.dados[0]);
+
+	EnviaRotina(&result, 1U, 1000U, 1U, dadosI2c, sizeof(dadosI2c));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+}
+
+// 64. Parametros fora da faixa sao recusados na validacao, antes de executar
+void Test_Exec_RotinaParametroInvalido(void)
+{
+	const uint8_t dac[]    = {0x21, 0x10, 0x01, 0x00, 0x10};          // 4096
+	const uint8_t gpio[]   = {0x20, 0x05, 0x01};                      // pino 5
+	const uint8_t espera[] = {0x79, 0x04, 0x01, 0x10, 0x00, 0x00, 0x00}; // entrada 4 (so 5 a 8)
+	const uint8_t adc[]    = {0x40, 0x03};                            // canal 3
+	const uint8_t pwm[]    = {0x30, 0x01, 0xA1, 0x86, 0x01, 0x00, 0x00, 0x00}; // 100001 Hz
+	const uint8_t uart[]   = {0x70, 0xAF, 0x04, 0x00, 0x00};          // 1199 baud
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 1U, 1000U, 2U, dac, sizeof(dac));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[0]);
+	EnviaRotina(&result, 1U, 1000U, 1U, gpio, sizeof(gpio));
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[0]);
+	EnviaRotina(&result, 1U, 1000U, 1U, espera, sizeof(espera));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	EnviaRotina(&result, 1U, 1000U, 1U, adc, sizeof(adc));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	EnviaRotina(&result, 1U, 1000U, 1U, pwm, sizeof(pwm));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	EnviaRotina(&result, 1U, 1000U, 1U, uart, sizeof(uart));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(0, dacFalso.chamadas);
+	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
+}
+
+// 65. Resultados que nao cabem nos 2048 bytes: recusada no passo que estoura (8 dumps de 240 = 1968; o 9o passa)
+void Test_Exec_RotinaResultadosDemais(void)
+{
+	uint8_t passos[27];
+	execResult_t result;
+	IniciaRotina();
+	for (uint8_t i = 0U; i < 9U; i++)
+	{
+		passos[(3U * i)]      = 0x52;
+		passos[(3U * i) + 1U] = 0x00;
+		passos[(3U * i) + 2U] = 0xF0;
+	}
+
+	EnviaRotina(&result, 1U, 1000U, 9U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_ROTINA_INVALIDA, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(8, result.dados[0]);
+
+	EnviaRotina(&result, 1U, 1000U, 8U, passos, 24U);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+}
+
+// 66. Novo RUN_ROUTINE com uma rotina em execucao: OCUPADO, e a carregada nao muda
+void Test_Exec_RotinaOcupada(void)
+{
+	const uint8_t passo[] = {0x78, 0x40, 0x42, 0x0F, 0x00};   // ESPERA 1 s
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 0x1234U, 2000U, 1U, passo, sizeof(passo));
+	EnviaRotina(&result, 0x5678U, 2000U, 1U, passo, sizeof(passo));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_OCUPADO, result.erro);
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(0x34, status[2]);
+	TEST_ASSERT_EQUAL_UINT8(0x12, status[3]);
+}
+
+// 67. ABORT durante uma espera longa (CT16): ABORTADA, a espera e acordada e as saidas vao ao estado seguro
+void Test_Exec_RotinaAbortDuranteEspera(void)
+{
+	const uint8_t passos[] = {0x20, 0x01, 0x01, 0x78, 0x80, 0x96, 0x98, 0x00, 0x20, 0x02, 0x01};   // ESPERA 10 s
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+	tempoFalso.abortaNaEspera = 1U;
+
+	EnviaRotina(&result, 2U, 20000U, 3U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Executa());
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_ABORTADA, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(1, status[1]);
+	TEST_ASSERT_EQUAL_UINT8(1, tempoFalso.acordou);
+	TEST_ASSERT_EQUAL_UINT8(1, tempoFalso.esperas);
+
+	// GPIO1 ligado no 1o passo; o 3o (GPIO2) nao executou; o estado seguro desligou as 4 saidas
+	TEST_ASSERT_EQUAL_UINT8(1U + 4U, gpioFalso.escritas);
+	TEST_ASSERT_EQUAL_UINT8(1, gpioFalso.saida[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.nivel[1]);
+
+	// Os resultados (nenhum registro) ficam disponiveis
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(4, result.size);
+}
+
+// 68. Rotina mais longa que o tempo maximo (CT17): a espera vai so ate o limite; TEMPO_ESGOTADO
+void Test_Exec_RotinaTempoEsgotado(void)
+{
+	const uint8_t passos[] = {0x78, 0x20, 0xA1, 0x07, 0x00, 0x21};   // ESPERA 500 ms, GPIO_READ
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 3U, 100U, 2U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Executa());
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_TEMPO_ESGOTADO, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, status[1]);
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFF000U + 100000U, tempoFalso.alvo[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.leituras);
+	TEST_ASSERT_EQUAL_UINT8(4, gpioFalso.escritas);   // estado seguro
+}
+
+// 69. ESPERA_GPIO sem a transicao: registro com resultado 1 (esgotou) e o tempo limite; a rotina continua
+void Test_Exec_RotinaEsperaGpioEsgota(void)
+{
+	const uint8_t passos[] = {0x79, 0x08, 0x00, 0xE8, 0x03, 0x00, 0x00, 0x21};   // GPIO8 em 0 ate 1 ms
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+	gpioFalso.entradas[2] = 1U;
+
+	EnviaRotina(&result, 4U, 1000U, 2U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Executa());
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_CONCLUIDA, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(4, tempoFalso.entrada[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, tempoFalso.nivel[0]);
+
+	// [0: instante 1000, ESGOTOU, 1000 us][1: instante 1000, mascara 0x02]
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(4U + 11U + 7U, result.size);
+	TEST_ASSERT_EQUAL_UINT32(1000U, Le32(&result.dados[5]));
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[10]);
+	TEST_ASSERT_EQUAL_UINT32(1000U, Le32(&result.dados[11]));
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[15]);
+	TEST_ASSERT_EQUAL_UINT32(1000U, Le32(&result.dados[16]));
+	TEST_ASSERT_EQUAL_UINT8(0x02, result.dados[21]);
+}
+
+// 70. Falha na execucao (I2C mestre sem I2C_CONFIG): ERRO com NAO_CONFIGURADO; os passos anteriores ficam
+void Test_Exec_RotinaErroNoPasso(void)
+{
+	const uint8_t passos[] = {0x21, 0x53, 0x50, 0x00, 0x02, 0x21};
+	uint8_t status[dROTINA_STATUS_SIZE];
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 5U, 1000U, 3U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Executa());
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_ERRO, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(1, status[1]);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_NAO_CONFIGURADO, status[4]);
+	TEST_ASSERT_EQUAL_UINT8(0, i2cFalso.xferChamadas);
+	TEST_ASSERT_EQUAL_UINT8(1, gpioFalso.leituras / dDIGITALIO_ENTRADA_MAX);
+
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(4U + 7U, result.size);
+}
+
+// 71. READ_RESULT: sem rotina e durante a rotina, SEM_RESULTADO; offset alem do total e tamanho errado, invalido
+void Test_Exec_RotinaReadResultInvalido(void)
+{
+	const uint8_t passo[] = {0x21};
+	const uint8_t curto[] = {0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaRotina();
+
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_SEM_RESULTADO, result.erro);
+
+	EnviaRotina(&result, 6U, 1000U, 1U, passo, sizeof(passo));
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_SEM_RESULTADO, result.erro);
+
+	Rotina_Executa();
+	LeResultado(&result, 7U);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(4, result.size);
+	LeResultado(&result, 8U);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+
+	MontaComando(&frame, 0x82, dCOMM_CMD_READ_RESULT, curto, sizeof(curto));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+}
+
+// 72. Resultados maiores que um quadro: lidos em partes de ate 236 bytes, com offset crescente
+void Test_Exec_RotinaLeituraEmPartes(void)
+{
+	const uint8_t passos[] = {0x52, 0x00, 0xF0, 0x52, 0x10, 0xF0};   // 2 registros de 6 + 240 = 492 bytes
+	const uint8_t carga[] = {0x01, 0x01, 0x11};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaRotina();
+	MontaComando(&frame, 0x83, dCOMM_CMD_I2C_SLAVE_LOAD, carga, sizeof(carga));
+	Exec_Process(&frame, &result);
+
+	EnviaRotina(&result, 8U, 1000U, 2U, passos, sizeof(passos));
+	Rotina_Executa();
+
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(4U + 236U, result.size);
+	TEST_ASSERT_EQUAL_UINT8(0xEC, result.dados[2]);   // 492 = 0x01EC
+	TEST_ASSERT_EQUAL_UINT8(0x01, result.dados[3]);
+	TEST_ASSERT_EQUAL_UINT8(240, result.dados[9]);
+	TEST_ASSERT_EQUAL_UINT8(0x11, result.dados[11]);   // mapa[1]
+
+	LeResultado(&result, 236U);
+	TEST_ASSERT_EQUAL_UINT8(4U + 236U, result.size);
+	LeResultado(&result, 472U);
+	TEST_ASSERT_EQUAL_UINT8(4U + 20U, result.size);
+	LeResultado(&result, 492U);
+	TEST_ASSERT_EQUAL_UINT8(4U, result.size);
+}
+
+// 73. RESET_ALL descarta os resultados: OCIOSA e SEM_RESULTADO
+void Test_Exec_RotinaResetAllLimpa(void)
+{
+	const uint8_t passo[] = {0x21};
+	uint8_t status[dROTINA_STATUS_SIZE];
+	commFrame_t frame;
+	execResult_t result;
+	IniciaRotina();
+	EnviaRotina(&result, 9U, 1000U, 1U, passo, sizeof(passo));
+	Rotina_Executa();
+
+	MontaComando(&frame, 0x84, dCOMM_CMD_RESET_ALL, NULL, 0);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+
+	LeStatus(status);
+	TEST_ASSERT_EQUAL_UINT8(eROTINA_ESTADO_OCIOSA, status[0]);
+	TEST_ASSERT_EQUAL_UINT8(0, status[2]);
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_SEM_RESULTADO, result.erro);
+}
+
+// 74. ESPERA: o passo seguinte comeca na duracao pedida (o instante do registro e contado do inicio da rotina)
+void Test_Exec_RotinaEsperaInstante(void)
+{
+	const uint8_t passos[] = {0x21, 0x78, 0xE8, 0x03, 0x00, 0x00, 0x78, 0x00, 0x00, 0x00, 0x00, 0x40, 0x01};
+	execResult_t result;
+	IniciaRotina();
+
+	EnviaRotina(&result, 10U, 1000U, 4U, passos, sizeof(passos));
+	Rotina_Executa();
+
+	LeResultado(&result, 0U);
+	TEST_ASSERT_EQUAL_UINT8(4U + 7U + 9U, result.size);
+	TEST_ASSERT_EQUAL_UINT8(0, result.dados[4]);
+	TEST_ASSERT_EQUAL_UINT32(0U, Le32(&result.dados[5]));
+	TEST_ASSERT_EQUAL_UINT8(3, result.dados[11]);
+	TEST_ASSERT_EQUAL_UINT32(1000U, Le32(&result.dados[12]));
+	TEST_ASSERT_EQUAL_UINT8(1, result.dados[17]);   // canal do ADC
+}
+
+// 75. Exec_Passo recusa os comandos que nao sao passos e argumentos invalidos
+void Test_Exec_PassoInvalido(void)
+{
+	uint8_t dados[dCOMM_PAYLOAD_MAX_SIZE];
+	uint8_t size = 0U;
+	const uint8_t gpio[] = {0x01, 0x01};
+	IniciaRotina();
+
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, Exec_Passo(dCOMM_CMD_RUN_ROUTINE, NULL, 0, dados, &size));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, Exec_Passo(dCOMM_CMD_READ_RESULT, NULL, 0, dados, &size));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, Exec_Passo(dCOMM_CMD_RESET_ALL, NULL, 0, dados, &size));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, Exec_Passo(dCOMM_CMD_GPIO_SET, NULL, 2, dados, &size));
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, Exec_Passo(dCOMM_CMD_GPIO_SET, gpio, 2, NULL, &size));
+	TEST_ASSERT_EQUAL_UINT8(0, gpioFalso.escritas);
+
+	TEST_ASSERT_EQUAL_UINT8(0, Exec_Passo(dCOMM_CMD_GPIO_SET, gpio, 2, dados, &size));
+	TEST_ASSERT_EQUAL_UINT8(0, size);
+	TEST_ASSERT_EQUAL_UINT8(1, gpioFalso.escritas);
+}
+
+// 76. ABORT sem rotina nao faz nada; argumentos invalidos na Rotina
+void Test_Exec_RotinaArgumentosInvalidos(void)
+{
+	const rotinaFunc_t incompleta = {TempoFalso_Agora, NULL, TempoFalso_Acorda};
+	uint8_t dados[dCOMM_PAYLOAD_MAX_SIZE];
+	uint8_t indice = 0U;
+	uint8_t size = 0U;
+	IniciaRotina();
+
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Aborta());
+	TEST_ASSERT_EQUAL_UINT8(0, tempoFalso.acordou);
+
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Init(NULL));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Init(&incompleta));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Carrega(NULL, 8, &indice));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Carrega(dados, 8, NULL));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Status(NULL, &size));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_LeResultado(0, dados, NULL));
 }
