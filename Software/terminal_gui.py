@@ -36,6 +36,8 @@ from protocolo import (
     descrever_resposta, descrever_spi, interpretar_resposta, montar_i2c_config, montar_i2c_dump, montar_i2c_load,
     montar_pwm_set, montar_pwm_stop, montar_quadro, montar_spi_config, montar_spi_load, montar_spi_read,
     montar_spi_xfer, montar_uart_config, montar_uart_read, montar_uart_write, porcento_para_razao,
+    ROTINA_TEMPO_MAX_MS, montar_abort, montar_read_result, montar_routine_status, montar_run_routine,
+    separar_passos,
 )
 from terminal_usb import (
     PAUSA_ENTRE_CASOS, SILENCIO_FIM_RAJADA, TEMPO_MAX_RAJADA, detectar_porta, formatar_hex,
@@ -411,6 +413,31 @@ class JanelaTerminal(QMainWindow):
         linha_uart.addWidget(self.spin_uart_max)
         linha_uart.addWidget(QPushButton("Ler", clicked=self.ler_uart))
         layout.addLayout(linha_uart)
+
+        # Rotina: identificador, tempo maximo e os passos em hex (codigo + payload de cada um, em sequencia)
+        linha_rotina = QHBoxLayout()
+        self.spin_rotina_id = QSpinBox(minimum=0, maximum=0xFFFF, value=1)
+        self.spin_rotina_id.setToolTip("Identificador da rotina (u16), devolvido no ROUTINE_STATUS e no READ_RESULT")
+        self.spin_rotina_tempo = QSpinBox(minimum=1, maximum=ROTINA_TEMPO_MAX_MS, value=1000, suffix=" ms")
+        self.spin_rotina_tempo.setToolTip("Tempo máximo: a jiga interrompe a rotina (TEMPO_ESGOTADO) se passar dele")
+        self.campo_rotina = QLineEdit()
+        self.campo_rotina.setFont(QFont("Consolas", 10))
+        self.campo_rotina.setPlaceholderText("Passos em hex, ex.: 10 01 B2 09 79 05 01 20 A1 07 00 40 00")
+        self.campo_rotina.setToolTip("Cada passo é o código do comando direto seguido do payload dele; "
+                                     "78 = ESPERA [us u32], 79 = ESPERA_GPIO [entrada 5-8][nível][limite us u32]")
+        self.campo_rotina.returnPressed.connect(self.executar_rotina)
+        self.spin_rotina_offset = QSpinBox(minimum=0, maximum=0xFFFF, value=0)
+        self.spin_rotina_offset.setToolTip("Offset do READ_RESULT (os resultados saem em partes de até 236 B)")
+        linha_rotina.addWidget(QLabel("Rotina:"))
+        linha_rotina.addWidget(self.spin_rotina_id)
+        linha_rotina.addWidget(self.spin_rotina_tempo)
+        linha_rotina.addWidget(self.campo_rotina, 1)
+        linha_rotina.addWidget(QPushButton("Executar", clicked=self.executar_rotina))
+        linha_rotina.addWidget(QPushButton("Estado", clicked=self.estado_rotina))
+        linha_rotina.addWidget(self.spin_rotina_offset)
+        linha_rotina.addWidget(QPushButton("Resultados", clicked=self.resultados_rotina))
+        linha_rotina.addWidget(QPushButton("Abortar", clicked=self.abortar_rotina))
+        layout.addLayout(linha_rotina)
 
         # Casos de teste prontos
         linha_teste = QHBoxLayout()
@@ -841,6 +868,26 @@ class JanelaTerminal(QMainWindow):
     def ler_uart(self):
         self._enviar_com_seq(montar_uart_read(self.spin_seq.value(), self.spin_uart_max.value()),
                              f"UART_READ até {self.spin_uart_max.value()} B")
+
+    def executar_rotina(self):
+        try:
+            passos = separar_passos(interpretar_hex(self.campo_rotina.text()))
+            quadro = montar_run_routine(self.spin_seq.value(), self.spin_rotina_id.value(),
+                                        self.spin_rotina_tempo.value(), passos)
+        except ValueError as e:
+            self._escrever_info(f"Rotina inválida: {e}")
+            return
+        self._enviar_com_seq(quadro, f"RUN_ROUTINE {self.spin_rotina_id.value()} ({len(passos)} passos)")
+
+    def estado_rotina(self):
+        self._enviar_com_seq(montar_routine_status(self.spin_seq.value()), "ROUTINE_STATUS")
+
+    def resultados_rotina(self):
+        offset = self.spin_rotina_offset.value()
+        self._enviar_com_seq(montar_read_result(self.spin_seq.value(), offset), f"READ_RESULT a partir de {offset}")
+
+    def abortar_rotina(self):
+        self._enviar_com_seq(montar_abort(self.spin_seq.value()), "ABORT")
 
     def _mudou_caso(self, *_):
         caso = self.combo_caso.currentData()

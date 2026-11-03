@@ -9,7 +9,7 @@
  *
  *   \n <b>Dependencias:</b>
  *   - Comm (commFrame_t, codigos de comando e de erro) e os modulos de periferico (AnalogOut, DigitalIo, AnalogIn,
- *     Pwm, I2cBus, SpiBus, UartBus).
+ *     Pwm, I2cBus, SpiBus, UartBus) e a Rotina (RUN_ROUTINE e READ_RESULT).
  *
  *   \n <b>Observacoes:</b>
  *   - Nao conhece USB, filas nem o formato da resposta: roda na TestExecTask e e testavel no Unity com
@@ -27,6 +27,10 @@
  *                                                          SPI_MASTER_XFER; estado seguro desliga o SPI
  *   @version      <b>1.5.0 - 29/10/2026</b> \n Luiz Neto \n UART_CONFIG, UART_WRITE e UART_READ; estado seguro desliga
  *                                                          a UART
+ *   @version      <b>1.6.0 - 03/11/2026</b> 
+ Luiz Neto 
+ RUN_ROUTINE e READ_RESULT (Rotina); Exec_Passo executa
+ *                                                          um passo de rotina; RESET_ALL descarta os resultados
  *
  *   @copyright
  *   @{
@@ -44,7 +48,9 @@
 #include "I2cBus.h"
 #include "SpiBus.h"
 #include "UartBus.h"
+#include "Rotina.h"
 #include <stddef.h>
+#include <string.h>
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -98,6 +104,9 @@
 /// Payload do UART_READ: quantidade maxima (u8)
 #define dEXEC_UART_READ_SIZE (1U)
 
+/// Payload do READ_RESULT: offset (u16 little-endian)
+#define dEXEC_READ_RESULT_SIZE (2U)
+
 /***********************************************************************************************************************
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
@@ -124,6 +133,8 @@ static uint8_t Exec_UartConfig(const commFrame_t *frame);
 static uint8_t Exec_UartWrite(const commFrame_t *frame);
 static uint8_t Exec_UartRead(const commFrame_t *frame, execResult_t *result);
 static uint8_t Exec_ErroUart(uartBusReturn_t ret);
+static uint8_t Exec_RunRoutine(const commFrame_t *frame, execResult_t *result);
+static uint8_t Exec_ReadResult(const commFrame_t *frame, execResult_t *result);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -260,6 +271,18 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 
 		break;
 
+		case dCOMM_CMD_RUN_ROUTINE:
+
+			result->erro = Exec_RunRoutine(frame, result);
+
+		break;
+
+		case dCOMM_CMD_READ_RESULT:
+
+			result->erro = Exec_ReadResult(frame, result);
+
+		break;
+
 		default:
 
 			result->erro = (uint8_t)eCOMM_ERROR_CMD_DESCONHECIDO;
@@ -315,6 +338,50 @@ execReturn_t Exec_SafeState(void)
 }
 
 /***********************************************************************************************************************
+ * @brief      Executa um passo de rotina com a funcao do comando direto de mesmo codigo.
+ * @details    Chamado pela Rotina, na TestExecTask. Os parametros do passo sao o payload do comando direto.
+ * @param[in]  cmd         Codigo do passo (= codigo do comando direto)
+ * @param[in]  parametros  Parametros do passo
+ * @param[in]  size        Bytes de parametros
+ * @param[out] dados       Payload que o ACK do comando direto teria (ate dCOMM_PAYLOAD_MAX_SIZE bytes)
+ * @param[out] dadosSize   Bytes em dados
+ * @return     0 (sucesso) ou o codigo commError_t do NACK que o comando direto receberia
+ **********************************************************************************************************************/
+uint8_t Exec_Passo(uint8_t cmd, const uint8_t *parametros, uint8_t size, uint8_t *dados, uint8_t *dadosSize)
+{
+	// static: fora da stack da TestExecTask
+	static commFrame_t frame;
+	static execResult_t result;
+
+	if ((dados == NULL) || (dadosSize == NULL) || ((parametros == NULL) && (size > 0U)) ||
+	    (size > dCOMM_PAYLOAD_MAX_SIZE) || (cmd == dCOMM_CMD_RUN_ROUTINE) || (cmd == dCOMM_CMD_READ_RESULT) ||
+	    (cmd == dCOMM_CMD_RESET_ALL))
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	frame.seq  = 0U;
+	frame.cmd  = cmd;
+	frame.size = size;
+
+	if (size > 0U)
+	{
+		memcpy(frame.payload, parametros, size);
+	}
+
+	(void)Exec_Process(&frame, &result);
+
+	*dadosSize = (result.erro == 0U) ? result.size : 0U;
+
+	if (*dadosSize > 0U)
+	{
+		memcpy(dados, result.dados, *dadosSize);
+	}
+
+	return result.erro;
+}
+
+/***********************************************************************************************************************
  * FUNCOES LOCAIS
  **********************************************************************************************************************/
 
@@ -330,6 +397,8 @@ static uint8_t Exec_ResetAll(const commFrame_t *frame)
 	{
 		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
 	}
+
+	(void)Rotina_Limpa();
 
 	if (Exec_SafeState() != eEXEC_RETURN_OK)
 	{
@@ -906,6 +975,74 @@ static uint8_t Exec_ErroUart(uartBusReturn_t ret)
 
 			return (uint8_t)eCOMM_ERROR_PERIFERICO;
 
+		break;
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      RUN_ROUTINE: valida e carrega a rotina; o ACK sai antes da execucao (a TestExecTask executa depois).
+ * @details    Rotina invalida: NACK ROTINA_INVALIDA com o indice do passo (u8) depois do codigo de erro; nada e
+ *             executado.
+ * @param[in]  frame   Quadro do comando
+ * @param[out] result  Recebe o indice do passo invalido em dados (so no NACK ROTINA_INVALIDA)
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_RunRoutine(const commFrame_t *frame, execResult_t *result)
+{
+	uint8_t indice = dROTINA_INDICE_CABECALHO;
+
+	switch (Rotina_Carrega(frame->payload, frame->size, &indice))
+	{
+		case eROTINA_RETURN_OK:
+			return 0U;
+		break;
+
+		case eROTINA_RETURN_INVALID_ROUTINE:
+			result->dados[0] = indice;
+			result->size     = 1U;
+			return (uint8_t)eCOMM_ERROR_ROTINA_INVALIDA;
+		break;
+
+		case eROTINA_RETURN_BUSY:
+			return (uint8_t)eCOMM_ERROR_OCUPADO;
+		break;
+
+		default:
+			return (uint8_t)eCOMM_ERROR_PERIFERICO;
+		break;
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      READ_RESULT: payload [offset (u16 LE)]; responde [identificador u16][total u16][resultados].
+ * @param[in]  frame   Quadro do comando
+ * @param[out] result  Recebe o cabecalho e ate 236 bytes de resultados (so no ACK)
+ * @return     0 (ACK), SEM_RESULTADO (nenhuma rotina finalizada) ou PARAMETRO_INVALIDO (offset alem do total)
+ **********************************************************************************************************************/
+static uint8_t Exec_ReadResult(const commFrame_t *frame, execResult_t *result)
+{
+	uint8_t quantidade = 0U;
+
+	if (frame->size != dEXEC_READ_RESULT_SIZE)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	uint16_t offset = (uint16_t)(frame->payload[0] | ((uint16_t)frame->payload[1] << 8));
+
+	switch (Rotina_LeResultado(offset, result->dados, &quantidade))
+	{
+		case eROTINA_RETURN_OK:
+			result->size = quantidade;
+			return 0U;
+		break;
+
+		case eROTINA_RETURN_NO_RESULT:
+			return (uint8_t)eCOMM_ERROR_SEM_RESULTADO;
+		break;
+
+		default:
+			return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
 		break;
 	}
 }

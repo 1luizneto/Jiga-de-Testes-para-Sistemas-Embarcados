@@ -111,6 +111,23 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_UartReadMaximoGrande);
 		RUN_TEST(Test_Exec_UartReadTamanhoErrado);
 		RUN_TEST(Test_Exec_ResetAllDesligaUart);
+		RUN_TEST(Test_Exec_RotinaExemploApendice);
+		RUN_TEST(Test_Exec_RotinaPassoDesconhecido);
+		RUN_TEST(Test_Exec_RotinaCabecalhoInvalido);
+		RUN_TEST(Test_Exec_RotinaEncadeamentoInvalido);
+		RUN_TEST(Test_Exec_RotinaParametroInvalido);
+		RUN_TEST(Test_Exec_RotinaResultadosDemais);
+		RUN_TEST(Test_Exec_RotinaOcupada);
+		RUN_TEST(Test_Exec_RotinaAbortDuranteEspera);
+		RUN_TEST(Test_Exec_RotinaTempoEsgotado);
+		RUN_TEST(Test_Exec_RotinaEsperaGpioEsgota);
+		RUN_TEST(Test_Exec_RotinaErroNoPasso);
+		RUN_TEST(Test_Exec_RotinaReadResultInvalido);
+		RUN_TEST(Test_Exec_RotinaLeituraEmPartes);
+		RUN_TEST(Test_Exec_RotinaResetAllLimpa);
+		RUN_TEST(Test_Exec_RotinaEsperaInstante);
+		RUN_TEST(Test_Exec_PassoInvalido);
+		RUN_TEST(Test_Exec_RotinaArgumentosInvalidos);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -120,6 +137,10 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Comm_PendentePingAtendido);
 		RUN_TEST(Test_Comm_ResultInesperado);
 		RUN_TEST(Test_Comm_ResultArgumentosInvalidos);
+		RUN_TEST(Test_Comm_ProcessRotinaDireta);
+		RUN_TEST(Test_Comm_ProcessOcupadoDuranteRotina);
+		RUN_TEST(Test_Comm_BuildDirect);
+		RUN_TEST(Test_Comm_NackComDetalhe);
 
 		RUN_TEST(Test_DigitalIo_SetValido);
 		RUN_TEST(Test_DigitalIo_SetLimites);

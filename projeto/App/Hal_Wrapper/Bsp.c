@@ -20,6 +20,7 @@
  *   @version      <b>1.3.0 - 27/10/2026</b> \n Luiz Neto \n Inicializa o I2C (desligado ate o I2C_CONFIG)
  *   @version      <b>1.4.0 - 28/10/2026</b> \n Luiz Neto \n Inicializa o SPI (desligado ate o SPI_CONFIG)
  *   @version      <b>1.5.0 - 28/10/2026</b> \n Luiz Neto \n Inicializa a UART4 (desligada ate o UART_CONFIG)
+ *   @version      <b>1.6.0 - 03/11/2026</b> \n Luiz Neto \n Inicializa a base de tempo das rotinas (TIM5)
  *   @copyright
  *   @{
  **********************************************************************************************************************/
@@ -39,6 +40,7 @@
 #include "Bsp_I2c.h"
 #include "Bsp_Spi.h"
 #include "Bsp_Uart4.h"
+#include "Bsp_Tempo.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -72,6 +74,7 @@ void Bsp_Init(void)
 	BspI2c_Init();
 	BspSpi_Init();
 	BspUart4_Init();
+	BspTempo_Init();
 }
 
 /***********************************************************************************************************************

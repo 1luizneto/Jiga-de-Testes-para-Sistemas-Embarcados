@@ -31,6 +31,7 @@
 #include "Comm.h"
 #include "Usb.h"
 #include "Exec.h"
+#include "Rotina.h"
 
 #ifdef UNIT_TEST_ON_TARGET
 #include "TestRunner.h"
@@ -163,6 +164,7 @@ const osMutexAttr_t uartDebugMutex_attributes = {
 
 #ifndef UNIT_TEST_ON_TARGET
 static void CommTask_Responde(const commFrame_t *frame);
+static void CommTask_RespondeRotina(const commFrame_t *frame);
 static void CommTask_VerificaResultado(void);
 static void CommTask_Envia(uint16_t tamanho, const char *tipo);
 #endif
@@ -274,6 +276,9 @@ void CommTask(void *argument)
 	commReturn_t retComm = Comm_Init();
 	DebugLog_SendTerminal("[TASK -> COMM] Comm = %d\n", retComm);
 
+	// Durante uma rotina so PING, ROUTINE_STATUS, ABORT e retransmissoes sao atendidos
+	Comm_SetBusyCheck(Rotina_EmExecucao);
+
 #ifdef UNIT_TEST_ON_TARGET
 	// Na build Test o parser e exercitado pelo TestRunner: a CommTask nao pode mexer no estado dele
 	for(;;)
@@ -376,6 +381,19 @@ void TestExecTask(void *argument)
 	  DebugLog_SendTerminal("[TASK -> EXEC] Executado: CMD=0x%02X SEQ=%u erro=%u\n", resultado.cmd, resultado.seq, resultado.erro);
 
 	  osMessageQueuePut(resultadoQueueHandle, &resultado, 0U, osWaitForever);
+
+	  // RUN_ROUTINE aceito: o ACK ja foi para a fila; a rotina roda aqui ate o fim (a CommTask continua atendendo
+	  // PING, ROUTINE_STATUS e ABORT e responde OCUPADO aos demais)
+	  if ((resultado.cmd == dCOMM_CMD_RUN_ROUTINE) && (resultado.erro == 0U))
+	  {
+		  Rotina_Executa();
+
+		  uint8_t status[dROTINA_STATUS_SIZE];
+		  uint8_t size = 0U;
+		  (void)Rotina_Status(status, &size);
+		  DebugLog_SendTerminal("[TASK -> EXEC] Rotina %u finalizada: estado=%u passos=%u erro=%u\n",
+		                        (unsigned)(status[2] | (status[3] << 8)), status[0], status[1], status[4]);
+	  }
   }
   /* USER CODE END TestExecTask */
 }
@@ -410,6 +428,12 @@ static void CommTask_Responde(const commFrame_t *frame)
 
 		break;
 
+		case eCOMM_RETURN_DIRECT:
+
+			CommTask_RespondeRotina(frame);
+
+		break;
+
 		case eCOMM_RETURN_FORWARD:
 
 			if (osMessageQueuePut(comandoQueueHandle, frame, 0U, 0U) != osOK)
@@ -428,6 +452,39 @@ static void CommTask_Responde(const commFrame_t *frame)
 			DebugLog_SendTerminal("[TASK -> COMM] Erro ao montar a resposta (%d)\n", ret);
 
 		break;
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      ROUTINE_STATUS e ABORT: atendidos aqui, sem passar pela TestExecTask (que pode estar executando a rotina).
+ * @details    Os dois sao sem payload; com payload, NACK PARAMETRO_INVALIDO. O ABORT recebe ACK mesmo sem rotina.
+ * @param[in]  frame  Quadro recebido (Comm_ProcessFrame devolveu DIRECT)
+ **********************************************************************************************************************/
+static void CommTask_RespondeRotina(const commFrame_t *frame)
+{
+	uint8_t dados[dROTINA_STATUS_SIZE];
+	uint8_t size = 0U;
+	uint8_t erro = 0U;
+	uint16_t txSize = 0;
+
+	if (frame->size != 0U)
+	{
+		erro = (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+	else if (frame->cmd == dCOMM_CMD_ROUTINE_STATUS)
+	{
+		(void)Rotina_Status(dados, &size);
+	}
+	else
+	{
+		(void)Rotina_Aborta();
+		DebugLog_SendTerminal("[TASK -> COMM] ABORT recebido\n");
+	}
+
+	if (Comm_BuildDirect(frame->seq, frame->cmd, erro, dados, size, commTxBuffer, sizeof(commTxBuffer),
+	                     &txSize) == eCOMM_RETURN_OK)
+	{
+		CommTask_Envia(txSize, "enviada");
 	}
 }
 
