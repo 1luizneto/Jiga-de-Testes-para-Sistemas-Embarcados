@@ -39,7 +39,10 @@ python terminal_gui.py
   e a frequência que o SPI2 gera de fato); dados em hex com "Carregar" (SPI_SLAVE_LOAD: o que a jiga escrava
   envia ao DUT), "Ler recebidos" (SPI_SLAVE_READ: o que o DUT enviou) e "Transferir" (SPI_MASTER_XFER).
 - Linha **UART**: baud (8N1) com "Configurar" (UART_CONFIG); texto ou hex com "Enviar" (UART_WRITE) e
-  "Ler" (UART_READ, até o máximo escolhido) para conversar com o DUT pela UART4 (PD1 TX, PD0 RX).
+  "Ler" (UART_READ, até o máximo escolhido) para conversar com o DUT pela UART4 (PD1 TX, PD0 RX). Com
+  "+
+" marcado, o envio termina em `
+`, como pedem os comandos do DUT de referência (ESP32-S3).
 - Linha **PWM**: canal, frequência (1 Hz a 100 kHz) e razão cíclica (0 a 100 %, passo de 0,01 %),
   com "Aplicar PWM" (PWM_SET) e "Parar PWM" (PWM_STOP). Mostra o PSC, ARR e CCR que a jiga vai usar
   e a forma de onda que sai de fato no pino: é o valor de referência para medir no osciloscópio (CT12).
@@ -79,6 +82,8 @@ Durante a execução:
 | `/teste`         | lista os casos de teste do protocolo   |
 | `/teste 3`, `/teste todos` | envia um caso / todos (menos os de loopback) |
 | `/teste loopback` | envia todos, incluindo o CT10, o CT11 e o CT13 |
+| `/teste dut` | envia todos, incluindo o CT20 (DUT de referência ligado na jiga) |
+| `/dut PING` | manda a linha ao DUT pela UART4 da jiga e lê a resposta (antes, `/uart_config 115200`) |
 | `/modo`          | alterna entre hex e texto              |
 | `/ajuda`         | mostra os comandos                     |
 | `/sair`, Ctrl+C  | encerra                                |
@@ -95,6 +100,7 @@ python teste_protocolo.py            # detecta as duas portas
 python teste_protocolo.py --listar   # lista os casos
 python teste_protocolo.py --caso 8   # só um caso
 python teste_protocolo.py --loopback # inclui o CT10, o CT11 e o CT13 (precisa dos jumpers)
+python teste_protocolo.py --dut      # inclui o CT20 (precisa do ESP32-S3 ligado na jiga)
 python teste_protocolo.py --porta COM14 --porta-log COM8
 ```
 
@@ -103,6 +109,11 @@ Não deixe outro terminal aberto nessas portas enquanto o script roda.
 Os casos marcados como `[loopback]` (CT10, CT11 e CT13) só passam com os jumpers DAC1 (PA4) → A0 (PA3),
 DAC2 (PA5) → A1 (PC0), GPIO1–4 (PC8–PC11) → GPIO5–8 (PC12, PD2, PG2, PG3), MOSI (PB15) → MISO (PC2) e
 TX (PD1) → RX (PD0); sem `--loopback` eles são pulados. Na GUI, a mesma escolha é a caixa "Incluir loopback".
+
+Os casos marcados como `[DUT]` (CT20) só passam com o DUT de referência (ESP32-S3, firmware em
+[`DUT_ESP32S3/`](../DUT_ESP32S3/README.md)) ligado na jiga, **sem** os jumpers do CT13; sem `--dut` eles são
+pulados. Na GUI, a caixa "Incluir DUT". O `dut.py` tem o espelho do firmware do ESP32 (`DutSimulado`), que
+define a resposta esperada desses casos.
 
 ## Medição do loopback DAC → ADC
 

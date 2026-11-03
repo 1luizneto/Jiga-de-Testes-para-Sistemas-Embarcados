@@ -108,7 +108,8 @@ void MapaI2c_Escrita(const uint8_t *dados, size_t quantidade)
 /***********************************************************************************************************************
  * @brief      Leitura do mestre: bytes a partir do ponteiro (voltando de 0xFF para 0x00), sem mover o ponteiro.
  * @details    O driver do ESP32 entrega ao mestre um bloco ja escrito na FIFO e nao informa quantos bytes ele leu:
- *             por isso toda leitura recomeca do ultimo ponteiro escrito (o mestre escreve o ponteiro antes de ler).
+ *             por isso toda leitura recomeca do ponteiro deixado pela ultima escrita (que fica depois do ultimo
+ *             byte gravado; para ler um registrador, o mestre escreve so o ponteiro antes).
  * @param[out] dados       Bytes para a FIFO do escravo
  * @param[in]  quantidade  Quantidade (ate dMAPAI2C_TAMANHO)
  **********************************************************************************************************************/

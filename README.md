@@ -8,6 +8,7 @@ emula escravos (I2C, SPI, UART) e lê as respostas do dispositivo sob teste (ADC
 |---|---|
 | [`projeto/`](projeto) | Firmware da NUCLEO-F767ZI (STM32CubeIDE, HAL, FreeRTOS) |
 | [`Software/`](Software) | Aplicação desktop e testes do lado do PC ([README](Software/README.md)) |
+| [`DUT_ESP32S3/`](DUT_ESP32S3) | Firmware do DUT de referência (ESP32-S3, ESP-IDF) usado no CT20 ([README](DUT_ESP32S3/README.md)) |
 | [`CHANGELOG.md`](CHANGELOG.md) | O que mudou em cada versão |
 
 ## Testes
@@ -16,6 +17,7 @@ emula escravos (I2C, SPI, UART) e lê as respostas do dispositivo sob teste (ADC
 |---|---|---|
 | Firmware (Unity, na placa) | `projeto/App/Test` | Build configuration **Test** no CubeIDE; resultado na UART do ST-Link |
 | Software (pytest) | `Software/tests` | `cd Software && pytest` (roda também no GitHub Actions) |
+| DUT de referência (Unity, no PC) | `DUT_ESP32S3/test_host` | `sh DUT_ESP32S3/test_host/rodar.sh` (roda também no GitHub Actions) |
 | Placa + PC (HIL) | `Software/teste_protocolo.py` | Ver o [README do Software](Software/README.md#teste-automático-com-a-placa) |
 
 ## Versionamento
@@ -32,17 +34,18 @@ Firmware e software têm **uma única versão**, porque os dois lados falam o me
 Enquanto a versão for `0.x.y`, o projeto está em desenvolvimento e o protocolo ainda pode mudar.
 A `1.0.0` marca a jiga funcional, com o protocolo da monografia completo.
 
-A versão fica em três lugares, conferidos por um teste (`Software/tests/test_versao.py`):
+A versão fica em quatro lugares, conferidos por um teste (`Software/tests/test_versao.py`):
 
 - `projeto/App/System/Inc/Version.h` (firmware; aparece no log de inicialização)
 - `Software/versao.py` (software; aparece no título da janela e em `--versao`)
+- `DUT_ESP32S3/main/versao_dut.h` (DUT de referência; aparece na resposta do `PING`)
 - `CHANGELOG.md`
 
 ### Como lançar uma versão
 
 1. Mover os itens de `[Não lançado]` do `CHANGELOG.md` para uma seção nova `## [X.Y.Z] - AAAA-MM-DD`
    e atualizar os links do fim do arquivo.
-2. Atualizar `Version.h` (MAJOR, MINOR, PATCH e a string) e `Software/versao.py`.
+2. Atualizar `Version.h` (MAJOR, MINOR, PATCH e a string), `Software/versao.py` e `versao_dut.h`.
 3. Rodar os testes: `pytest` em `Software/` e a build **Test** na placa.
 4. Commit, tag anotada e envio para o GitHub:
 
