@@ -9,6 +9,7 @@ A versão está em `versao.py` (ver [Versionamento](../README.md#versionamento))
 | `executar_bateria.py` | A mesma execução pela linha de comando (regressão, CT21) |
 | `cliente.py`, `bateria.py`, `motor.py`, `relatorio.py` | Cliente da jiga, baterias YAML, motor de testes e relatório |
 | `baterias/` | Baterias de exemplo |
+| `desempenho.py` | Testes de desempenho CT23 (1000 PING) e CT24 (10 000 comandos), salvos em `medicoes/` |
 | `terminal_gui.py` | Terminal gráfico (PySide6) |
 | `terminal_usb.py` | Terminal de linha de comando |
 | `protocolo.py` | Quadro, CRC-16/CCITT-FALSE, receptor e cálculo do PWM (espelhos do firmware) e casos de teste |
@@ -93,6 +94,7 @@ validação: divida em dois.
 |---|---|---|
 | `baterias/sem_fios.yaml` | nenhuma | conferir o app com a placa (mapa I2C, buffers, estímulos e esperas) |
 | `baterias/loopback.yaml` | jumpers do CT10, CT11 e CT13 | CT21 (dez execuções com os mesmos vereditos) |
+| `baterias/ct22_ventilador.yaml` | DAC1 → sensor do DUT, saída do DUT → GPIO5 | CT22 (ESP32-S3 e Arduino Uno, *black-box*) |
 | `baterias/exemplo_monografia.yaml` | DUT hipotético da figura | exemplo da seção 3.6.3 (compilado no CT06) |
 
 Sem os jumpers, a `loopback.yaml` falha nos casos analógicos, da UART e do SPI; os de GPIO dão resultado
@@ -102,6 +104,28 @@ Camadas (figura de classes da seção 3.6.2): `cliente.py` (`TransporteSerial`, 
 `ClienteJiga`: SEQ, tempo limite de 100 ms e 3 tentativas com o mesmo SEQ), `bateria.py`
 (`CarregadorDeBaterias`, `Bateria`, `CasoDeTeste`), `motor.py` (`MotorDeTestes`), `relatorio.py` e `app_jiga.py`
 (`JanelaPrincipal`). O codec do protocolo é o `protocolo.py`.
+
+## Testes de desempenho (CT23 e CT24)
+
+```
+python desempenho.py                  # os dois casos na jiga
+python desempenho.py --ct 23 --n 1000
+python desempenho.py --simulada       # confere o script sem a placa
+```
+
+O CT23 mede no PC (`time.perf_counter`) o tempo de ida e volta de 1000 PING: média, mediana, percentis 95 e 99 e
+máximo (critério: máximo < 50 ms). O CT24 manda 10 000 comandos alternando DAC_SET e ADC_READ e conta os erros
+não recuperados (critério: nenhum) e as retransmissões. Os tempos de cada comando vão para
+`medicoes/ct23_ping.csv` e `medicoes/ct24_escrita_leitura.csv`. Na placa (firmware 0.10.0, Windows 11):
+
+| Caso | Média | Mediana | p95 | p99 | Máximo | Erros | Retransmissões |
+|---|---|---|---|---|---|---|---|
+| CT23 (PING) | 1,46 ms | 1,17 ms | 2,26 ms | 2,47 ms | 2,67 ms | 0 | 0 |
+| CT24 (DAC_SET/ADC_READ) | 2,13 ms | 2,07 ms | 2,54 ms | 2,69 ms | 3,08 ms | 0 | 0 de 10 000 |
+
+O PING é respondido pela CommTask na hora; os comandos do CT24 passam pela fila e pela TestExecTask, o que
+acrescenta ~0,7 ms. Numa primeira rodada do CT24 houve um pico isolado de 15 ms (escalonamento do Windows),
+ainda bem abaixo do tempo limite de 100 ms.
 
 ## Terminal gráfico (estilo Termite)
 

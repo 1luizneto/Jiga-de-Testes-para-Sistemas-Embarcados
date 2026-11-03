@@ -8,7 +8,8 @@ emula escravos (I2C, SPI, UART) e lê as respostas do dispositivo sob teste (ADC
 |---|---|
 | [`projeto/`](projeto) | Firmware da NUCLEO-F767ZI (STM32CubeIDE, HAL, FreeRTOS) |
 | [`Software/`](Software) | Aplicação desktop e testes do lado do PC ([README](Software/README.md)) |
-| [`DUT_ESP32S3/`](DUT_ESP32S3) | Firmware do DUT de referência (ESP32-S3, ESP-IDF) usado no CT20 ([README](DUT_ESP32S3/README.md)) |
+| [`DUT_ESP32S3/`](DUT_ESP32S3) | Firmware do DUT de referência (ESP32-S3, ESP-IDF) usado no CT20 e no CT22 ([README](DUT_ESP32S3/README.md)) |
+| [`DUT_ArduinoUno/`](DUT_ArduinoUno) | Segundo DUT do CT22 (Arduino Uno, mesmo comportamento) ([README](DUT_ArduinoUno/README.md)) |
 | [`CHANGELOG.md`](CHANGELOG.md) | O que mudou em cada versão |
 
 ## Testes
@@ -20,7 +21,8 @@ emula escravos (I2C, SPI, UART) e lê as respostas do dispositivo sob teste (ADC
 | Firmware: Exec e Rotina (Unity, no PC) | `projeto/App/Test/host` | `sh projeto/App/Test/host/rodar.sh` (os mesmos testes do `Test_Exec.c`; roda também no GitHub Actions) |
 | DUT de referência (Unity, no PC) | `DUT_ESP32S3/test_host` | `sh DUT_ESP32S3/test_host/rodar.sh` (roda também no GitHub Actions) |
 | Placa + PC (HIL) | `Software/teste_protocolo.py` | Ver o [README do Software](Software/README.md#teste-automático-com-a-placa) |
-| Baterias de testes (CT21) | `Software/baterias` | `python Software/executar_bateria.py Software/baterias/loopback.yaml --repetir 10` ([README](Software/README.md#aplicação-de-baterias-de-testes)) |
+| Desempenho (CT23 e CT24) | `Software/desempenho.py` | `python Software/desempenho.py` (jiga no USB) |
+| Baterias de testes (CT21, CT22) | `Software/baterias` | `python Software/executar_bateria.py Software/baterias/loopback.yaml --repetir 10` ([README](Software/README.md#aplicação-de-baterias-de-testes)) |
 
 ## Versionamento
 
