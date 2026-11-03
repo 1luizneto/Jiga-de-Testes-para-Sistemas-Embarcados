@@ -795,7 +795,7 @@ def test_bateria_termina_no_reset_all():
 def test_casos_de_loopback():
     nomes = [caso.nome for caso in CASOS_TESTE if caso.requer_loopback]
     assert nomes == ["CT10 DAC1 -> A0", "CT10 DAC2 -> A1", "CT11 GPIO1-4 -> GPIO5-8", "CT13 SPI MOSI -> MISO",
-                     "CT13 UART TX -> RX"]
+                     "CT13 UART TX -> RX", "CT19 GPIO1 -> GPIO5"]
 
 
 def test_pontos_do_ct10():

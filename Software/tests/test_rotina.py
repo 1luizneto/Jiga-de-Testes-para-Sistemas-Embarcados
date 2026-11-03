@@ -4,7 +4,7 @@ jiga simulada (espelho do Rotina_Executa), com os mesmos vetores dos testes Unit
 import pytest
 
 from protocolo import (
-    CMD_ABORT, CMD_GPIO_SET, CMD_READ_RESULT, CMD_ROUTINE_STATUS, CMD_RUN_ROUTINE, ERRO_OCUPADO,
+    CASOS_TESTE, CMD_ABORT, CMD_GPIO_SET, CMD_READ_RESULT, CMD_ROUTINE_STATUS, CMD_RUN_ROUTINE, ERRO_OCUPADO,
     ERRO_PARAMETRO_INVALIDO, ERRO_ROTINA_INVALIDA, ERRO_SEM_RESULTADO, ESTADO_ABORTADA, ESTADO_CONCLUIDA,
     ESTADO_EM_EXECUCAO, ESTADO_ERRO, ESTADO_OCIOSA, ESTADO_TEMPO_ESGOTADO, GPIO_ESGOTOU, GPIO_OCORREU,
     ROTINA_INDICE_CABECALHO, ROTINA_LEITURA_MAX, ROTINA_TEMPO_MAX_MS, JigaSimulada, ReceptorQuadros, Registro,
@@ -262,3 +262,28 @@ def test_loopback_espera_gpio_reage_ao_proprio_estimulo():
     _uma(jiga, montar_run_routine(1, 19, 1000, [passo(montar_gpio_set(0, 1, 1)), passo_espera_gpio(5, 1, 10_000)]))
     [registro] = interpretar_resultados(_resultados(jiga)[4:])
     assert registro.dados == bytes([GPIO_OCORREU]) + bytes(4)
+
+
+# --- casos CT14 a CT19 ------------------------------------------------------------------------------------
+
+def test_casos_de_rotina():
+    nomes = [caso.nome for caso in CASOS_TESTE if caso.nome.startswith(("CT14", "CT15", "CT16", "CT17", "CT18", "CT19"))]
+    assert nomes == ["CT19 GPIO1 -> GPIO5", "CT14 rotina invalida", "CT15 comandos durante a rotina",
+                     "CT16 ABORT na espera", "CT17 tempo maximo", "CT18 RUN_ROUTINE retransmitido", "CT19 base de tempo"]
+
+
+def test_ct19_confere_os_tempos_com_tolerancia():
+    """O verificador do CT19 aceita a latencia da placa (+28 us medidos) e recusa um intervalo fora de 50 us."""
+    caso = next(c for c in CASOS_TESTE if c.nome == "CT19 base de tempo")
+    quadros = [q for _, q in ReceptorQuadros().processar(caso.resposta_esperada())]
+    seq = quadros[-1].seq
+
+    def resposta_com(instantes):
+        registros = b"".join(Registro(i, t, b"\x01").em_bytes() for i, t in zip((0, 2, 4, 6), instantes))
+        cabecalho = (19).to_bytes(2, "little") + len(registros).to_bytes(2, "little")
+        return b"".join(montar_quadro(q.seq, q.cmd, q.payload) for q in quadros[:-1]) + \
+            montar_quadro(seq, CMD_READ_RESULT | 0x80, cabecalho + registros)
+
+    assert caso.conferir_resposta(resposta_com([1, 1029, 11058, 111087])) is None
+    assert "esperado 10000" in caso.conferir_resposta(resposta_com([1, 1029, 11090, 111119]))
+    assert CMD_GPIO_SET

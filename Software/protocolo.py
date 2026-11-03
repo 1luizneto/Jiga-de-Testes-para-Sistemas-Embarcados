@@ -1411,14 +1411,23 @@ PAUSA_COMANDO = 0.05
 
 
 def _sequencia(comandos):
-    """[(quadro, resposta nominal, verificador)] -> (passos, esperado, respostas, conferir)."""
-    passos = []
-    for i, (quadro, _, _) in enumerate(comandos):
-        if i:
+    """[(quadro, resposta nominal, verificador) ou segundos] -> (passos, esperado, respostas, conferir).
+
+    Um numero no lugar do comando e uma espera a mais (rotinas: deixar o tempo passar antes do proximo).
+    """
+    passos, respostas, verificadores, enviados = [], [], [], 0
+    for item in comandos:
+        if isinstance(item, (int, float)):
+            passos.append(("esperar", item))
+            continue
+        quadro, resposta, verificador = item
+        if enviados:
             passos.append(("esperar", PAUSA_COMANDO))
         passos.append(("enviar", quadro))
-    return (passos, [QUADRO_OK] * len(comandos), [resposta for _, resposta, _ in comandos],
-            conferir_quadros([verificador for _, _, verificador in comandos]))
+        enviados += 1
+        respostas.append(resposta)
+        verificadores.append(verificador)
+    return passos, [QUADRO_OK] * enviados, respostas, conferir_quadros(verificadores)
 
 
 def pontos_ct10(quantidade=11):
@@ -1589,6 +1598,218 @@ def _casos_ct20(seq):
         _dut(s + 9, linha_dut("OFF"), resposta_dut()),
         "a jiga recebe 12 34 FF e o DUT recebe AA BB CC"))
     return casos
+
+
+# --- rotinas (CT14 a CT19) --------------------------------------------------------------------------------
+#
+# A rotina roda na jiga enquanto o PC manda os proximos comandos: as esperas dos casos ("esperar") deixam a
+# rotina chegar no ponto que o caso confere. A jiga simulada anda o relogio dela nas mesmas esperas.
+
+# Criterio de tempo das rotinas (Quadro de criterios da monografia): |t_jiga - t_nominal| <= 50 us
+TOLERANCIA_TEMPO_US = 50
+
+
+def _status(seq, estado, passos, identificador, erro=0):
+    return _comando(montar_routine_status(seq),
+                    montar_ack(seq, CMD_ROUTINE_STATUS, StatusRotina(estado, passos, identificador, erro).em_bytes()))
+
+
+def _ack_resultados(seq, identificador, resposta_nominal, conferir_registros):
+    """(quadro, nominal, verificador) do READ_RESULT offset 0: confere o cabecalho e os registros com tolerancia.
+
+    conferir_registros recebe a lista de Registro e devolve None ou o motivo.
+    """
+    def verificar(quadro):
+        try:
+            resposta = interpretar_resposta(quadro)
+        except ValueError as e:
+            return str(e)
+        if not resposta.ack or resposta.cmd != CMD_READ_RESULT or resposta.seq != seq or len(resposta.dados) < 4:
+            return f"{resposta.descrever()}; esperado ACK READ_RESULT SEQ={seq}"
+        dados = resposta.dados
+        if int.from_bytes(dados[0:2], "little") != identificador or int.from_bytes(dados[2:4], "little") != len(dados) - 4:
+            return f"cabecalho {dados[:4].hex(' ')}: rotina {identificador} com todos os resultados no quadro"
+        try:
+            return conferir_registros(interpretar_resultados(dados[4:]))
+        except ValueError as e:
+            return str(e)
+    return montar_read_result(seq), resposta_nominal, verificar
+
+
+def _conferir_tempos(esperados):
+    """Verificador dos registros: esperados = [(indice, conferir(registro, anteriores) -> motivo ou None)]."""
+    def conferir(registros):
+        if [r.indice for r in registros] != [indice for indice, _ in esperados]:
+            return f"registros dos passos {[r.indice for r in registros]}; esperado {[i for i, _ in esperados]}"
+        for i, (registro, (_, conferir_um)) in enumerate(zip(registros, esperados)):
+            motivo = conferir_um(registro, registros[:i])
+            if motivo:
+                return f"passo {registro.indice}: {motivo}"
+        return None
+    return conferir
+
+
+def _intervalo(nominal_us):
+    """O registro vem nominal_us depois do anterior (+/- TOLERANCIA_TEMPO_US)."""
+    def conferir(registro, anteriores):
+        if not anteriores:
+            return None
+        intervalo = registro.instante_us - anteriores[-1].instante_us
+        if abs(intervalo - nominal_us) > TOLERANCIA_TEMPO_US:
+            return f"{intervalo} us depois do anterior; esperado {nominal_us} +/- {TOLERANCIA_TEMPO_US} us"
+        return None
+    return conferir
+
+
+def _espera_gpio(resultado, decorrido_us, mascara=None):
+    """Registro do ESPERA_GPIO: resultado exato e tempo decorrido (+/- TOLERANCIA_TEMPO_US)."""
+    def conferir(registro, _):
+        if len(registro.dados) != 5:
+            return f"{len(registro.dados)} B; esperado 5"
+        obtido, decorrido = registro.dados[0], _le32(registro.dados, 1)
+        if obtido != resultado:
+            return f"resultado {obtido}; esperado {resultado} ({'ocorreu' if resultado == GPIO_OCORREU else 'esgotou'})"
+        if abs(decorrido - decorrido_us) > TOLERANCIA_TEMPO_US:
+            return f"{decorrido} us decorridos; esperado {decorrido_us} +/- {TOLERANCIA_TEMPO_US} us"
+        return None
+    return conferir
+
+
+def _mascara(esperada=None, bits=GPIO_MASCARA_ENTRADAS):
+    """Registro do GPIO_READ: 1 byte com os bits 4 a 7 em 0 (e, se dado, o valor nos 'bits' conferidos)."""
+    def conferir(registro, _):
+        if len(registro.dados) != 1 or registro.dados[0] & ~GPIO_MASCARA_ENTRADAS:
+            return f"GPIO_READ {registro.dados.hex(' ')}; esperado 1 B com bits 4 a 7 em 0"
+        if esperada is not None and registro.dados[0] & bits != esperada:
+            return f"mascara 0x{registro.dados[0]:02X}; esperado 0x{esperada:02X} nos bits 0x{bits:02X}"
+        return None
+    return conferir
+
+
+def _e(*verificadores):
+    """Junta verificadores de um registro: o primeiro motivo encontrado."""
+    def conferir(registro, anteriores):
+        for v in verificadores:
+            motivo = v(registro, anteriores)
+            if motivo:
+                return motivo
+        return None
+    return conferir
+
+
+def _resultado_nominal(jiga_passos, identificador, tempo_ms, seq_read, loopback=False):
+    """READ_RESULT que a jiga simulada devolve para a rotina (instantes sem a latencia da placa)."""
+    jiga = JigaSimulada(loopback=loopback)
+    jiga.processar(montar_run_routine(0, identificador, tempo_ms, jiga_passos))
+    jiga.avancar(tempo_ms / 1000)
+    return jiga.processar(montar_read_result(seq_read))[1]
+
+
+def _caso_rotina(nome, descricao, comandos, resumo, loopback=False):
+    passos, esperado, respostas, conferir = _sequencia(comandos)
+    return CasoTeste(nome, descricao, passos, esperado, respostas, conferir=conferir, requer_loopback=loopback,
+                     resumo_esperado=resumo)
+
+
+def _casos_rotina(seq):
+    """CT14 a CT18 e o CT19 sem fios (so a base de tempo): rodam sem jumpers e sem DUT."""
+    casos = []
+    gpio_alto = passo(montar_gpio_set(0, 1, 1))
+
+    s = seq
+    casos.append(_caso_rotina(
+        "CT14 rotina invalida", "passo 0x55 no meio, rotina sem passos e DAC 4096: recusadas sem executar",
+        [_comando(montar_quadro(s, CMD_RESET_ALL), montar_ack(s, CMD_RESET_ALL)),
+         _comando(montar_run_routine(s + 1, 14, 1000, [gpio_alto, b"\x55", passo(montar_gpio_read(0))]),
+                  montar_nack(s + 1, CMD_RUN_ROUTINE, ERRO_ROTINA_INVALIDA, b"\x01")),
+         _comando(montar_run_routine(s + 2, 14, 1000, []),
+                  montar_nack(s + 2, CMD_RUN_ROUTINE, ERRO_ROTINA_INVALIDA, bytes([ROTINA_INDICE_CABECALHO]))),
+         _comando(montar_run_routine(s + 3, 14, 1000, [passo(montar_dac_set(0, 1, 4096))]),
+                  montar_nack(s + 3, CMD_RUN_ROUTINE, ERRO_ROTINA_INVALIDA, b"\x00")),
+         _status(s + 4, ESTADO_OCIOSA, 0, 0),
+         _comando(montar_read_result(s + 5), montar_nack(s + 5, CMD_READ_RESULT, ERRO_SEM_RESULTADO))],
+        "NACK ROTINA_INVALIDA nos passos 1, cabecalho e 0; estado OCIOSA; READ_RESULT SEM_RESULTADO"))
+
+    s += 6
+    casos.append(_caso_rotina(
+        "CT15 comandos durante a rotina", "ESPERA de 1 s: GPIO_SET, RUN_ROUTINE e READ_RESULT recebem OCUPADO",
+        [_comando(montar_run_routine(s, 15, 2000, [passo_espera(1_000_000)]), montar_ack(s, CMD_RUN_ROUTINE)),
+         _comando(montar_gpio_set(s + 1, 1, 1), montar_nack(s + 1, CMD_GPIO_SET, ERRO_OCUPADO)),
+         _comando(montar_run_routine(s + 2, 99, 1000, [gpio_alto]), montar_nack(s + 2, CMD_RUN_ROUTINE, ERRO_OCUPADO)),
+         _comando(montar_read_result(s + 3), montar_nack(s + 3, CMD_READ_RESULT, ERRO_OCUPADO)),
+         _status(s + 4, ESTADO_EM_EXECUCAO, 0, 15),
+         _comando(_ping(s + 5), montar_ack_ping(s + 5)),
+         _comando(montar_abort(s + 6), montar_ack(s + 6, CMD_ABORT)),
+         _status(s + 7, ESTADO_ABORTADA, 0, 15)],
+        "3x OCUPADO; ROUTINE_STATUS e PING atendidos durante a rotina; ABORT encerra"))
+
+    s += 8
+    casos.append(_caso_rotina(
+        "CT16 ABORT na espera", "GPIO1 alto e ESPERA de 10 s: ABORT depois de 0,3 s",
+        [_comando(montar_run_routine(s, 16, 20000, [gpio_alto, passo_espera(10_000_000)]),
+                  montar_ack(s, CMD_RUN_ROUTINE)),
+         0.3,
+         _status(s + 1, ESTADO_EM_EXECUCAO, 1, 16),
+         _comando(montar_abort(s + 2), montar_ack(s + 2, CMD_ABORT)),
+         _status(s + 3, ESTADO_ABORTADA, 1, 16),
+         _comando(montar_read_result(s + 4), montar_ack(s + 4, CMD_READ_RESULT, (16).to_bytes(2, "little") + bytes(2)))],
+        "EM_EXECUCAO com 1 passo; ABORT; ABORTADA (estado seguro aplicado), sem registros"))
+
+    s += 5
+    casos.append(_caso_rotina(
+        "CT17 tempo maximo", "ESPERA de 500 ms em uma rotina de no maximo 100 ms",
+        [_comando(montar_run_routine(s, 17, 100, [passo_espera(500_000), passo(montar_gpio_read(0))]),
+                  montar_ack(s, CMD_RUN_ROUTINE)),
+         0.3,
+         _status(s + 1, ESTADO_TEMPO_ESGOTADO, 0, 17),
+         _comando(montar_read_result(s + 2), montar_ack(s + 2, CMD_READ_RESULT, (17).to_bytes(2, "little") + bytes(2)))],
+        "TEMPO_ESGOTADO sem passos concluidos e sem registros"))
+
+    s += 3
+    run = montar_run_routine(s, 18, 2000, [passo_espera(600_000)])
+    casos.append(_caso_rotina(
+        "CT18 RUN_ROUTINE retransmitido", "ESPERA de 600 ms; o mesmo RUN_ROUTINE (mesmo SEQ) de novo em 0,3 s",
+        [_comando(run, montar_ack(s, CMD_RUN_ROUTINE)),
+         0.25,
+         _comando(run, montar_ack(s, CMD_RUN_ROUTINE)),
+         _status(s + 1, ESTADO_EM_EXECUCAO, 0, 18),
+         0.4,
+         _status(s + 2, ESTADO_CONCLUIDA, 1, 18)],
+        "ACK reenviado; a rotina nao recomeca (CONCLUIDA em ~0,6 s; recomecada so terminaria em ~0,9 s)"))
+
+    s += 3
+    esperas = [passo(montar_gpio_read(0)), passo_espera(1000), passo(montar_gpio_read(0)), passo_espera(10_000),
+               passo(montar_gpio_read(0)), passo_espera(100_000), passo(montar_gpio_read(0))]
+    casos.append(_caso_rotina(
+        "CT19 base de tempo", "GPIO_READ com ESPERA de 1, 10 e 100 ms entre eles (instantes medidos pela jiga)",
+        [_comando(montar_run_routine(s, 19, 1000, esperas), montar_ack(s, CMD_RUN_ROUTINE)),
+         0.2,
+         _status(s + 1, ESTADO_CONCLUIDA, 7, 19),
+         _ack_resultados(s + 2, 19, _resultado_nominal(esperas, 19, 1000, s + 2),
+                         _conferir_tempos([(0, _mascara()), (2, _e(_mascara(), _intervalo(1000))),
+                                           (4, _e(_mascara(), _intervalo(10_000))),
+                                           (6, _e(_mascara(), _intervalo(100_000)))]))],
+        f"CONCLUIDA; registros a 1000, 10 000 e 100 000 us um do outro (+/- {TOLERANCIA_TEMPO_US} us)"))
+    return casos
+
+
+def _caso_ct19_loopback(seq):
+    """CT19 com o jumper GPIO1 -> GPIO5: tempo de reacao da entrada e tempo limite do ESPERA_GPIO."""
+    passos = [passo(montar_gpio_set(0, 1, 0)), passo(montar_gpio_set(0, 2, 0)), passo_espera(1000),
+              passo(montar_gpio_set(0, 1, 1)),
+              passo_espera_gpio(5, 1, 10_000), passo(montar_gpio_set(0, 1, 0)), passo_espera_gpio(5, 0, 10_000),
+              passo_espera_gpio(6, 1, 1000), passo(montar_gpio_set(0, 2, 1)), passo_espera(5000),
+              passo(montar_gpio_read(0))]
+    return _caso_rotina(
+        "CT19 GPIO1 -> GPIO5", "ESPERA_GPIO na subida e na descida do GPIO5, e no GPIO6 sem estimulo (esgota)",
+        [_comando(montar_run_routine(seq, 191, 1000, passos), montar_ack(seq, CMD_RUN_ROUTINE)),
+         0.2,
+         _status(seq + 1, ESTADO_CONCLUIDA, 11, 191),
+         _ack_resultados(seq + 2, 191, _resultado_nominal(passos, 191, 1000, seq + 2, loopback=True),
+                         _conferir_tempos([(4, _espera_gpio(GPIO_OCORREU, 0)), (6, _espera_gpio(GPIO_OCORREU, 0)),
+                                           (7, _espera_gpio(GPIO_ESGOTOU, 1000)), (10, _mascara(0x02, bits=0x03))]))],
+        f"GPIO5 reage em ate {TOLERANCIA_TEMPO_US} us nas duas bordas; GPIO6 esgota em 1000 us; GPIO5=0 e GPIO6=1",
+        loopback=True)
 
 
 def _caso_variavel(nome, descricao, quadro, resposta_nominal, verificador, resumo):
@@ -1803,8 +2024,11 @@ CASOS_TESTE = [
     _caso_ct11(150),
     _caso_ct13_spi(230),
     _caso_ct13_uart(240),
+    _caso_ct19_loopback(250),
     # Com o DUT de referencia (ESP32-S3) ligado na jiga, sem os jumpers do CT13: CT20 da monografia
     *_casos_ct20(74),
+    # Rotinas (sem jumpers e sem DUT): CT14 a CT18 e a base de tempo do CT19
+    *_casos_rotina(186),
     CasoTeste("RESET_ALL no fim", "deixa a jiga no estado seguro depois da bateria: ACK",
               [("enviar", montar_quadro(20, CMD_RESET_ALL))],
               [QUADRO_OK], [montar_ack(20, CMD_RESET_ALL)]),
