@@ -6,3 +6,6 @@ __pycache__/
 # Artefatos de build do STM32CubeIDE (gerados de novo a cada build)
 projeto/Debug/
 projeto/Test/
+
+# Relatorios gerados pelo executar_bateria.py e pelo app
+Software/relatorios/

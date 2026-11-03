@@ -36,9 +36,12 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - **v0.8.1** (DUT de referência ESP32-S3 + CT20) fechada no branch **`feat_dut-esp32`**: 172/172 Unity e
   62/62 HIL com o firmware 0.8.1, 17 Unity do DUT no PC, 381 pytest; ESP32 gravado e testado pelo USB.
   Falta o CT20 na bancada (ESP32 ligado na jiga): teste manual.
-- **v0.9.0** (rotinas, CT14–CT19) fechada no branch **`feat_rotinas`**: 193/193 Unity e 68/68 HIL na placa
+- **v0.9.0** (rotinas, CT14–CT19): PR #10, tag e prerelease (03/11/2026): 193/193 Unity e 68/68 HIL na placa
   sem fios, 435 pytest, 76 testes do Exec/Rotina no PC; ESP32 regravado com a 0.9.0. Falta o CT19 com
   jumper (GPIO1 → GPIO5): teste manual.
+- **v0.10.0** (app desktop, CT02–CT07 e CT21) no branch **`feat_app-desktop`**: 193/193 Unity, 68/68 HIL e a
+  bateria `sem_fios.yaml` 10 vezes com os mesmos vereditos na placa com a 0.10.0; 562 pytest. **ESP32 ainda
+  com a 0.9.0** (não estava ligado no PC): regravar antes do CT20. CT21 com jumpers: teste manual.
 - Cada versão nova nasce de um branch criado do `main` atualizado (`git checkout main && git pull &&
   git checkout -b <branch>`). Branch criado de `main` desatualizado já deu problema uma vez.
 - `gh` instalado no PC de casa (`C:\Program Files\GitHub CLI`, conta 1luizneto); o notebook da empresa não tem.
@@ -409,6 +412,15 @@ SOF(0x7E) | LEN(0–240) | SEQ | CMD | PAYLOAD(0–240) | CRC-16 (2 bytes, littl
 - `/i2c_config`, `/i2c_load`, `/i2c_dump`, `/i2c_xfer` no terminal; linha I2C na GUI
 - **246 testes pytest**
 
+### v0.10.0 — aplicação desktop (03/11/2026)
+- `cliente.py` (`TransporteSerial`, `TransporteSimulado`, `ClienteJiga`: SEQ, 100 ms, 3 tentativas com o mesmo
+  SEQ), `bateria.py` (YAML → rotinas, validação com todos os erros), `motor.py` (vereditos), `relatorio.py`
+  (CSV `;` + JSON), `executar_bateria.py` (CLI, `--repetir`, `--simulada`) e `app_jiga.py` (janela PySide6)
+- Baterias `sem_fios.yaml`, `loopback.yaml` (CT21) e `exemplo_monografia.yaml`
+- Testes CT02–CT07 (`test_ct02_ct04.py`, `test_cliente.py`, `test_bateria.py`, `test_motor.py`) e `test_app.py`
+  (offscreen; pulado sem PySide6, como no CI): **562 pytest**
+- Firmware sem mudança de código (só a versão)
+
 ### v0.9.0 — rotinas (03/11/2026)
 - CubeMX: TIM5 a 1 MHz (32 bits); `Bsp_Tempo` (compare do TIM5, EXTI das entradas, notificação da task)
 - `Rotina` (valida a rotina inteira antes, executa pelo `Exec_Passo`, grava os registros, estado seguro no
@@ -470,7 +482,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 | ~~0.8.0~~ | SPI (escravo e mestre, 0x60–0x63) e UART (0x70–0x72), sem task | CT13 (comandos ✅; dados no teste manual) |
 | ~~0.8.1~~ | Firmware do DUT de referência (ESP32-S3) e casos do CT20 | **CT20** (simulado ✅; bancada no teste manual) |
 | ~~0.9.0~~ | Rotinas: `RUN_ROUTINE`, `ROUTINE_STATUS`, `READ_RESULT`, `ABORT`, passos ESPERA/ESPERA_GPIO, base de tempo de 1 µs (TIM5), tempo máximo | CT14–CT18 ✅, CT19 (sem fio ✅; jumper no teste manual) |
-| 0.10.0 | App desktop da seção 3.6: `ClienteJiga` com retransmissão (100 ms, 3 tentativas), baterias YAML → rotinas, veredito, relatório | CT02–CT07, CT21 |
+| ~~0.10.0~~ | App desktop da seção 3.6: `ClienteJiga` com retransmissão (100 ms, 3 tentativas), baterias YAML → rotinas, veredito, relatório | CT02–CT07 ✅, CT21 (sem fios ✅; jumpers no teste manual) |
 | 0.11.0 | Validação com DUTs (ESP32, Arduino Uno) e desempenho | CT22–CT24 |
 | 1.0.0 | Jiga completa: todos os CT passando; resultados no Cap. 4 | CT01–CT24 |
 
@@ -482,7 +494,7 @@ Cada versão fecha quando os casos de teste dela (CT da monografia, seção 3.7)
 ## PRÓXIMOS PASSOS
 1. Monografia: levar ao texto tudo o que mudou desde 30/09 (ver "Pendências no texto") e gerar o PDF em
    `Monografia/` a cada versão
-2. App da seção 3.6 (0.10.0), desempenho (0.11.0), 1.0.0
+2. Desempenho e DUTs (0.11.0: CT22–CT24), 1.0.0
 3. Teste manual do Luiz (jumpers do CT10/CT11/CT13 e o ESP32 ligado), correções em PATCH
 4. Opcional, quando montar o filtro RC (opção G, ver Hardware): caso de loopback do PWM só no Python
    (`PWM_SET` 25/50/75 % no PWM3, esperar ~0,5 s, `ADC_READ` do A2, conferir razão × 4095 ± 41)
@@ -604,6 +616,16 @@ faixa útil, sim. Firmware não muda.
   - **Firmware**: TIM5 como base de tempo (1 µs, 32 bits: volta em ~71 min, por isso o tempo máximo de 1 h),
     esperas por compare/EXTI + notificação (sem polling); ROUTINE_STATUS e ABORT atendidos pela CommTask
   - **Cap. 4**: overhead medido de ≈ 28 µs por passo (critério de 50 µs)
+- **App desktop (v0.10.0)**:
+  - **3.6.2**: as classes existem com os nomes da figura; o `CodecProtocolo` é o `protocolo.py` (funções de
+    montagem + `ReceptorQuadros`); `TransporteSimulado` existe de verdade (testes sem placa)
+  - **3.6.3**: estímulos e verificações aceitos (tabela no `Software/README.md`); `espera_ms` do caso fica entre
+    estímulos e verificações; tolerância padrão do ADC 33 mV; tempo máximo = (esperas + limites) × 1,1 + 100 ms;
+    cada caso configura o que usa (a rotina termina no estado seguro)
+  - **3.6.4**: o fluxograma bate com o `motor.py`; ROUTINE_STATUS a cada 20 ms; relatório CSV e JSON
+  - **CT03**: a jiga não responde NACK CRC_INVALIDO; o teste confere "descartado, sem resposta, o PC retransmite"
+  - **Apêndice A, Quadro de exemplos de rotina**: ACK do READ_RESULT corrigido (registro do ADC com 3 B):
+    `7E 18 08 8A 07 00 14 00 01 6E A5 00 00 05 00 62 A5 00 00 02 83 A5 00 00 03 00 FF 07 51 36` (2 registros, 20 B)
 - **Verificação automática com tolerância**: os casos do PC conferem leituras analógicas por faixa e não
   byte a byte (é o mesmo critério do `qua:criterios`); vale citar na seção do app/casos de teste
 
