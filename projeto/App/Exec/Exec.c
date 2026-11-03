@@ -27,7 +27,7 @@
  *                                                          SPI_MASTER_XFER; estado seguro desliga o SPI
  *   @version      <b>1.5.0 - 29/10/2026</b> \n Luiz Neto \n UART_CONFIG, UART_WRITE e UART_READ; estado seguro desliga
  *                                                          a UART
- *   @version      <b>1.6.0 - 04/11/2026</b> 
+ *   @version      <b>1.6.0 - 03/11/2026</b> 
  Luiz Neto 
  RUN_ROUTINE e READ_RESULT (Rotina); Exec_Passo executa
  *                                                          um passo de rotina; RESET_ALL descarta os resultados

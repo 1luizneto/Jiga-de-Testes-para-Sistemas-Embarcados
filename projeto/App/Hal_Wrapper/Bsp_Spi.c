@@ -26,7 +26,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 28/10/2026</b> \n Luiz Neto \n Primeira versao
- *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n HAL_GPIO_EXTI_Callback repassa as bordas das entradas
+ *   @version      <b>1.1.0 - 03/11/2026</b> \n Luiz Neto \n HAL_GPIO_EXTI_Callback repassa as bordas das entradas
  *                 ao BspTempo_Borda (ESPERA_GPIO das rotinas)
  *
  *   @copyright

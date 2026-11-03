@@ -24,7 +24,7 @@
  *     interrompido (o I2C e o SPI mestres tem timeout proprio).
  *
  *   Changelog
- *   @version      <b>1.0.0 - 04/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
  *
  *   @copyright
  *   @{
