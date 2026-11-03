@@ -555,99 +555,27 @@ Com a tolerância proposta (±33 mV, 1 % do fundo de escala) as pontas (0 e 4095
 faixa útil, sim. Firmware não muda.
 
 ## PENDÊNCIAS NO TEXTO DA MONOGRAFIA
-- **Apêndice A, códigos de erro**: 0x04 CRC_INVALIDO e 0x05 TAMANHO_EXCEDIDO nunca são enviados (a jiga
-  não responde a quadro corrompido): marcar como reservados ou retirar, e justificar (SEQ/CMD não confiáveis)
-- **CT03** (metodologia.tex, quadro de casos de teste) espera "NACK CRC_INVALIDO": trocar para "quadro
-  descartado, sem resposta; o PC retransmite por timeout"
-- **Apêndice A, Sequenciamento e Retransmissão**: o cache de SEQ vale por sessão; a sessão começa quando
-  o PC abre a porta (DTR em `SET_CONTROL_LINE_STATE`); explicar o problema que isso resolve
-- **Figura 5 / seção da máquina de estados** (metodologia.tex ~linha 402): separar o "receptor de
-  quadros" (parser puro) do "fluxo da CommTask" (pendente, espera do resultado na fila, respostas)
-- **Figura de sequência de um comando** (metodologia.tex ~linha 345): agora corresponde ao código
-  (fila de comando, fila de resultado, "monta ACK/NACK" na CommTask); citar a verificação da fila de
-  resultado sem bloquear a cada ≤ 20 ms e a latência que isso acrescenta
-- **OCUPADO**: dois comandos no mesmo envio → o OCUPADO do 2º chega antes do ACK do 1º (o PC associa pelo
-  SEQ, não pela ordem); OCUPADO não entra no cache de SEQ
-- **Faixa do DAC (decisão: buffer ligado + faixa útil)**:
-  - **RF01** ("0 a 3,3 V"): trocar para a faixa útil ~0,1 a ~3,2 V, ou manter e explicar a faixa útil na
-    seção do hardware (limite do buffer de saída: satura a ~50 mV dos trilhos)
-  - **CT10**: a varredura de 11 pontos fica dentro da faixa útil (~0,1 a ~3,2 V)
-  - **Estado seguro** (Apêndice A, "DAC em 0 V"): é o código 0, que dá ~50 mV por causa do buffer
-  - **Cap. 4**: tabela medida (0, 1, 2048, 4095 nos dois canais; 3V3 = 3,300 V) como prévia do CT10, e a
-    justificativa de manter o buffer (impedância de saída com carga do DUT)
-- **Justificar o enquadramento por comprimento** (sem byte stuffing), com os argumentos das Decisões
-- **Mistura CMSIS-RTOS v2 + API nativa do FreeRTOS**: stream buffer não existe na CMSIS nem no CubeMX
-  (as filas sim: criadas no `.ioc`)
-- **Timeout entre bytes de 20 ms**: o texto já diz 20 ms; o firmware bate desde a v0.3.0
-- **Entradas digitais GPIO5–8 (PC12, PD2, PG2, PG3), seção do hardware / Cap. 3**:
-  - São FT: com a jiga ligada (VDD = 3,3 V) aguentam até 5,5 V (DS11532, Tabela 14:
-    mín(VDD + 3,6; 5,5)); conferir na tabela de pinos que os 4 são FT. Colocar o DS11532 no `.bib`
-  - Nota 5 da Tabela 14: acima de 4 V os pull-up/pull-down internos precisam estar desligados → as
-    entradas ficam sem pull interno; o resistor, quando necessário, é externo e escolhido conforme o DUT
-    (pull-up para a tensão do DUT em saída open-drain; pull-down para leitura definida com fio solto;
-    saída push-pull e o loopback do CT11 não precisam)
-  - Restrição de uso: com a jiga desligada (VDD = 0) o limite cai para 3,6 V → ligar a jiga antes do
-    DUT e desligar o DUT antes da jiga (não se aplica se o DUT for alimentado pela própria jiga)
-  - TODO da metodologia.tex (~linha 161) sobre rótulos: não renomear; dizer que GPIO5–8 correspondem aos
-    rótulos `GPIO1_IN`…`GPIO4_IN` do `.ioc`
-- **ADC**: sampling time de 480 ciclos (fonte do DUT com impedância de alguns kΩ); leitura por polling,
-  uma conversão por comando
-- **CT10 e CT11** (quadro de casos de teste): descrever a ligação por jumpers (PA4→PA3, PA5→PC0,
-  PC8–PC11→PC12/PD2/PG2/PG3), os 11 pontos de 124 a 3971 (faixa útil do DAC) e o critério de ±41 códigos;
-  no Cap. 4, a tabela/gráfico do `medir_loopback.py` (erro por ponto, reta ajustada) e o 29/29
-- **PWM (v0.6.0)**:
-  - **RF03**: faixa de 1 Hz a 100 kHz, razão cíclica de 0 a 100 % em passos de 0,01 % (a resolução real
-    depende do período: a 100 kHz no TIM3 são 1080 contagens, ~0,09 %); frequência não exata → a mais
-    próxima, não NACK; justificar o menor prescaler (melhor resolução da razão)
-  - **Apêndice A**: `PWM_STOP` = razão 0 com o timer rodando (saída em nível baixo); estado seguro idem
-  - **CT12**: a tabela medida (6 pontos, 3 canais, 1 Hz a 100 kHz, 0 % e 100 %), o critério (±1 %, ±1 p.p.)
-    e a observação da resolução do osciloscópio (±10 Hz em 20/100 kHz). Faltam o **modelo do
-    osciloscópio** (instrumentos de medição) e, se possível, capturas de tela das formas de onda
-  - Arredondamento dos registradores como exemplo (20 kHz a 12,34 % sai 12,33 %; 50 Hz no TIM3 sai
-    49,9997 Hz): a GUI mostra o valor esperado no pino
-- **I2C (v0.7.0)**:
-  - **Seção do firmware (tasks, 3.5.2)**: a `I2CEmulationTask` não existe; o escravo roda na ISR do I2C2
-    (callbacks do HAL), byte a byte. Justificar: o mestre dita o tempo de cada byte e uma task só
-    acrescentaria troca de contexto. Revisar a tabela de tasks e a figura, se houver
-  - **Apêndice A**: endereços válidos 0x08–0x77 (os outros são reservados pelo padrão); mapa no padrão
-    24C02 (1º byte escrito = ponteiro, auto-incremento, volta de 0xFF para 0x00); `LOAD`/`DUMP` sem
-    `I2C_CONFIG`; `DUMP` e `nr` até 240 (limite do payload do ACK); estado seguro desliga o I2C e zera o mapa;
-    XFER sem papel de mestre → NAO_CONFIGURADO; falta de ACK → ERRO_PERIFERICO (o texto já diz isso)
-  - **CT20**: ligação (PF0/PF1, pull-ups de 4,7 kΩ para o 3V3, GND comum) e como o DUT informa o valor
-    (UART do DUT → UART4 da jiga, se for essa a decisão)
-- **SPI e UART (v0.8.0)**:
-  - **Seção do firmware (tasks)**: sem `SPIEmulationTask` nem `UARTEmulationTask` (mesma justificativa do I2C)
-  - **Apêndice A**: os 7 comandos com os formatos acima; escrava SPI recomeça do byte 0 a cada transação
-    e completa com 0xFF; RX acumulado até o READ (até 239); mestre com a frequência ≤ pedida (54 MHz /
-    2..256); UART 8N1, buffer de 256 bytes; WRITE/READ/XFER sem configuração → NAO_CONFIGURADO; estado
-    seguro desliga os dois (CS em nível alto)
-  - **CT13**: ligação (PB15→PC2, PD1→PD0), modos 0–3 a 1 MHz e 239 bytes a 6,75 MHz; UART a 9600, 115200
-    e 1 000 000 baud; comparação exata
-  - **Hardware**: PD7 = CS por software (duplo papel); PD0 sem pull
-- **Rotinas (v0.9.0)**:
-  - **Apêndice A**: o exemplo do READ_RESULT (o registro do ADC_READ tem 3 B: canal + valor); o NACK com o
-    detalhe (índice do passo no ROTINA_INVALIDA, 0xFF no cabeçalho); passos ESPERA (0x78) e ESPERA_GPIO
-    (0x79) com o registro [resultado][decorrido]; tempo máximo de 1 ms a 1 h; só PING/STATUS/ABORT durante
-    a rotina; estado seguro no fim; RESET_ALL descarta os resultados
-  - **Firmware**: TIM5 como base de tempo (1 µs, 32 bits: volta em ~71 min, por isso o tempo máximo de 1 h),
-    esperas por compare/EXTI + notificação (sem polling); ROUTINE_STATUS e ABORT atendidos pela CommTask
-  - **Cap. 4**: overhead medido de ≈ 28 µs por passo (critério de 50 µs)
-- **Desempenho e DUTs (v0.11.0)**:
-  - **CT22**: descrever o comportamento conhecido (ventilador com histerese) nos dois DUTs, a ligação e a bateria;
-    a escolha dos pontos 1,58/1,72 V (distinguir histerese de limiar único); o Uno em 5 V no pino FT (RNF05)
-  - **Cap. 4**: tabela do CT23/CT24 (média, mediana, p95, p99, máximo) e o histograma dos CSV
-- **App desktop (v0.10.0)**:
-  - **3.6.2**: as classes existem com os nomes da figura; o `CodecProtocolo` é o `protocolo.py` (funções de
-    montagem + `ReceptorQuadros`); `TransporteSimulado` existe de verdade (testes sem placa)
-  - **3.6.3**: estímulos e verificações aceitos (tabela no `Software/README.md`); `espera_ms` do caso fica entre
-    estímulos e verificações; tolerância padrão do ADC 33 mV; tempo máximo = (esperas + limites) × 1,1 + 100 ms;
-    cada caso configura o que usa (a rotina termina no estado seguro)
-  - **3.6.4**: o fluxograma bate com o `motor.py`; ROUTINE_STATUS a cada 20 ms; relatório CSV e JSON
-  - **CT03**: a jiga não responde NACK CRC_INVALIDO; o teste confere "descartado, sem resposta, o PC retransmite"
-  - **Apêndice A, Quadro de exemplos de rotina**: ACK do READ_RESULT corrigido (registro do ADC com 3 B):
-    `7E 18 08 8A 07 00 14 00 01 6E A5 00 00 05 00 62 A5 00 00 02 83 A5 00 00 03 00 FF 07 51 36` (2 registros, 20 B)
-- **Verificação automática com tolerância**: os casos do PC conferem leituras analógicas por faixa e não
-  byte a byte (é o mesmo critério do `qua:criterios`); vale citar na seção do app/casos de teste
+**Feito em 03/11/2026** (git local `Texto/TCC_Monografia`, commits `4e7db72` a `e02d5a3`; PDF em `Monografia/`):
+Apêndice A conforme a implementação (quadro corrompido sem resposta, 0x04/0x05 reservados, faixas de cada comando,
+regras do PWM/SPI/UART, mapa 24C02, tempo máximo de 1 h, sessão pelo DTR, OCUPADO fora do cache, tempos
+calibrados, estado seguro, exemplo do READ_RESULT corrigido); metodologia (RF01 com a faixa útil, nova subseção
+"Conversores Analógicos", pinos FT com DS11532 e ATmega328P no `.bib`, figura de camadas, tarefas sem as
+EmulationTasks e com o stream buffer, CommTask conferindo a fila a cada volta, máquina de estados só do receptor,
+TIM5 e EXTI2 compartilhado, enquadramento por comprimento, ROUTINE_STATUS a cada 20 ms, quadro dos itens da
+bateria, critérios em ±41 códigos, CT03/CT10/CT13/CT20/CT21/CT22, ligações dos loopbacks e o DUT do CT22);
+**Cap. 4 inteiro** (com gráficos pgfplots a partir de `dados/*.csv`); **Cap. 5**; resumo e abstract. Compila
+com `latexmk -pdf main.tex` (75 páginas). Todos os TODOs antigos de implementação saíram.
+
+**Falta (precisa do Luiz ou da bancada):**
+- Resultados do teste manual no Cap. 4 (`sec:res-bancada`): CT13 com jumpers, CT19 com osciloscópio, CT20, CT21
+  com a `loopback.yaml`, CT22 com o ESP32-S3 e o Uno; depois atualizar o quadro de requisitos, a conclusão e a
+  versão citada (1.0.0)
+- Modelos e exatidão do multímetro e do osciloscópio (TODO no fim da metodologia e no CT12); capturas de tela do PWM
+- Lista de materiais: preços, fonte e data da cotação, total e comparação com o HIL comercial (com referência; o
+  Cap. 1 e 2 dizem "centenas de milhares de dólares" sem fonte)
+- Projeto mecânico (caixa) e esquema elétrico (TODOs na metodologia)
+- Conferir a revisão e a data das folhas de dados DS11532 e ATmega328P no `.bib` (estão com `s.d.`)
+- Revisão geral do texto pelo Luiz e pelo orientador
 
 ## Pendências menores (código)
 - **USB travada em BUSY** (visto em 26/10/2026): depois de algum envio que o PC não buscou, toda resposta
