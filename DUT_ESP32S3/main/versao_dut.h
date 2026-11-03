@@ -8,7 +8,7 @@
 #define MAIN_VERSAO_DUT_H_
 
 /// Versao em texto, informada na resposta do PING
-#define dDUT_VERSAO "0.8.1"
+#define dDUT_VERSAO "0.9.0"
 
 #endif /* MAIN_VERSAO_DUT_H_ */
 
