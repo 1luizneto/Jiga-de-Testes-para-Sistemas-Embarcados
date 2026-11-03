@@ -23,7 +23,7 @@
  *   @version      <b>1.3.0 - 13/10/2026</b> \n Luiz Neto \n Comandos alem do PING sao repassados (FORWARD) e
  *                 respondidos pelo Comm_BuildResult; um comando pendente por vez (retransmissao ignorada,
  *                 outro comando recebe NACK OCUPADO)
- *   @version      <b>1.4.0 - 04/11/2026</b> \n Luiz Neto \n ROUTINE_STATUS e ABORT respondidos pela CommTask
+ *   @version      <b>1.4.0 - 03/11/2026</b> \n Luiz Neto \n ROUTINE_STATUS e ABORT respondidos pela CommTask
  *                 (DIRECT, Comm_BuildDirect); OCUPADO tambem durante uma rotina (Comm_SetBusyCheck); NACK com
  *                 detalhe depois do codigo de erro (indice do passo no ROTINA_INVALIDA)
  *

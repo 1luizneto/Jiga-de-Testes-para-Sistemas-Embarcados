@@ -26,7 +26,7 @@
  *   - Prioridade 5 nas IRQs do TIM5 e do EXTI: a mais alta que ainda pode chamar a API FromISR do FreeRTOS.
  *
  *   Changelog
- *   @version      <b>1.0.0 - 04/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
  *
  *   @copyright
  *   @{
