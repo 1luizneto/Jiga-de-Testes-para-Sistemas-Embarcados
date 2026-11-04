@@ -63,6 +63,9 @@ typedef struct pwmConfig
 /// @brief Aplica a configuracao no timer do canal (fornecida pela BSP)
 typedef pwmReturn_t (*pwmApplyFunc_t)(uint8_t canal, const pwmConfig_t *config);
 
+/// @brief Troca so a comparacao (CCR, com preload) do canal: sem reiniciar o contador (onda na razao ciclica)
+typedef void (*pwmComparacaoFunc_t)(uint8_t canal, uint32_t comparacao);
+
 /***********************************************************************************************************************
  * PROTOTIPOS PUBLICOS
  **********************************************************************************************************************/
@@ -72,6 +75,8 @@ pwmReturn_t Pwm_Calcula(const pwmTimer_t *timer, uint32_t frequencia, uint16_t r
 pwmReturn_t Pwm_Set(uint8_t canal, uint32_t frequencia, uint16_t razao);
 pwmReturn_t Pwm_Stop(uint8_t canal);
 pwmReturn_t Pwm_SafeState(void);
+pwmReturn_t Pwm_InitComparacao(pwmComparacaoFunc_t comparacaoFunc);
+pwmReturn_t Pwm_Razao(uint8_t canal, uint16_t razao);
 
 #endif /* SYSTEM_INC_PWM_H_ */
 

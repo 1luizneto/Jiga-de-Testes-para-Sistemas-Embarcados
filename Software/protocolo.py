@@ -149,7 +149,22 @@ UART_TAMANHO_MAX = 239           # maior WRITE e maior READ: [quantidade][dados]
 # registros com READ_RESULT. Cada passo de aquisicao gera [indice u8][instante us u32][quantidade u8][dados]
 PASSO_ESPERA = 0x78
 PASSO_ESPERA_GPIO = 0x79
-NOMES_PASSO = {PASSO_ESPERA: "ESPERA", PASSO_ESPERA_GPIO: "ESPERA_GPIO"}
+PASSO_ONDA = 0x7A                        # gerador de ondas em segundo plano (Onda.c)
+NOMES_PASSO = {PASSO_ESPERA: "ESPERA", PASSO_ESPERA_GPIO: "ESPERA_GPIO", PASSO_ONDA: "ONDA"}
+
+# Gerador de ondas (Onda.c): tabela de 2 a 32 pontos igualmente espacados no periodo, normalizados em 16 bits;
+# valor bruto = base + amplitude x valor / 65535. Passo de 100 us ou mais por interrupcao; no DAC, de 1 a 99 us por DMA
+# (ate 1024 amostras por periodo)
+ONDA_CABECALHO = 25
+ONDA_GERADORES = 6
+ONDA_PONTOS = (2, 32)
+ONDA_PASSO_MIN_US = 100
+ONDA_AMOSTRAS_MAX = 1024
+ONDA_ESCALA = 65535
+ONDA_DAC, ONDA_PWM, ONDA_I2C_S16, ONDA_I2C_U16, ONDA_I2C_U20 = 0, 1, 2, 3, 4
+ONDA_INTERPOLA, ONDA_DEGRAU = 0, 1
+ONDA_FAIXAS = {ONDA_DAC: (0, 4095), ONDA_PWM: (0, 10000), ONDA_I2C_S16: (-32768, 32767), ONDA_I2C_U16: (0, 65535),
+               ONDA_I2C_U20: (0, 0xFFFFF)}
 ROTINA_CABECALHO = 7
 ROTINA_PASSOS_MAX = PAYLOAD_MAX - ROTINA_CABECALHO
 ROTINA_TEMPO_MAX_MS = 3_600_000          # 1 h: em us cabe nos 32 bits do TIM5 (~71 min ate dar a volta)
@@ -486,6 +501,71 @@ def passo_espera_gpio(entrada, nivel, limite_us):
     return bytes([PASSO_ESPERA_GPIO, entrada, nivel]) + int(limite_us).to_bytes(4, "little")
 
 
+def passo_onda(gerador, tipo, registro, passo_us, periodo_us, valores, base, amplitude, ciclos=0,
+               modo=ONDA_INTERPOLA, ruido=0):
+    """ONDA: [0x7A][gerador][tipo][registro][passo us][periodo us][ciclos u16][modo][ruido u16][base s32]
+    [amplitude s32][n][n valores u16]. 'valores' ja normalizados (0 a 65535)."""
+    return (bytes([PASSO_ONDA, gerador, tipo, registro]) + int(passo_us).to_bytes(4, "little")
+            + int(periodo_us).to_bytes(4, "little") + int(ciclos).to_bytes(2, "little") + bytes([modo])
+            + int(ruido).to_bytes(2, "little") + int(base).to_bytes(4, "little", signed=True)
+            + int(amplitude).to_bytes(4, "little", signed=True) + bytes([len(valores)])
+            + b"".join(int(v).to_bytes(2, "little") for v in valores))
+
+
+def onda_valida(p):
+    """Espelho do Onda_Valida (parametros sem o codigo)."""
+    if len(p) < ONDA_CABECALHO or len(p) != ONDA_CABECALHO + 2 * p[24]:
+        return False
+    gerador, tipo, registro, passo, periodo, modo = p[0], p[1], p[2], _le32(p, 3), _le32(p, 7), p[13]
+    base = int.from_bytes(p[16:20], "little", signed=True)
+    fim = base + int.from_bytes(p[20:24], "little", signed=True)
+    if (gerador >= ONDA_GERADORES or modo > ONDA_DEGRAU or not ONDA_PONTOS[0] <= p[24] <= ONDA_PONTOS[1]
+            or passo == 0 or periodo < passo or tipo not in ONDA_FAIXAS):
+        return False
+    if tipo == ONDA_DAC:
+        if registro not in DAC_CANAIS or (passo < ONDA_PASSO_MIN_US and periodo // passo > ONDA_AMOSTRAS_MAX):
+            return False
+    elif passo < ONDA_PASSO_MIN_US or (tipo == ONDA_PWM and registro not in PWM_CANAIS) or (
+            tipo in (ONDA_I2C_S16, ONDA_I2C_U16) and registro > 254) or (tipo == ONDA_I2C_U20 and registro > 253):
+        return False
+    minimo, maximo = ONDA_FAIXAS[tipo]
+    return minimo <= base <= maximo and minimo <= fim <= maximo
+
+
+def _div_arredonda(numerador, denominador):
+    """Divisao inteira com arredondamento para longe do zero no meio, como o Onda_Bruto em C."""
+    meio = denominador // 2 if numerador >= 0 else -(denominador // 2)
+    q = abs(numerador + meio) // denominador
+    return q if numerador + meio >= 0 else -q
+
+
+def onda_valor(p, t):
+    """Espelho do Onda_Valor: valor bruto no instante t (us), sem ruido e sem o fim dos ciclos."""
+    periodo, modo, pontos = _le32(p, 7), p[13], p[24]
+    base = int.from_bytes(p[16:20], "little", signed=True)
+    amplitude = int.from_bytes(p[20:24], "little", signed=True)
+    v = [int.from_bytes(p[25 + 2 * i:27 + 2 * i], "little") for i in range(pontos)]
+    posicao = (t % periodo) * (pontos - 1)
+    indice, resto = posicao // periodo, posicao % periodo
+    normal = v[indice] * 65536
+    if modo == ONDA_INTERPOLA and indice < pontos - 1:
+        normal += (v[indice + 1] - v[indice]) * ((resto << 16) // periodo)
+    return base + _div_arredonda(amplitude * normal, ONDA_ESCALA * 65536)
+
+
+def onda_ultimo(p):
+    """Valor bruto do ultimo ponto (onde a onda para no fim dos ciclos)."""
+    base = int.from_bytes(p[16:20], "little", signed=True)
+    amplitude = int.from_bytes(p[20:24], "little", signed=True)
+    v = int.from_bytes(p[25 + 2 * (p[24] - 1):27 + 2 * (p[24] - 1)], "little")
+    return base + _div_arredonda(amplitude * v * 65536, ONDA_ESCALA * 65536)
+
+
+def onda_limita(tipo, valor):
+    minimo, maximo = ONDA_FAIXAS[tipo]
+    return max(minimo, min(maximo, valor))
+
+
 def montar_rotina(identificador, tempo_max_ms, passos):
     """Payload do RUN_ROUTINE; ValueError se nao couber em um quadro (sem validar os passos: a jiga valida)."""
     if not 0 <= identificador <= 0xFFFF or not 0 <= tempo_max_ms <= 0xFFFF_FFFF or len(passos) > 0xFF:
@@ -527,6 +607,11 @@ def tamanho_passo(passos, i):
              CMD_I2C_SLAVE_MASK: 3, CMD_I2C_SLAVE_ADDR2: 2,
              CMD_SPI_CONFIG: 7, CMD_SPI_SLAVE_LOAD: 2, CMD_SPI_SLAVE_READ: 1, CMD_SPI_MASTER_XFER: 2,
              CMD_UART_CONFIG: 5, CMD_UART_WRITE: 2, CMD_UART_READ: 2, PASSO_ESPERA: 5, PASSO_ESPERA_GPIO: 7}
+    if disponivel > 0 and passos[i] == PASSO_ONDA:
+        if disponivel < 1 + ONDA_CABECALHO:
+            return None
+        t = 1 + ONDA_CABECALHO + 2 * passos[i + ONDA_CABECALHO]
+        return (t, 0) if t <= disponivel and onda_valida(bytes(passos[i + 1:i + t])) else None
     if disponivel <= 0 or passos[i] not in fixos or fixos[passos[i]] > disponivel:
         return None
     p, t, registro = passos[i:], fixos[passos[i]], 0
@@ -890,6 +975,7 @@ class JigaSimulada:
     rotina: StatusRotina = field(default_factory=lambda: StatusRotina(ESTADO_OCIOSA, 0, 0, 0))
     rotina_resultados: bytearray = field(default_factory=bytearray)
     _execucao: dict = None             # rotina em execucao: passos, proximo, inicio, limite e a espera atual
+    ondas: dict = field(default_factory=dict)   # gerador -> (parametros, inicio): ondas em segundo plano
 
     def __post_init__(self):
         if self.dut is not None:
@@ -942,6 +1028,7 @@ class JigaSimulada:
         self.i2c_endereco2, self.i2c_endereco2_ativo = 0, None
         self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
         self.uart_baud, self.uart_rx = None, bytearray()
+        self.ondas = {}
 
     def _carregar_rotina(self, payload):
         """Rotina_Carrega: (0, b"") e a rotina comeca, ou (ROTINA_INVALIDA, indice)."""
@@ -993,7 +1080,9 @@ class JigaSimulada:
                 fim = agora + _le32(parametros, 0)
                 ex["espera"] = (min(fim, ex["limite"]), agora, fim > ex["limite"], False)
                 continue
-            if cmd == PASSO_ESPERA_GPIO:
+            if cmd == PASSO_ONDA:
+                self._inicia_onda(bytes(parametros), agora)
+            elif cmd == PASSO_ESPERA_GPIO:
                 entrada, nivel, limite_gpio = parametros[0], parametros[1], _le32(parametros, 2)
                 if (self.ler_entradas() >> (entrada - ROTINA_ENTRADAS[0])) & 1 == nivel:
                     self._registrar(ex["proximo"], agora, bytes([GPIO_OCORREU]) + bytes(4))
@@ -1045,11 +1134,43 @@ class JigaSimulada:
                     return self.dac[canal_dac]
         return self.adc[canal]
 
+    def _inicia_onda(self, parametros, agora):
+        """Onda_Inicia: substitui a onda do mesmo gerador (e a do mesmo destino) e escreve o primeiro ponto."""
+        for gerador, (outros, _) in list(self.ondas.items()):
+            if outros[1:3] == parametros[1:3]:
+                del self.ondas[gerador]
+        self.ondas[parametros[0]] = (parametros, agora)
+        self._escreve_onda(parametros, onda_limita(parametros[1], onda_valor(parametros, 0)))
+
+    def _escreve_onda(self, p, valor):
+        tipo, registro = p[1], p[2]
+        if tipo == ONDA_DAC:
+            self.dac[registro] = valor
+        elif tipo == ONDA_PWM:
+            frequencia, _ = self.pwm[registro]
+            self.pwm[registro] = (frequencia, valor)
+        elif tipo == ONDA_I2C_U20:
+            self.i2c_mapa[registro:registro + 3] = bytes([(valor >> 12) & 0xFF, (valor >> 4) & 0xFF, (valor & 0xF) << 4])
+        else:
+            self.i2c_mapa[registro:registro + 2] = (valor & 0xFFFF).to_bytes(2, "big")
+
+    def _aplicar_ondas(self):
+        """Valor de cada onda no relogio atual, no ultimo passo da onda (como os ticks na placa), sem ruido."""
+        for gerador, (p, inicio) in list(self.ondas.items()):
+            passo, periodo, ciclos = _le32(p, 3), _le32(p, 7), int.from_bytes(p[11:13], "little")
+            t = self.relogio_us - inicio
+            if ciclos and t >= ciclos * periodo:
+                self._escreve_onda(p, onda_limita(p[1], onda_ultimo(p)))
+                del self.ondas[gerador]
+                continue
+            self._escreve_onda(p, onda_limita(p[1], onda_valor(p, (t // passo) * passo)))
+
     def _executar(self, quadro):
         """Equivale ao Exec_Process: (0, dados) no ACK ou (codigo de erro, b"") no NACK.
 
         Comando invalido nao mexe em nenhuma saida.
         """
+        self._aplicar_ondas()
         payload = quadro.payload
         if quadro.cmd == CMD_RESET_ALL:
             if payload:
@@ -1229,6 +1350,7 @@ class JigaSimulada:
         """
         if self.i2c_papel != I2C_PAPEL_ESCRAVO or endereco not in (self.i2c_endereco, self.i2c_endereco2_ativo):
             return None
+        self._aplicar_ondas()
         if escrita:
             self.i2c_ponteiro = escrita[0]
             for byte in escrita[1:]:

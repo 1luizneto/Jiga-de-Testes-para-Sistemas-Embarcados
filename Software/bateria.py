@@ -40,6 +40,7 @@ from protocolo import (
     CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_MASK,
 )
 from sensores import SensorEmulado
+from ondas import ErroOnda, compilar as compilar_onda
 
 TOLERANCIA_ADC_V = 0.033            # 1 % do fundo de escala (criterios de aceitacao, secao 3.7.3)
 MARGEM_TEMPO_MS = 100               # tempo maximo da rotina = (esperas + limites) x 1,1 + 100 ms
@@ -189,6 +190,7 @@ class _Compilador:
         self.uart_baud = None
         self.sensores = {s.modelo: s for s in sensores}
         self.estados = {s.modelo: dict(s.estado) for s in sensores}
+        self.gerador = 0
 
     def _passo(self, cmd, parametros=b""):
         self.passos.append(bytes([cmd]) + bytes(parametros))
@@ -281,6 +283,14 @@ class _Compilador:
             texto = f"UART {self.uart_baud} baud"
         elif tipo in SENSORES:
             texto = self.estimulo_sensor(tipo, d)
+        elif tipo == "onda":
+            it.sem_sobras(d, ("alvo", "forma", "de", "ate", "duracao_ms", "min", "max", "periodo_ms", "fase", "razao",
+                              "tau_ms", "pontos", "interpolar", "ciclos", "passo_us", "ruido"))
+            try:
+                passos, self.gerador, texto = compilar_onda(d, list(self.sensores.values()), self.estados, self.gerador)
+            except ErroOnda as e:
+                it.falha(str(e))
+            self.passos.extend(passos)
         elif tipo == "uart_write":
             it.sem_sobras(d, ("dados", "texto"))
             if self.uart_baud is None:

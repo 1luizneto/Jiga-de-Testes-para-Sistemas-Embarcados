@@ -13,6 +13,7 @@
 #include "DigitalIo.h"
 #include "Pwm.h"
 #include "I2cBus.h"
+#include "Onda.h"
 #include "SpiBus.h"
 #include "UartBus.h"
 #include "Rotina.h"
@@ -2141,6 +2142,28 @@ void Test_Exec_RotinaPassosDeSensor(void)
 	IniciaRotina();
 
 	total = MontaRotina(payload, 2U, 100U, 2U, invalidos, sizeof(invalidos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ROUTINE, Rotina_Carrega(payload, total, &indice));
+	TEST_ASSERT_EQUAL_UINT8(1, indice);
+}
+
+// 80. Passo ONDA na rotina: aceito com 2 pontos (29 B) e recusado no indice certo com o DAC3, que nao existe
+void Test_Exec_RotinaPassoOnda(void)
+{
+	uint8_t passos[2U * 30U];
+	uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
+	uint8_t indice = 0xAAU;
+	const uint8_t onda[30] = {dONDA_PASSO, 0, dONDA_TIPO_DAC, 1, 0xE8, 0x03, 0, 0, 0x40, 0x42, 0x0F, 0, 1, 0,
+	                          dONDA_MODO_INTERPOLA, 0, 0, 0, 0, 0, 0, 0xA0, 0x0F, 0, 0, 2, 0, 0, 0xFF, 0xFF};
+	IniciaRotina();
+
+	memcpy(passos, onda, sizeof(onda));
+	uint8_t total = MontaRotina(payload, 1U, 2000U, 1U, passos, sizeof(onda));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Carrega(payload, total, &indice));
+	IniciaRotina();
+
+	memcpy(&passos[sizeof(onda)], onda, sizeof(onda));
+	passos[sizeof(onda) + 3U] = 3U;
+	total = MontaRotina(payload, 2U, 2000U, 2U, passos, 2U * sizeof(onda));
 	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ROUTINE, Rotina_Carrega(payload, total, &indice));
 	TEST_ASSERT_EQUAL_UINT8(1, indice);
 }
