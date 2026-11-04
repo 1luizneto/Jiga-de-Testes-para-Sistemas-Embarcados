@@ -156,7 +156,11 @@ class MotorDeTestes:
         return resultado
 
     def _rodar(self, caso, resultado):
-        for cmd, payload in caso.preparo:
+        for item in caso.preparo:
+            if isinstance(item, (int, float)):
+                self.cliente.aguardar(item)   # pausa (descarte da linha do DUT)
+                continue
+            cmd, payload = item
             resposta = self.cliente.comando(cmd, payload)
             if not resposta.ack:
                 raise ErroNack(resposta)
