@@ -579,10 +579,14 @@ bateria, critérios em ±41 códigos, CT03/CT10/CT13/CT20/CT21/CT22, ligações 
 **Cap. 4 inteiro** (com gráficos pgfplots a partir de `dados/*.csv`); **Cap. 5**; resumo e abstract. Compila
 com `latexmk -pdf main.tex` (75 páginas). Todos os TODOs antigos de implementação saíram.
 
+**Feito em 04/11/2026:** RF11 e RF12, subseções "Emulação de Sensores" e "Gerador de Ondas" na metodologia, CT25 a
+CT27, Apêndice A com 0x54/0x56/0x64 e o passo ONDA, Cap. 4 na 0.14.0 (com o CT13 e o CT21 feitos em bancada e a FIFO do
+SPI), resumo/abstract/conclusão/trabalhos futuros (80 páginas).
+
 **Falta (precisa do Luiz ou da bancada):**
-- Resultados do teste manual no Cap. 4 (`sec:res-bancada`): CT13 com jumpers, CT19 com osciloscópio, CT20, CT21
-  com a `loopback.yaml`, CT22 com o ESP32-S3 e o Uno; depois atualizar o quadro de requisitos, a conclusão e a
-  versão citada (1.0.0)
+- Resultados do teste manual no Cap. 4 (`sec:res-bancada`): CT19 com osciloscópio, CT20, CT22 (ESP32-S3 e Uno),
+  CT25/CT26 (ESP32-S3 lendo os sensores) e CT27 (ondas no osciloscópio); depois o quadro de requisitos, a conclusão e
+  a versão citada (1.0.0)
 - Modelos e exatidão do multímetro e do osciloscópio (TODO no fim da metodologia e no CT12); capturas de tela do PWM
 - Lista de materiais: preços, fonte e data da cotação, total e comparação com o HIL comercial (com referência; o
   Cap. 1 e 2 dizem "centenas de milhares de dólares" sem fonte)
