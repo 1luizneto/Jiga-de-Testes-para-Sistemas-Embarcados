@@ -68,6 +68,9 @@ typedef void (*spiBusLockFunc_t)(void);
 /// @brief Liga ou desliga o modo registradores da escrava (o mapa e o da escrava I2C)
 typedef spiBusReturn_t (*spiBusRegistrosFunc_t)(uint8_t ativo, uint8_t ou);
 
+/// @brief Rearma a escrava com o buffer de transmissao novo (se armada e nao selecionada)
+typedef void (*spiBusRecargaFunc_t)(void);
+
 /// @brief Funcoes fornecidas pela BSP
 typedef struct spiBusFunc
 {
@@ -91,6 +94,7 @@ spiBusReturn_t SpiBus_MasterXfer(const uint8_t *escrita, uint8_t *leitura, uint8
 spiBusReturn_t SpiBus_SafeState(void);
 spiBusReturn_t SpiBus_InitRegistros(spiBusRegistrosFunc_t registrosFunc);
 spiBusReturn_t SpiBus_Registros(uint8_t ativo, uint8_t ou);
+spiBusReturn_t SpiBus_InitRecarga(spiBusRecargaFunc_t recargaFunc);
 
 // Eventos do escravo: chamados pela BSP, dentro da ISR (SPI2 ou EXTI do CS)
 void SpiBus_PreparaTx(uint8_t tx[dSPIBUS_TAMANHO_BUFFER]);
