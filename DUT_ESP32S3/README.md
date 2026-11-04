@@ -41,6 +41,9 @@ GND comum. Tudo em 3,3 V. **Tirar os jumpers do CT13** (PB15 → PC2 e PD1 → P
   série limita a corrente se a ordem for quebrada à mão.
 - **Pull-ups do I2C.** O ESP32 liga os pull-ups internos (~45 kΩ), fracos demais sozinhos; os de 4,7 kΩ são
   os que valem (a jiga não tem pull-up interno no PF0/PF1).
+- **Leitura do escravo I2C.** Até 31 bytes por leitura (o bloco tem que caber na FIFO de 32 bytes do S3, ver
+  `barramentos.c`). Use o acesso a registrador (ponteiro + *repeated start*), como o CT20: a leitura sem ponteiro
+  logo depois de uma escrita só do ponteiro errou o último byte em 1 de 25 tentativas na bancada.
 
 ## Comandos
 

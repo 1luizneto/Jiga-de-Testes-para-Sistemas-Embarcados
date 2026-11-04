@@ -5,12 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from bateria import CarregadorDeBaterias, ErroBateria
+from bateria import PAUSA_DESCARTE_UART, CarregadorDeBaterias, ErroBateria
 from cliente import ClienteJiga, TransporteSimulado
 from dut import DutSimulado
 from motor import MotorDeTestes
 from protocolo import (
-    CMD_I2C_CONFIG, CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_LOAD, CMD_I2C_SLAVE_MASK, CMD_SPI_SLAVE_REG, JigaSimulada,
+    CMD_I2C_CONFIG, CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_LOAD, CMD_I2C_SLAVE_MASK, CMD_SPI_SLAVE_REG, CMD_UART_CONFIG,
+    CMD_UART_WRITE, JigaSimulada,
     montar_i2c_addr2, montar_i2c_config, montar_i2c_load, montar_i2c_mask, montar_spi_reg,
 )
 from relatorio import FALHOU, PASSOU
@@ -95,10 +96,14 @@ def test_ct25_passa_com_o_dut_simulado():
     assert relatorio.casos[2].verificacoes[0].obtido.startswith("[35.2, 1005.8, 82.5]")
 
 
-# 7. Preparo do caso: segundo endereco, carga e mascara de cada sensor e o I2C_CONFIG por ultimo
+# 7. Preparo do caso: segundo endereco, carga e mascara de cada sensor e o I2C_CONFIG por ultimo; depois, o
+# descarte da linha do DUT (UART_CONFIG, fim de linha e pausa), porque o caso tem uart_valores
 def test_preparo_dos_sensores():
     bateria = CarregadorDeBaterias().carregar(BATERIAS / "ct25_sensores.yaml")
     preparo = bateria.casos[0].preparo
+    assert preparo[-3:] == [(CMD_UART_CONFIG, (115200).to_bytes(4, "little")), (CMD_UART_WRITE, b"\x01\n"),
+                            PAUSA_DESCARTE_UART]
+    preparo = preparo[:-3]
     assert preparo[0] == (CMD_I2C_SLAVE_ADDR2, bytes([0x76]))
     assert preparo[-1] == (CMD_I2C_CONFIG, bytes([0, 0x68, 1]))
     assert {cmd for cmd, _ in preparo[1:-1]} == {CMD_I2C_SLAVE_LOAD, CMD_I2C_SLAVE_MASK}
@@ -159,7 +164,7 @@ def test_ct26_sensor_spi_com_o_dut_simulado():
     relatorio = _executar(BATERIAS / "ct26_sensores_spi.yaml")
     assert [c.veredito for c in relatorio.casos] == [PASSOU] * 3, relatorio.texto()
     preparo = CarregadorDeBaterias().carregar(BATERIAS / "ct26_sensores_spi.yaml").casos[0].preparo
-    assert preparo[-1] == (CMD_SPI_SLAVE_REG, bytes([1, 0x80]))
+    assert preparo[-4] == (CMD_SPI_SLAVE_REG, bytes([1, 0x80]))
 
 
 # 12. Sem o modo registradores, o MISO solto le 0xFF: o driver do DUT nao reconhece o sensor (ERR PERIFERICO)

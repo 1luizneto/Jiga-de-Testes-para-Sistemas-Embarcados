@@ -7,6 +7,31 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.14.1] - 2026-11-04
+
+Correções achadas no primeiro teste com o ESP32-S3 ligado na jiga. Na placa: **211 testes Unity**, **73 casos HIL**
+sem fios e, com o ESP32-S3: **CT20 78/78** (3 execuções), **CT22**, **CT25** e **CT26** em 10 execuções cada, todas
+aprovadas e sem retransmissão. No CT22, o ventilador reagiu em 0,04 a 1,0 ms (critério: 20 ms).
+
+### Corrigido
+- Firmware: a escrava SPI é rearmada no `SPI_SLAVE_LOAD` (com o CS alto): um LOAD depois do `SPI_CONFIG` só valia
+  na 2ª transação do DUT. `SpiBus_InitRecarga`; 1 teste Unity (211).
+- Firmware: o rearme da escrava SPI não usa mais o `HAL_SPI_Abort`, que esperava a interrupção desligada pelo lock e
+  travava a jiga por ~200 ms (também no `SPI_SLAVE_REG` do CT26).
+- Firmware: na subida do CS, a FIFO de recepção da escrava SPI é esvaziada pelo nível: o último byte de uma transação
+  de tamanho ímpar se perdia (limiar de 16 bits do HAL).
+- DUT ESP32-S3: a escrava I2C devolve os dados quando a jiga lê (lia `7F FF FF`). O `i2c_slave_reset_tx_fifo` do
+  ESP-IDF 6.1 também reseta a máquina de estados e quebrava a leitura em curso: durante o *stretch* só a FIFO é
+  zerada, o bloco cabe na FIFO (31 bytes) e o reset completo fica para depois do STOP.
+- Software: os casos com `uart_valores` descartam a linha do DUT no preparo (`UART_CONFIG`, fim de linha e 10 ms):
+  com a UART da jiga desligada entre os casos, o DUT juntava bytes soltos e o 1º comando saía `ERR CMD`. O CT20 faz
+  o mesmo antes do PING.
+- Software: CT26 com a espera padrão do DUT (o ESP32 leva ~23 ms para responder o `BMES`) e tolerância de 0,5 grau na
+  rampa (o driver lê a temperatura ~19 ms depois do comando).
+
+### Restrição conhecida
+- DUT ESP32-S3: leitura do escravo I2C limitada a 31 bytes; use acesso a registrador (*repeated start*).
+
 ## [0.14.0] - 2026-11-04
 
 Sensores emulados também no SPI: a escrava SPI responde como um sensor (MPU-6500 ou BME280), com o mesmo mapa da
@@ -423,7 +448,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.11.0...v0.12.0
