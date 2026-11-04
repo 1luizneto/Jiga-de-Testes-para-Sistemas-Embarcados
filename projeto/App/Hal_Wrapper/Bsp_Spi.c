@@ -28,6 +28,8 @@
  *   @version      <b>1.0.0 - 28/10/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 03/11/2026</b> \n Luiz Neto \n HAL_GPIO_EXTI_Callback repassa as bordas das entradas
  *                 ao BspTempo_Borda (ESPERA_GPIO das rotinas)
+ *   @version      <b>1.1.1 - 03/11/2026</b> \n Luiz Neto \n BspSpi_Off reseta o SPI2 pelo RCC: a FIFO de recepcao
+ *                 (4 bytes) guardava bytes da escrava e a 1a transferencia como mestre saia atrasada 4 bytes (CT13)
  *
  *   @copyright
  *   @{
@@ -210,6 +212,8 @@ static spiBusReturn_t BspSpi_Config(uint8_t papel, uint8_t modo, uint16_t diviso
 
 /***********************************************************************************************************************
  * @brief      Desliga o SPI2: sem escrava armada, pinos soltos e CS (PD7) como saida em nivel alto.
+ * @details    O HAL_SPI_DeInit nao esvazia a FIFO de recepcao (4 bytes em 8 bits): bytes que a escrava recebeu e
+ *             ninguem leu ficariam na frente da proxima transferencia. O reset pelo RCC zera FIFO e registradores.
  **********************************************************************************************************************/
 static spiBusReturn_t BspSpi_Off(void)
 {
@@ -221,6 +225,9 @@ static spiBusReturn_t BspSpi_Off(void)
 	{
 		return eSPIBUS_RETURN_ERROR;
 	}
+
+	__HAL_RCC_SPI2_FORCE_RESET();
+	__HAL_RCC_SPI2_RELEASE_RESET();
 
 	return eSPIBUS_RETURN_OK;
 }

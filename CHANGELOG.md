@@ -7,6 +7,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+- Firmware: a primeira transferência do SPI como mestre depois de a jiga ter sido escrava saía atrasada em 4 bytes
+  (`FF FF FF FF` e depois os dados): o `HAL_SPI_DeInit` não esvazia a FIFO de recepção do SPI2. O `BspSpi_Off`
+  agora reseta o periférico pelo RCC. Achado no CT13 com os jumpers (o SPI só tinha sido conferido sem fio).
+
 ## [0.11.0] - 2026-11-03
 
 Validação com DUTs e desempenho (CT22 a CT24). Firmware da jiga sem mudanças (só a versão). Na placa, o CT23 e o
