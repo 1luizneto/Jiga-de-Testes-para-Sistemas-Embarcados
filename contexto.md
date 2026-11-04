@@ -45,6 +45,12 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - **v0.11.0** (CT22–CT24) no branch **`feat_desempenho-dut`**: 193/193 Unity, 68/68 HIL, CT23 e CT24 passando na
   placa com a 0.11.0; 574 pytest; 18 Unity do DUT no PC; firmware do ESP32 compilado (ventilador), **não gravado**
   (kit desconectado); sketch do Uno não testado (sem a placa). CT22 com os DUTs: teste manual.
+- **v0.12.0** (emulação de sensores, CT25): MPU-6500 e BME280 na escrava I2C (`I2C_SLAVE_MASK` 0x54, `I2C_SLAVE_ADDR2`
+  0x56), `sensores.py` (compensação e inversa do BME280), seção `sensores` e `uart_valores` na bateria, preparo do caso
+  por comandos diretos, drivers no DUT (`MPU`, `BME`). 200/200 Unity, 71/71 HIL, 596 pytest. ESP32 **não** gravado.
+- Combinado em 04/11/2026: antes da 1.0.0 entram também 0.13.0 (gerador de ondas: rampa, senoide, triangular, quadrada,
+  dente de serra, exponencial, pontos e ruído; `passo_us`, mínimo 100 µs no software e 1 µs no DAC por DMA) e 0.14.0
+  (sensores em SPI, com a restrição da pausa entre o endereço e os dados; um sensor SPI por vez).
 - **1.0.0 só depois do teste manual** (CT10, CT11, CT13, CT19 com jumper, CT20, CT21 e CT22 na bancada): é a
   versão "todos os CT passando".
 - Cada versão nova nasce de um branch criado do `main` atualizado (`git checkout main && git pull &&

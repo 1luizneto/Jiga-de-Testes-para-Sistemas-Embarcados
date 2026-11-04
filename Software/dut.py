@@ -11,6 +11,7 @@ o pytest confere os casos do CT20 sem placa, como ja faz com os outros casos.
 
 import re
 
+from sensores import bme_calibracao_de_bytes, bme_le, mpu_le
 from versao import __version__
 
 DUT_BAUD = 115200                 # UART1 do ESP32, 8N1
@@ -23,6 +24,8 @@ DUT_SPI_MODO_MAX = 3
 DUT_SPI_FREQUENCIA_MIN = 1000
 DUT_SPI_FREQUENCIA_MAX = 10_000_000
 DUT_IDENTIFICACAO = f"OK DUT ESP32-S3 {__version__}"
+DUT_MPU_ENDERECO, DUT_BME_ENDERECO = 0x68, 0x76
+DUT_TENTATIVAS = 10               # leituras do bit de reset antes de desistir (drivers_sensores.c)
 
 # Ligacao jiga <-> ESP32-S3 (GND comum; pull-ups de 4,7 kOhm para o 3V3 no SDA e no SCL)
 DUT_LIGACAO = [
@@ -141,6 +144,15 @@ class DutSimulado:
         nome, argumentos = campos[0], campos[1:]
         if nome == "PING":
             return resposta_dut(erro="ARG") if argumentos else (DUT_IDENTIFICACAO + "\n").encode()
+        if nome in ("MPU", "BME"):
+            try:
+                if len(argumentos) > 1:
+                    raise _Erro("ARG")
+                padrao = DUT_MPU_ENDERECO if nome == "MPU" else DUT_BME_ENDERECO
+                endereco = _endereco(argumentos[0]) if argumentos else padrao
+                return (self._mpu(endereco) if nome == "MPU" else self._bme(endereco)).encode()
+            except _Erro as erro:
+                return resposta_dut(erro=str(erro))
         tabela = {
             "OFF": (0, self._off), "I2CM": (3, self._i2cm), "I2CS": (1, self._i2cs),
             "I2CS_LOAD": (2, self._i2cs_load), "I2CS_DUMP": (2, self._i2cs_dump), "SPIM": (3, self._spim),
@@ -171,6 +183,49 @@ class DutSimulado:
         if lidos is None:
             raise _Erro("NACK")
         return lidos
+
+    # --- sensores (drivers_sensores.c) ----------------------------------------------
+
+    def _mestre(self, endereco, escrita, nr=0):
+        if self.i2c_endereco is not None:
+            raise _Erro("ESTADO")
+        lidos = self.jiga.i2c_mestre_externo(endereco, bytes(escrita), nr) if self.jiga else None
+        if lidos is None:
+            raise _Erro("NACK")
+        return lidos
+
+    def _mpu(self, endereco):
+        """Reset (espera o bit 7 do PWR_MGMT_1 voltar a 0), WHO_AM_I, 2 g/250 graus/s e os 14 bytes do 0x3B."""
+        self._mestre(endereco, [0x6B, 0x80])
+        for _ in range(DUT_TENTATIVAS):
+            if not self._mestre(endereco, [0x6B], 1)[0] & 0x80:
+                break
+        else:
+            raise _Erro("PERIFERICO")
+        self._mestre(endereco, [0x6B, 0x01])
+        if self._mestre(endereco, [0x75], 1)[0] != 0x70:
+            raise _Erro("PERIFERICO")
+        self._mestre(endereco, [0x1B, 0x00])
+        self._mestre(endereco, [0x1C, 0x00])
+        aceleracao, temperatura, giro = mpu_le(self._mestre(endereco, [0x3B], 14))
+        return ("OK " + " ".join(f"{v:.4f}" for v in aceleracao) + " " + " ".join(f"{v:.3f}" for v in giro)
+                + f" {temperatura:.2f}\n")
+
+    def _bme(self, endereco):
+        """chip_id, soft reset (espera o im_update), calibracao, modo normal e os 8 bytes do 0xF7 compensados."""
+        if self._mestre(endereco, [0xD0], 1)[0] != 0x60:
+            raise _Erro("PERIFERICO")
+        self._mestre(endereco, [0xE0, 0xB6])
+        for _ in range(DUT_TENTATIVAS):
+            if not self._mestre(endereco, [0xF3], 1)[0] & 0x01:
+                break
+        else:
+            raise _Erro("PERIFERICO")
+        calibracao = bme_calibracao_de_bytes(self._mestre(endereco, [0x88], 26), self._mestre(endereco, [0xE1], 7))
+        self._mestre(endereco, [0xF2, 0x01])
+        self._mestre(endereco, [0xF4, 0x27])
+        temperatura, pressao, umidade = bme_le(self._mestre(endereco, [0xF7], 8), calibracao)
+        return f"OK {temperatura:.2f} {pressao:.2f} {umidade:.2f}\n"
 
     def _i2cs(self, endereco):
         self.i2c_endereco = _endereco(endereco)

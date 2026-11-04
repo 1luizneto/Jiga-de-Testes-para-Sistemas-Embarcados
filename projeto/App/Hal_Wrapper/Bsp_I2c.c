@@ -20,6 +20,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 27/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Segundo endereco de escrava (OAR2), para emular dois
+ *                                                          sensores no mesmo mapa
  *
  *   @copyright
  *   @{
@@ -65,7 +67,7 @@ static struct bspI2c
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
 
-static i2cBusReturn_t BspI2c_Config(uint8_t papel, uint8_t endereco, uint8_t velocidade);
+static i2cBusReturn_t BspI2c_Config(uint8_t papel, uint8_t endereco, uint8_t endereco2, uint8_t velocidade);
 static i2cBusReturn_t BspI2c_Off(void);
 static i2cBusReturn_t BspI2c_Xfer(uint8_t endereco, const uint8_t *escrita, uint8_t nw, uint8_t *leitura, uint8_t nr);
 static void BspI2c_Lock(void);
@@ -114,7 +116,7 @@ bspI2cReturn_t BspI2c_Init(void)
  * @brief      O DUT enderecou a jiga: prepara o 1o byte da leitura ou a recepcao do 1o byte da escrita.
  * @param[in]  hi2c               Handle do I2C
  * @param[in]  TransferDirection  I2C_DIRECTION_TRANSMIT = o DUT escreve; I2C_DIRECTION_RECEIVE = o DUT le
- * @param[in]  AddrMatchCode      Endereco reconhecido (nao usado: so ha um)
+ * @param[in]  AddrMatchCode      Endereco reconhecido (nao usado: os dois enderecos dividem o mapa)
  **********************************************************************************************************************/
 void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, uint16_t AddrMatchCode)
 {
@@ -217,10 +219,11 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
  * @brief      Reinicia o I2C2 no papel pedido; como escravo, com o endereco da jiga e a escuta ligada.
  * @param[in]  papel       dI2CBUS_PAPEL_ESCRAVO ou dI2CBUS_PAPEL_MESTRE (ja validado)
  * @param[in]  endereco    Endereco de 7 bits como escrava (ja validado)
+ * @param[in]  endereco2   Segundo endereco como escrava, ou dI2CBUS_ENDERECO2_NENHUM (ja validado)
  * @param[in]  velocidade  Indice de bspI2cTiming (ja validado)
  * @return     eI2CBUS_RETURN_OK ou eI2CBUS_RETURN_ERROR (falha do HAL; o I2C2 fica desligado)
  **********************************************************************************************************************/
-static i2cBusReturn_t BspI2c_Config(uint8_t papel, uint8_t endereco, uint8_t velocidade)
+static i2cBusReturn_t BspI2c_Config(uint8_t papel, uint8_t endereco, uint8_t endereco2, uint8_t velocidade)
 {
 	if (BspI2c_Off() != eI2CBUS_RETURN_OK)
 	{
@@ -229,6 +232,19 @@ static i2cBusReturn_t BspI2c_Config(uint8_t papel, uint8_t endereco, uint8_t vel
 
 	hi2c2.Init.Timing      = bspI2cTiming[velocidade];
 	hi2c2.Init.OwnAddress1 = (papel == dI2CBUS_PAPEL_ESCRAVO) ? ((uint32_t)endereco << 1) : 0U;
+
+	// Segundo endereco (OAR2): o periferico reconhece os dois e a escuta e a mesma
+	if ((papel == dI2CBUS_PAPEL_ESCRAVO) && (endereco2 != dI2CBUS_ENDERECO2_NENHUM))
+	{
+		hi2c2.Init.DualAddressMode  = I2C_DUALADDRESS_ENABLE;
+		hi2c2.Init.OwnAddress2      = (uint32_t)endereco2 << 1;
+		hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+	}
+	else
+	{
+		hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+		hi2c2.Init.OwnAddress2     = 0U;
+	}
 
 	if ((HAL_I2C_Init(&hi2c2) != HAL_OK) ||
 	    (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK) ||

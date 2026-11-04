@@ -7,10 +7,32 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.12.0] - 2026-11-04
+
+Emulação de sensores: a jiga responde no I2C como um **MPU-6500** e um **BME280**, ao mesmo tempo, e o DUT lê os
+dois com drivers comuns. Na placa: **200 testes Unity** e **71 casos HIL** sem fios; o CT25 com o ESP32-S3 ligado fica
+para o teste manual.
+
+### Adicionado
+- Firmware: `I2C_SLAVE_MASK` (0x54), máscara dos bits que o DUT pode escrever em cada registrador (registrador só de
+  leitura = 0x00; bit de reset que volta sozinho a 0 = bit em 0), e `I2C_SLAVE_ADDR2` (0x56), segundo endereço da
+  escrava (OAR2 do I2C2), que vale a partir do próximo `I2C_CONFIG`; os dois também como passos de rotina. Os dois
+  endereços dividem o mapa: os registradores do MPU-6500 (0x0D–0x75) e do BME280 (0x88–0xFE) não se sobrepõem.
+- Software: `sensores.py` com os modelos do MPU-6500 (g, °/s e °C em big-endian, fundo de escala) e do BME280
+  (calibração, compensação da Bosch e a inversa por busca binária, com erro de até ±0,005).
+- Software: seção `sensores` na bateria, estímulos `mpu6500` e `bme280`, o **preparo** do caso (configuração dos
+  sensores por comandos diretos antes do RUN_ROUTINE, que não cabe nos 240 B da rotina) e a verificação
+  `uart_valores` (números da resposta do DUT com tolerância).
+- DUT ESP32-S3: drivers do MPU-6500 e do BME280 (`drivers_sensores.c`, reset, identificação, configuração e leitura,
+  como um firmware de produto) e os comandos `MPU` e `BME`; 21 testes Unity no PC.
+- Software: bateria `ct25_sensores.yaml` (CT25), espelho dos drivers no `DutSimulado`, 3 casos HIL novos e 22 testes
+  pytest (**596 no total**).
+
 ### Corrigido
 - Firmware: a primeira transferência do SPI como mestre depois de a jiga ter sido escrava saía atrasada em 4 bytes
   (`FF FF FF FF` e depois os dados): o `HAL_SPI_DeInit` não esvazia a FIFO de recepção do SPI2. O `BspSpi_Off`
   agora reseta o periférico pelo RCC. Achado no CT13 com os jumpers (o SPI só tinha sido conferido sem fio).
+- Firmware: cabeçalho da versão 1.6.0 do `Exec.c` (quebras de linha no lugar do texto `\n`).
 
 ## [0.11.0] - 2026-11-03
 
@@ -358,7 +380,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.11.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.8.1...v0.9.0

@@ -23,6 +23,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n MPU e BME: leem o MPU-6500 e o BME280 (emulados pela
+ *                                                          jiga) e respondem os valores em texto
  *
  *   @{
  **********************************************************************************************************************/
@@ -32,6 +34,7 @@
  **********************************************************************************************************************/
 
 #include "comandos.h"
+#include "drivers_sensores.h"
 #include "versao_dut.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -77,6 +80,7 @@ static bool Comandos_Decimal(const char *texto, uint32_t maximo, uint32_t *valor
 static bool Comandos_ByteHex(const char *texto, uint8_t *valor);
 static size_t Comandos_Resposta(char *resposta, size_t tamanho, dutReturn_t ret, const uint8_t *dados,
                                 size_t quantidade);
+static size_t Comandos_Sensor(char **campos, size_t numeroCampos, char *resposta, size_t tamanho);
 
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
@@ -157,6 +161,11 @@ size_t Comandos_Executa(const char *linha, char *resposta, size_t tamanho)
 			return Comandos_Resposta(resposta, tamanho, eDUT_RETURN_INVALID_ARGUMENT, NULL, 0U);
 		}
 		return (size_t)snprintf(resposta, tamanho, "OK DUT ESP32-S3 %s\n", dDUT_VERSAO);
+	}
+
+	if ((strcmp(campos[0], "MPU") == 0) || (strcmp(campos[0], "BME") == 0))
+	{
+		return Comandos_Sensor(campos, numeroCampos, resposta, tamanho);
 	}
 
 	for (size_t i = 0U; i < (sizeof(comandosTabela) / sizeof(comandosTabela[0])); i++)
@@ -471,6 +480,50 @@ static bool Comandos_ByteHex(const char *texto, uint8_t *valor)
 	*valor = acumulado;
 
 	return true;
+}
+
+/***********************************************************************************************************************
+ * @brief      MPU [endereco hex] e BME [endereco hex]: le o sensor com o driver e responde os valores em texto.
+ * @details    MPU: "OK ax ay az gx gy gz t" (g, graus/s, graus C); BME: "OK t p h" (graus C, hPa, %). Os erros sao
+ *             os mesmos dos outros comandos (ERR NACK sem sensor, ERR ESTADO com o I2C como escravo, ERR PERIFERICO
+ *             com identificacao errada).
+ **********************************************************************************************************************/
+static size_t Comandos_Sensor(char **campos, size_t numeroCampos, char *resposta, size_t tamanho)
+{
+	uint8_t mpu = (strcmp(campos[0], "MPU") == 0) ? 1U : 0U;
+	uint8_t endereco = (mpu != 0U) ? dSENSORES_MPU_ENDERECO : dSENSORES_BME_ENDERECO;
+
+	if ((numeroCampos > 2U) || ((numeroCampos == 2U) && !Comandos_ByteHex(campos[1], &endereco)) ||
+	    (endereco < dCOMANDOS_I2C_ENDERECO_MIN) || (endereco > dCOMANDOS_I2C_ENDERECO_MAX))
+	{
+		return Comandos_Resposta(resposta, tamanho, eDUT_RETURN_INVALID_ARGUMENT, NULL, 0U);
+	}
+	if (comandosBarramentos == NULL)
+	{
+		return Comandos_Resposta(resposta, tamanho, eDUT_RETURN_ERROR, NULL, 0U);
+	}
+
+	if (mpu != 0U)
+	{
+		sensoresMpu_t m;
+		dutReturn_t ret = Sensores_LeMpu(comandosBarramentos->i2cMestre, endereco, &m);
+		if (ret != eDUT_RETURN_OK)
+		{
+			return Comandos_Resposta(resposta, tamanho, ret, NULL, 0U);
+		}
+		return (size_t)snprintf(resposta, tamanho, "OK %.4f %.4f %.4f %.3f %.3f %.3f %.2f\n",
+		                        (double)m.aceleracao[0], (double)m.aceleracao[1], (double)m.aceleracao[2],
+		                        (double)m.giro[0], (double)m.giro[1], (double)m.giro[2], (double)m.temperatura);
+	}
+
+	sensoresBme_t b;
+	dutReturn_t ret = Sensores_LeBme(comandosBarramentos->i2cMestre, endereco, &b);
+	if (ret != eDUT_RETURN_OK)
+	{
+		return Comandos_Resposta(resposta, tamanho, ret, NULL, 0U);
+	}
+	return (size_t)snprintf(resposta, tamanho, "OK %.2f %.2f %.2f\n", (double)b.temperatura, (double)b.pressao,
+	                        (double)b.umidade);
 }
 
 /***********************************************************************************************************************
