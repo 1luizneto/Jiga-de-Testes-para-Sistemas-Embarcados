@@ -25,6 +25,7 @@
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n MPU e BME: leem o MPU-6500 e o BME280 (emulados pela
  *                                                          jiga) e respondem os valores em texto
+ *   @version      <b>1.2.0 - 04/11/2026</b> \n Luiz Neto \n MPUS e BMES: os mesmos sensores por SPI
  *
  *   @{
  **********************************************************************************************************************/
@@ -163,7 +164,8 @@ size_t Comandos_Executa(const char *linha, char *resposta, size_t tamanho)
 		return (size_t)snprintf(resposta, tamanho, "OK DUT ESP32-S3 %s\n", dDUT_VERSAO);
 	}
 
-	if ((strcmp(campos[0], "MPU") == 0) || (strcmp(campos[0], "BME") == 0))
+	if ((strcmp(campos[0], "MPU") == 0) || (strcmp(campos[0], "BME") == 0) || (strcmp(campos[0], "MPUS") == 0) ||
+	    (strcmp(campos[0], "BMES") == 0))
 	{
 		return Comandos_Sensor(campos, numeroCampos, resposta, tamanho);
 	}
@@ -483,18 +485,27 @@ static bool Comandos_ByteHex(const char *texto, uint8_t *valor)
 }
 
 /***********************************************************************************************************************
- * @brief      MPU [endereco hex] e BME [endereco hex]: le o sensor com o driver e responde os valores em texto.
+ * @brief      MPU [endereco hex] e BME [endereco hex] pelo I2C, MPUS [freq] e BMES [freq] pelo SPI (modo 0, padrao
+ *             de 500 kHz): le o sensor com o driver e responde os valores em texto.
  * @details    MPU: "OK ax ay az gx gy gz t" (g, graus/s, graus C); BME: "OK t p h" (graus C, hPa, %). Os erros sao
  *             os mesmos dos outros comandos (ERR NACK sem sensor, ERR ESTADO com o I2C como escravo, ERR PERIFERICO
  *             com identificacao errada).
  **********************************************************************************************************************/
 static size_t Comandos_Sensor(char **campos, size_t numeroCampos, char *resposta, size_t tamanho)
 {
-	uint8_t mpu = (strcmp(campos[0], "MPU") == 0) ? 1U : 0U;
-	uint8_t endereco = (mpu != 0U) ? dSENSORES_MPU_ENDERECO : dSENSORES_BME_ENDERECO;
+	uint8_t mpu = (campos[0][0] == 'M') ? 1U : 0U;
+	uint8_t spi = (strlen(campos[0]) == 4U) ? 1U : 0U;
+	sensoresBarramento_t barramento = {0};
+	uint32_t frequencia = dCOMANDOS_SENSOR_SPI_FREQUENCIA;
 
-	if ((numeroCampos > 2U) || ((numeroCampos == 2U) && !Comandos_ByteHex(campos[1], &endereco)) ||
-	    (endereco < dCOMANDOS_I2C_ENDERECO_MIN) || (endereco > dCOMANDOS_I2C_ENDERECO_MAX))
+	barramento.endereco = (mpu != 0U) ? dSENSORES_MPU_ENDERECO : dSENSORES_BME_ENDERECO;
+
+	if ((numeroCampos > 2U) ||
+	    ((numeroCampos == 2U) && (spi == 0U) && !Comandos_ByteHex(campos[1], &barramento.endereco)) ||
+	    ((numeroCampos == 2U) && (spi != 0U) &&
+	     (!Comandos_Decimal(campos[1], dCOMANDOS_SPI_FREQUENCIA_MAX, &frequencia) ||
+	      (frequencia < dCOMANDOS_SPI_FREQUENCIA_MIN))) ||
+	    (barramento.endereco < dCOMANDOS_I2C_ENDERECO_MIN) || (barramento.endereco > dCOMANDOS_I2C_ENDERECO_MAX))
 	{
 		return Comandos_Resposta(resposta, tamanho, eDUT_RETURN_INVALID_ARGUMENT, NULL, 0U);
 	}
@@ -503,10 +514,20 @@ static size_t Comandos_Sensor(char **campos, size_t numeroCampos, char *resposta
 		return Comandos_Resposta(resposta, tamanho, eDUT_RETURN_ERROR, NULL, 0U);
 	}
 
+	if (spi != 0U)
+	{
+		barramento.spi        = comandosBarramentos->spiRegistro;
+		barramento.frequencia = frequencia;
+	}
+	else
+	{
+		barramento.i2c = comandosBarramentos->i2cMestre;
+	}
+
 	if (mpu != 0U)
 	{
 		sensoresMpu_t m;
-		dutReturn_t ret = Sensores_LeMpu(comandosBarramentos->i2cMestre, endereco, &m);
+		dutReturn_t ret = Sensores_LeMpu(&barramento, &m);
 		if (ret != eDUT_RETURN_OK)
 		{
 			return Comandos_Resposta(resposta, tamanho, ret, NULL, 0U);
@@ -517,7 +538,7 @@ static size_t Comandos_Sensor(char **campos, size_t numeroCampos, char *resposta
 	}
 
 	sensoresBme_t b;
-	dutReturn_t ret = Sensores_LeBme(comandosBarramentos->i2cMestre, endereco, &b);
+	dutReturn_t ret = Sensores_LeBme(&barramento, &b);
 	if (ret != eDUT_RETURN_OK)
 	{
 		return Comandos_Resposta(resposta, tamanho, ret, NULL, 0U);

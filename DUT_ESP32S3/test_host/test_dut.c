@@ -44,6 +44,8 @@ static dutReturn_t Falso_Desliga(void)
 }
 
 static dutReturn_t JigaI2c(uint8_t endereco, const uint8_t *escrita, size_t nw, uint8_t *leitura, size_t nr);
+static dutReturn_t Falso_SpiRegistro(uint8_t modo, uint32_t frequencia, uint8_t endereco, const uint8_t *escrita,
+                                     uint8_t *leitura, size_t quantidade);
 
 // Le 0xA0, 0xA1, ... do dispositivo (ou responde como o mapa da jiga, nos testes dos sensores)
 static dutReturn_t Falso_I2cMestre(uint8_t endereco, const uint8_t *escrita, size_t nw, uint8_t *leitura, size_t nr)
@@ -123,7 +125,7 @@ static dutReturn_t Falso_SpiLe(uint8_t *dados, size_t *quantidade)
 static const dutBarramentos_t barramentosFalsos =
 {
 	Falso_Desliga, Falso_I2cMestre, Falso_I2cEscrava, Falso_I2cCarrega, Falso_I2cLe,
-	Falso_SpiMestre, Falso_SpiEscrava, Falso_SpiCarrega, Falso_SpiLe,
+	Falso_SpiMestre, Falso_SpiEscrava, Falso_SpiCarrega, Falso_SpiLe, Falso_SpiRegistro,
 };
 
 static char resposta[dCOMANDOS_RESPOSTA_MAX];
@@ -381,6 +383,32 @@ static void JigaCarrega(uint8_t offset, const uint8_t *valores, size_t n, uint8_
 	memset(&mascaraJiga[offset], mascara, n);
 }
 
+static const sensoresBarramento_t barramentoI2c    = {JigaI2c, 0x68U, NULL, 0U, 0U};
+static const sensoresBarramento_t barramentoBmeI2c = {JigaI2c, 0x76U, NULL, 0U, 0U};
+static uint8_t ouJiga;   ///< 'ou' do modo registradores da escrava SPI da jiga (0x80 no BME280)
+
+// Escrava SPI da jiga no modo registradores: endereco de 7 bits (| ou), bit 7 = leitura, auto-incremento, mascara
+static dutReturn_t Falso_SpiRegistro(uint8_t modo, uint32_t frequencia, uint8_t endereco, const uint8_t *escrita,
+                                     uint8_t *leitura, size_t quantidade)
+{
+	(void)modo;
+	(void)frequencia;
+	uint8_t registro = (uint8_t)((endereco & 0x7FU) | ouJiga);
+	for (size_t i = 0U; i < quantidade; i++, registro++)
+	{
+		if ((endereco & 0x80U) != 0U)
+		{
+			leitura[i] = mapaJiga[registro];
+		}
+		else
+		{
+			mapaJiga[registro] = (uint8_t)((mapaJiga[registro] & (uint8_t)~mascaraJiga[registro]) |
+			                               (escrita[i] & mascaraJiga[registro]));
+		}
+	}
+	return eDUT_RETURN_OK;
+}
+
 static void JigaMpu(void)
 {
 	// 0.5 g, -0.25 g, 1 g; temperatura bruta 0 (21 C); giroscopio 131 (~1 grau/s), 0, -131
@@ -419,7 +447,7 @@ void Test_Dut_MpuLeitura(void)
 	sensoresMpu_t m;
 	JigaMpu();
 
-	TEST_ASSERT_EQUAL(eDUT_RETURN_OK, Sensores_LeMpu(JigaI2c, 0x68U, &m));
+	TEST_ASSERT_EQUAL(eDUT_RETURN_OK, Sensores_LeMpu(&barramentoI2c, &m));
 	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, m.aceleracao[0]);
 	TEST_ASSERT_FLOAT_WITHIN(0.0001f, -0.25f, m.aceleracao[1]);
 	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, m.aceleracao[2]);
@@ -437,11 +465,11 @@ void Test_Dut_MpuErrosEComando(void)
 
 	JigaMpu();
 	mapaJiga[0x75U] = 0x71U;
-	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeMpu(JigaI2c, 0x68U, &m));
+	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeMpu(&barramentoI2c, &m));
 
 	JigaMpu();
 	mascaraJiga[0x6BU] = 0xFFU;                      // bit de reset gravavel: fica em 1 para sempre
-	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeMpu(JigaI2c, 0x68U, &m));
+	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeMpu(&barramentoI2c, &m));
 
 	JigaMpu();
 	falso.i2cMestreJiga = 1;
@@ -459,7 +487,7 @@ void Test_Dut_BmeLeitura(void)
 	char resposta[dCOMANDOS_RESPOSTA_MAX];
 	JigaBme();
 
-	TEST_ASSERT_EQUAL(eDUT_RETURN_OK, Sensores_LeBme(JigaI2c, 0x76U, &b));
+	TEST_ASSERT_EQUAL(eDUT_RETURN_OK, Sensores_LeBme(&barramentoBmeI2c, &b));
 	TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.08f, b.temperatura);
 	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1006.53f, b.pressao);
 	TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.00f, b.umidade);
@@ -471,7 +499,27 @@ void Test_Dut_BmeLeitura(void)
 	TEST_ASSERT_EQUAL_STRING("OK 25.08 1006.53 55.00\n", resposta);
 	falso.i2cMestreJiga = 0;
 	mapaJiga[0xD0U] = 0x58U;                         // BMP280, nao BME280
-	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeBme(JigaI2c, 0x76U, &b));
+	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeBme(&barramentoBmeI2c, &b));
+}
+
+// 22. Os mesmos drivers por SPI (MPUS e BMES): o BME280 manda o endereco com 7 bits e a jiga completa com 0x80
+void Test_Dut_SensoresPorSpi(void)
+{
+	char resposta[dCOMANDOS_RESPOSTA_MAX];
+
+	JigaMpu();
+	ouJiga = 0x00U;
+	Comandos_Executa("MPUS", resposta, sizeof(resposta));
+	TEST_ASSERT_EQUAL_STRING("OK 0.5000 -0.2500 1.0000 0.999 0.000 -0.999 21.00\n", resposta);
+
+	JigaBme();
+	ouJiga = 0x80U;
+	Comandos_Executa("BMES 1000000", resposta, sizeof(resposta));
+	TEST_ASSERT_EQUAL_STRING("OK 25.08 1006.53 55.00\n", resposta);
+	TEST_ASSERT_EQUAL_HEX8(0x27U, mapaJiga[0xF4U]);     // ctrl_meas escrito com o endereco 0x74
+
+	Comandos_Executa("BMES 999", resposta, sizeof(resposta));
+	TEST_ASSERT_EQUAL_STRING("ERR ARG\n", resposta);
 }
 
 int main(void)
@@ -498,5 +546,6 @@ int main(void)
 	RUN_TEST(Test_Dut_MpuLeitura);
 	RUN_TEST(Test_Dut_MpuErrosEComando);
 	RUN_TEST(Test_Dut_BmeLeitura);
+	RUN_TEST(Test_Dut_SensoresPorSpi);
 	return UNITY_END();
 }

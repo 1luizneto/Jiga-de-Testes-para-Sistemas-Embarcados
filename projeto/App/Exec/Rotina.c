@@ -27,6 +27,7 @@
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Passos I2C_SLAVE_MASK e I2C_SLAVE_ADDR2
  *   @version      <b>1.2.0 - 04/11/2026</b> \n Luiz Neto \n Passo ONDA (gerador de ondas em segundo plano)
+ *   @version      <b>1.3.0 - 04/11/2026</b> \n Luiz Neto \n Passo SPI_SLAVE_REG
  *
  *   @copyright
  *   @{
@@ -524,6 +525,7 @@ static uint8_t Rotina_ValidaPasso(const uint8_t *p, uint16_t disponivel, uint16_
 		case dCOMM_CMD_SPI_SLAVE_LOAD:  t = 2U; break;
 		case dCOMM_CMD_SPI_SLAVE_READ:  t = 1U; break;
 		case dCOMM_CMD_SPI_MASTER_XFER: t = 2U; break;
+		case dCOMM_CMD_SPI_SLAVE_REG:   t = 3U; break;
 		case dCOMM_CMD_UART_CONFIG:     t = 5U; break;
 		case dCOMM_CMD_UART_WRITE:      t = 2U; break;
 		case dCOMM_CMD_UART_READ:       t = 2U; break;
@@ -616,6 +618,10 @@ static uint8_t Rotina_ValidaPasso(const uint8_t *p, uint16_t disponivel, uint16_
 
 		case dCOMM_CMD_SPI_SLAVE_READ:
 			*registro = 1U + dSPIBUS_TAMANHO_BUFFER;
+		break;
+
+		case dCOMM_CMD_SPI_SLAVE_REG:
+			valido = ((p[1] <= 1U) && ((p[2] == 0U) || (p[2] == dSPIBUS_REGISTROS_OU_MAX))) ? 1U : 0U;
 		break;
 
 		case dCOMM_CMD_SPI_MASTER_XFER:

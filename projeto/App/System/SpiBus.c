@@ -21,6 +21,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 28/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Modo registradores da escrava (SpiBus_Registros), para
+ *                                                          emular um sensor SPI com o mapa da escrava I2C
  *
  *   @copyright
  *   @{
@@ -55,6 +57,7 @@ static struct spiBus
 	uint8_t rx[dSPIBUS_TAMANHO_BUFFER];   ///< O que o DUT enviou desde o ultimo SPI_SLAVE_READ
 	uint8_t rxTamanho;
 	uint8_t papel;                        ///< dSPIBUS_PAPEL_ESCRAVO, dSPIBUS_PAPEL_MESTRE ou dSPIBUS_PAPEL_NENHUM
+	spiBusRegistrosFunc_t registros;      ///< Modo registradores na BSP (SpiBus_InitRegistros)
 } spiBus;
 
 /***********************************************************************************************************************
@@ -255,7 +258,50 @@ spiBusReturn_t SpiBus_SafeState(void)
 	spiBus.papel = dSPIBUS_PAPEL_NENHUM;
 	spiBus.func.unlock();
 
+	if ((spiBus.registros != NULL) && (spiBus.registros(0U, 0U) != eSPIBUS_RETURN_OK))
+	{
+		ret = eSPIBUS_RETURN_ERROR;
+	}
+
 	return (ret == eSPIBUS_RETURN_OK) ? eSPIBUS_RETURN_OK : eSPIBUS_RETURN_ERROR;
+}
+
+/***********************************************************************************************************************
+ * @brief      Registra a funcao da BSP que liga o modo registradores da escrava.
+ **********************************************************************************************************************/
+spiBusReturn_t SpiBus_InitRegistros(spiBusRegistrosFunc_t registrosFunc)
+{
+	if (registrosFunc == NULL)
+	{
+		return eSPIBUS_RETURN_INVALID_ARGUMENT;
+	}
+
+	spiBus.registros = registrosFunc;
+
+	return eSPIBUS_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      Modo registradores da escrava (SPI_SLAVE_REG): o DUT le e escreve o mapa da escrava I2C como num sensor.
+ * @details    Em cada transacao, o 1o byte e o endereco (bit 7 = 1 para leitura) e os seguintes sao os dados, com
+ *             auto-incremento. O 'ou' completa o endereco de 7 bits (0x80: registradores 0x80-0xFF, como no BME280).
+ *             Vale para a escrava ja configurada e as seguintes, ate o estado seguro.
+ * @param[in]  ativo  1 = registradores, 0 = buffers (SPI_SLAVE_LOAD/READ)
+ * @param[in]  ou     0x00 ou 0x80
+ **********************************************************************************************************************/
+spiBusReturn_t SpiBus_Registros(uint8_t ativo, uint8_t ou)
+{
+	if (spiBus.registros == NULL)
+	{
+		return eSPIBUS_RETURN_ERROR;
+	}
+
+	if ((ativo > 1U) || ((ou != 0U) && (ou != dSPIBUS_REGISTROS_OU_MAX)))
+	{
+		return eSPIBUS_RETURN_INVALID_ARGUMENT;
+	}
+
+	return spiBus.registros(ativo, ou);
 }
 
 /***********************************************************************************************************************

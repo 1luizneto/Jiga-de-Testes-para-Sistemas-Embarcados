@@ -2167,3 +2167,62 @@ void Test_Exec_RotinaPassoOnda(void)
 	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ROUTINE, Rotina_Carrega(payload, total, &indice));
 	TEST_ASSERT_EQUAL_UINT8(1, indice);
 }
+
+/// Modo registradores da escrava SPI falso: guarda a ultima chamada
+static struct { uint8_t chamadas; uint8_t ativo; uint8_t ou; } spiRegFalso;
+
+static spiBusReturn_t SpiRegFalso(uint8_t ativo, uint8_t ou)
+{
+	spiRegFalso.chamadas++;
+	spiRegFalso.ativo = ativo;
+	spiRegFalso.ou    = ou;
+	return eSPIBUS_RETURN_OK;
+}
+
+// 81. SPI_SLAVE_REG: liga o modo registradores com o 'ou' 0x80 (BME280); 'ou' ou tamanho invalidos: NACK; o
+// RESET_ALL desliga o modo
+void Test_Exec_SpiRegistros(void)
+{
+	const uint8_t liga[]     = {0x01, 0x80};
+	const uint8_t ouErrado[] = {0x01, 0x40};
+	const uint8_t curto[]    = {0x01};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+	memset(&spiRegFalso, 0, sizeof(spiRegFalso));
+	TEST_ASSERT_EQUAL(eSPIBUS_RETURN_OK, SpiBus_InitRegistros(SpiRegFalso));
+
+	MontaComando(&frame, 0xA0, dCOMM_CMD_SPI_SLAVE_REG, liga, sizeof(liga));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, spiRegFalso.ativo);
+	TEST_ASSERT_EQUAL_HEX8(0x80, spiRegFalso.ou);
+
+	MontaComando(&frame, 0xA1, dCOMM_CMD_SPI_SLAVE_REG, ouErrado, sizeof(ouErrado));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	MontaComando(&frame, 0xA2, dCOMM_CMD_SPI_SLAVE_REG, curto, sizeof(curto));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	TEST_ASSERT_EQUAL_UINT8(1, spiRegFalso.chamadas);
+
+	MontaComando(&frame, 0xA3, dCOMM_CMD_RESET_ALL, NULL, 0U);
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, spiRegFalso.ativo);
+}
+
+// 82. Passo SPI_SLAVE_REG na rotina: aceito com 'ou' 0x00; recusado com ativo 2 no indice certo
+void Test_Exec_RotinaPassoSpiRegistros(void)
+{
+	const uint8_t passos[] = {dCOMM_CMD_SPI_SLAVE_REG, 0x01, 0x00, dCOMM_CMD_SPI_SLAVE_REG, 0x02, 0x00};
+	uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
+	uint8_t indice = 0xAAU;
+	IniciaRotina();
+
+	uint8_t total = MontaRotina(payload, 1U, 100U, 1U, passos, 3U);
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Carrega(payload, total, &indice));
+	IniciaRotina();
+	total = MontaRotina(payload, 2U, 100U, 2U, passos, sizeof(passos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ROUTINE, Rotina_Carrega(payload, total, &indice));
+	TEST_ASSERT_EQUAL_UINT8(1, indice);
+}

@@ -22,6 +22,7 @@
 #include "stm32f7xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "Bsp_Spi.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -199,7 +200,11 @@ void I2C2_ER_IRQHandler(void)
 void SPI2_IRQHandler(void)
 {
   /* USER CODE BEGIN SPI2_IRQn 0 */
-
+  // Escrava no modo registradores (sensor SPI emulado): a Bsp_Spi trata byte a byte, sem o HAL
+  if (BspSpi_Irq() != 0U)
+  {
+    return;
+  }
   /* USER CODE END SPI2_IRQn 0 */
   HAL_SPI_IRQHandler(&hspi2);
   /* USER CODE BEGIN SPI2_IRQn 1 */
