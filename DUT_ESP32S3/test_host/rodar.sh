@@ -11,5 +11,5 @@ mkdir -p "$SAIDA"
 
 gcc -std=c11 -w -DUNITY_INCLUDE_CONFIG_H -I"$UNITY" -c "$UNITY/unity.c" -o "$SAIDA/unity.o"
 gcc -std=c11 -Wall -Wextra -Werror -DUNITY_INCLUDE_CONFIG_H -I"$MAIN" -I"$UNITY" \
-	"$AQUI/test_dut.c" "$MAIN/comandos.c" "$MAIN/mapa_i2c.c" "$MAIN/ventilador.c" "$SAIDA/unity.o" -o "$SAIDA/test_dut"
+	"$AQUI/test_dut.c" "$MAIN/comandos.c" "$MAIN/mapa_i2c.c" "$MAIN/ventilador.c" "$MAIN/drivers_sensores.c" "$SAIDA/unity.o" -o "$SAIDA/test_dut"
 "$SAIDA/test_dut"
