@@ -97,6 +97,7 @@ validação: divida em dois.
 | `baterias/loopback.yaml` | jumpers do CT10, CT11 e CT13 | CT21 (dez execuções com os mesmos vereditos) |
 | `baterias/ct22_ventilador.yaml` | DAC1 → sensor do DUT, saída do DUT → GPIO5 | CT22 (ESP32-S3 e Arduino Uno, *black-box*) |
 | `baterias/ct25_sensores.yaml` | a do CT20 (UART e I2C com o ESP32-S3) | CT25: o DUT lê o MPU-6500 e o BME280 emulados |
+| `baterias/ondas_sem_fios.yaml` | nenhuma | ondas num sensor emulado (lidas pelo mapa), no DAC por DMA e no PWM |
 | `baterias/exemplo_monografia.yaml` | DUT hipotético da figura | exemplo da seção 3.6.3 (compilado no CT06) |
 
 Sem os jumpers, a `loopback.yaml` falha nos casos analógicos, da UART e do SPI; os de GPIO dão resultado
@@ -131,6 +132,47 @@ casos:
   `escala_dps` na bateria têm que ser os do driver.
 - `uart_valores` manda um comando de texto ao DUT pela UART (115200 baud por padrão), espera 50 ms, lê a resposta e
   confere cada número com a tolerância (um número para todos ou uma lista).
+
+### Ondas (gerador da jiga)
+
+Um estímulo `onda` faz a jiga variar um valor no tempo **sozinha**, em segundo plano, enquanto a rotina continua
+(esperas, leituras e verificações acontecem com a onda rodando):
+
+```yaml
+estimulos:
+  - onda: {alvo: bme280.temperatura, forma: rampa, de: 20, ate: 40, duracao_ms: 10000}
+  - onda: {alvo: mpu6500.aceleracao_z, forma: senoide, min: 0.5, max: 1.5, periodo_ms: 200, ciclos: 20, ruido: 0.01}
+  - onda: {alvo: dac1, forma: senoide, min: 0.5, max: 2.5, periodo_ms: 1, passo_us: 10}     # 1 kHz por DMA
+  - onda: {alvo: pwm1.razao, forma: triangular, min: 0, max: 100, periodo_ms: 100}          # depois de um pwm
+  - onda: {alvo: bme280.umidade, forma: pontos, interpolar: false, pontos: [[0, 40], [1000, 80], [3000, 40]]}
+```
+
+| Forma | Campos | Tabela na jiga |
+|---|---|---|
+| `rampa` | `de`, `ate`, `duracao_ms` | 2 pontos, 1 ciclo (fica no `ate`) |
+| `senoide` | `min`, `max`, `periodo_ms`, `fase` (graus) | 32 pontos (erro da interpolação < 0,5 % da amplitude) |
+| `triangular` | `min`, `max`, `periodo_ms` | 3 pontos (exata) |
+| `quadrada` | `min`, `max`, `periodo_ms`, `razao` (%) | degrau; razão aproximada com até 31 divisões |
+| `dente_de_serra` | `min`, `max`, `periodo_ms` | 2 pontos, recomeça a cada período |
+| `exponencial` | `de`, `ate`, `tau_ms`, `duracao_ms` (padrão 5 τ) | 32 pontos, 1 ciclo (sistema de 1ª ordem) |
+| `pontos` | `pontos: [[t_ms, valor], ...]`, `interpolar` | exata se os instantes caem numa grade de até 31 passos |
+
+Comuns: `ciclos` (0 = até o fim da rotina; padrão das formas periódicas), `passo_us` (padrão 1000) e `ruido`
+(± amplitude uniforme, nas unidades do alvo). Alvos: `dac1`, `dac2`, `pwm1.razao`…`pwm3.razao`,
+`mpu6500.aceleracao_x/y/z`, `mpu6500.giro_x/y/z`, `mpu6500.temperatura`, `bme280.temperatura`, `bme280.pressao` e
+`bme280.umidade`.
+
+- A jiga toca uma tabela de 2 a 32 pontos igualmente espaçados no período, com interpolação linear ou degrau
+  (`Onda.c`); a forma é montada no PC (`ondas.py`). Até **6 ondas** por caso.
+- **`passo_us` ≥ 100**: cada onda é atualizada numa interrupção agendada no canal 2 do TIM5 (a base de tempo das
+  rotinas). Nos sensores, 1 ms basta: o sensor real também não muda mais rápido do que o DUT lê. **No DAC, de 1 a
+  99 µs**: um período de até 1024 amostras é tocado por DMA com o trigger do TIM7 (DAC1) ou do TIM4 (DAC2), sem usar
+  o processador.
+- A onda na razão do PWM troca só o registrador de comparação (o contador não reinicia): fazer um `pwm` antes, com a
+  frequência.
+- Uma onda na temperatura do BME280 leva junto duas ondas que corrigem os valores brutos da pressão e da umidade (a
+  compensação depende da temperatura), em 16 pontos: o DUT continua lendo a pressão e a umidade do caso.
+- O fim da rotina (e o ABORT e o RESET_ALL) para todas as ondas antes do estado seguro.
 
 Camadas (figura de classes da seção 3.6.2): `cliente.py` (`TransporteSerial`, `TransporteSimulado` e
 `ClienteJiga`: SEQ, tempo limite de 100 ms e 3 tentativas com o mesmo SEQ), `bateria.py`

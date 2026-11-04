@@ -25,6 +25,7 @@
  *   @version      <b>1.0.0 - 27/10/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Mascara dos bits que o DUT pode escrever
  *                                                          (I2cBus_Mascara) e segundo endereco (I2cBus_Endereco2)
+ *   @version      <b>1.2.0 - 04/11/2026</b> \n Luiz Neto \n I2cBus_EscreveIsr: o gerador de ondas grava o sensor
  *
  *   @copyright
  *   @{
@@ -223,6 +224,23 @@ i2cBusReturn_t I2cBus_Endereco2(uint8_t endereco2)
 	}
 
 	i2cBus.endereco2 = endereco2;
+
+	return eI2CBUS_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      Grava no mapa a partir da interrupcao do gerador de ondas (registradores de dados do sensor emulado).
+ * @details    Sem o lock: a interrupcao do gerador tem a mesma prioridade da do I2C2, entao uma leitura do DUT nunca
+ *             fica no meio desta copia. Nao usar a partir de uma task (la e o I2cBus_Load).
+ **********************************************************************************************************************/
+i2cBusReturn_t I2cBus_EscreveIsr(uint8_t offset, const uint8_t *dados, uint8_t quantidade)
+{
+	if ((dados == NULL) || (quantidade == 0U) || (((uint16_t)offset + quantidade) > dI2CBUS_TAMANHO_MAPA))
+	{
+		return eI2CBUS_RETURN_INVALID_ARGUMENT;
+	}
+
+	memcpy(&i2cBus.mapa[offset], dados, quantidade);
 
 	return eI2CBUS_RETURN_OK;
 }

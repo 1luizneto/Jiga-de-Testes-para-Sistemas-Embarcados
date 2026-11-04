@@ -26,6 +26,7 @@
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Passos I2C_SLAVE_MASK e I2C_SLAVE_ADDR2
+ *   @version      <b>1.2.0 - 04/11/2026</b> \n Luiz Neto \n Passo ONDA (gerador de ondas em segundo plano)
  *
  *   @copyright
  *   @{
@@ -44,6 +45,7 @@
 #include "I2cBus.h"
 #include "SpiBus.h"
 #include "UartBus.h"
+#include "Onda.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -312,6 +314,16 @@ rotinaReturn_t Rotina_Executa(void)
 			}
 			break;
 
+			case dONDA_PASSO:
+			{
+				if (Onda_Inicia(&passo[1], (uint16_t)(tamanho - 1U)) != eONDA_RETURN_OK)
+				{
+					Rotina_Finaliza(eROTINA_ESTADO_ERRO, (uint8_t)eCOMM_ERROR_PERIFERICO);
+					return eROTINA_RETURN_OK;
+				}
+			}
+			break;
+
 			default:
 			{
 				uint8_t quantidade = 0U;
@@ -517,6 +529,7 @@ static uint8_t Rotina_ValidaPasso(const uint8_t *p, uint16_t disponivel, uint16_
 		case dCOMM_CMD_UART_READ:       t = 2U; break;
 		case dROTINA_PASSO_ESPERA:      t = 5U; break;
 		case dROTINA_PASSO_ESPERA_GPIO: t = 7U; break;
+		case dONDA_PASSO:               t = 1U + dONDA_CABECALHO_SIZE; break;
 		default:                        return 0U;
 	}
 
@@ -629,6 +642,11 @@ static uint8_t Rotina_ValidaPasso(const uint8_t *p, uint16_t disponivel, uint16_
 		break;
 
 		case dROTINA_PASSO_ESPERA:
+		break;
+
+		case dONDA_PASSO:
+			t      = (uint16_t)(1U + Onda_Tamanho(&p[1], (uint16_t)(disponivel - 1U)));
+			valido = ((t <= disponivel) && (Onda_Valida(&p[1], (uint16_t)(t - 1U)) != 0U)) ? 1U : 0U;
 		break;
 
 		case dROTINA_PASSO_ESPERA_GPIO:

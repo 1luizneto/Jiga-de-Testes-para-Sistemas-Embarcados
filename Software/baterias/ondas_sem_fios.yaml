@@ -1,0 +1,39 @@
+# Gerador de ondas na jiga sem nenhum fio: a onda num registrador do sensor emulado (MPU-6500) e conferida lendo o
+# mapa da escrava I2C (I2C_SLAVE_DUMP) em instantes conhecidos da rotina; o DAC por DMA e a onda na razao do PWM so
+# conferem que a rotina termina e a jiga continua respondendo (as formas sao vistas no osciloscopio, no teste manual).
+bateria: ondas-sem-fios
+sensores:
+  mpu6500: {}
+casos:
+  - nome: rampa na aceleração x (0 a 1 g em 1 s)
+    estimulos:
+      - onda: {alvo: mpu6500.aceleracao_x, forma: rampa, de: 0, ate: 1, duracao_ms: 1000}
+      - espera_us: 250500
+    verificar:
+      - i2c_dump: {offset: 0x3B, esperado: "10 00"}     # 0,25 g
+      - espera_ms: 250
+      - i2c_dump: {offset: 0x3B, esperado: "20 00"}     # 0,5 g
+      - espera_ms: 500
+      - i2c_dump: {offset: 0x3B, esperado: "40 00"}     # fim da rampa: fica em 1 g
+  - nome: quadrada na temperatura (25 e 35 graus a cada 100 ms)
+    estimulos:
+      - onda: {alvo: mpu6500.temperatura, forma: quadrada, min: 25, max: 35, periodo_ms: 200}
+      - espera_ms: 50
+    verificar:
+      - i2c_dump: {offset: 0x41, esperado: "12 42"}     # 35 C: (35 - 21) x 333,87 = 4674
+      - espera_ms: 100
+      - i2c_dump: {offset: 0x41, esperado: "05 37"}     # 25 C: 1335
+  - nome: senoide de 1 kHz no DAC1 por DMA (passo de 10 us)
+    estimulos:
+      - onda: {alvo: dac1, forma: senoide, min: 0.5, max: 2.5, periodo_ms: 1, passo_us: 10}
+      - espera_ms: 100
+  - nome: triangular na razão do PWM1
+    estimulos:
+      - pwm: {canal: 1, frequencia: 1000, razao: 0}
+      - onda: {alvo: pwm1.razao, forma: triangular, min: 0, max: 100, periodo_ms: 100}
+      - espera_ms: 300
+  - nome: depois das ondas, o mapa e o DAC voltam a responder
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+    verificar:
+      - i2c_dump: {offset: 0x3B, esperado: "00 00"}

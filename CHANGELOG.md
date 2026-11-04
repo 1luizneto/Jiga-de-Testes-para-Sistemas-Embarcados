@@ -7,6 +7,27 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.13.0] - 2026-11-04
+
+Gerador de ondas: a jiga varia um valor no tempo sozinha, em segundo plano, durante a rotina (DAC, razão do PWM e
+os registradores dos sensores emulados). Na placa: **208 testes Unity**, **71 casos HIL** e a bateria
+`ondas_sem_fios.yaml` em 6 execuções (rampa e quadrada conferidas no mapa do sensor nos instantes certos, senoide de
+1 kHz no DAC por DMA e triangular no PWM); as formas no osciloscópio ficam para o teste manual.
+
+### Adicionado
+- Firmware: módulo `Onda` e passo de rotina `ONDA` (0x7A): até 6 ondas, cada uma uma tabela de 2 a 32 pontos
+  igualmente espaçados no período (16 bits normalizados, com base e amplitude no valor bruto), interpolação linear ou
+  degrau, ciclos (0 = até o fim da rotina) e ruído uniforme (LFSR). Destinos: DAC, razão do PWM e o mapa da escrava I2C
+  em 16 bits com e sem sinal e em 20 bits (BME280).
+- Firmware: `Bsp_Onda`: atualização por interrupção na comparação do canal 2 do TIM5 (passo de 100 µs ou mais) e, no
+  DAC com passo de 1 a 99 µs, um período de até 1024 amostras por DMA circular (DMA1 Stream5/6 com o trigger do TIM7
+  e do TIM4, configurados em tempo de execução). `Pwm_Razao` (só o CCR, sem reiniciar o contador) e
+  `I2cBus_EscreveIsr`. O estado seguro para as ondas antes de zerar as saídas. 8 testes Unity novos (208).
+- Software: `ondas.py` com as formas `rampa`, `senoide`, `triangular`, `quadrada`, `dente_de_serra`, `exponencial` e
+  `pontos`, `passo_us`, `ciclos` e `ruido`; estímulo `onda` na bateria; a temperatura do BME280 leva duas ondas que
+  mantêm a pressão e a umidade do caso. Espelho do cálculo e da validação no `protocolo.py` e as ondas na jiga simulada.
+- Software: bateria `ondas_sem_fios.yaml` e 24 testes pytest novos (**620 no total**).
+
 ## [0.12.0] - 2026-11-04
 
 Emulação de sensores: a jiga responde no I2C como um **MPU-6500** e um **BME280**, ao mesmo tempo, e o DUT lê os
@@ -380,7 +401,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.12.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.9.0...v0.10.0
