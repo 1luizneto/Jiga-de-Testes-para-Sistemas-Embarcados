@@ -48,6 +48,8 @@ CMD_I2C_CONFIG = 0x50
 CMD_I2C_SLAVE_LOAD = 0x51
 CMD_I2C_SLAVE_DUMP = 0x52
 CMD_I2C_MASTER_XFER = 0x53
+CMD_I2C_SLAVE_MASK = 0x54      # bits que o DUT pode escrever em cada registrador
+CMD_I2C_SLAVE_ADDR2 = 0x56     # segundo endereco da jiga escrava (0x55 continua inexistente)
 CMD_SPI_CONFIG = 0x60
 CMD_SPI_SLAVE_LOAD = 0x61
 CMD_SPI_SLAVE_READ = 0x62
@@ -70,7 +72,8 @@ NOMES_COMANDO = {
     CMD_I2C_SLAVE_LOAD: "I2C_SLAVE_LOAD", CMD_I2C_SLAVE_DUMP: "I2C_SLAVE_DUMP",
     CMD_I2C_MASTER_XFER: "I2C_MASTER_XFER", CMD_SPI_CONFIG: "SPI_CONFIG", CMD_SPI_SLAVE_LOAD: "SPI_SLAVE_LOAD",
     CMD_SPI_SLAVE_READ: "SPI_SLAVE_READ", CMD_SPI_MASTER_XFER: "SPI_MASTER_XFER", CMD_UART_CONFIG: "UART_CONFIG",
-    CMD_UART_WRITE: "UART_WRITE", CMD_UART_READ: "UART_READ",
+    CMD_UART_WRITE: "UART_WRITE", CMD_UART_READ: "UART_READ", CMD_I2C_SLAVE_MASK: "I2C_SLAVE_MASK",
+    CMD_I2C_SLAVE_ADDR2: "I2C_SLAVE_ADDR2",
 }
 
 # Versao do protocolo informada no ACK do PING (dCOMM_PROTOCOL_VERSION no firmware)
@@ -395,6 +398,18 @@ def montar_i2c_load(seq, offset, dados):
     return montar_quadro(seq, CMD_I2C_SLAVE_LOAD, bytes([offset, len(dados)]) + bytes(dados))
 
 
+def montar_i2c_mask(seq, offset, mascaras):
+    """I2C_SLAVE_MASK: payload [offset (u8)][quantidade (u8)][mascaras]; bit 1 = o DUT pode escrever."""
+    _u8(offset, len(mascaras))
+    return montar_quadro(seq, CMD_I2C_SLAVE_MASK, bytes([offset, len(mascaras)]) + bytes(mascaras))
+
+
+def montar_i2c_addr2(seq, endereco2):
+    """I2C_SLAVE_ADDR2: payload [segundo endereco (u8, 0 = nenhum)]; vale a partir do proximo I2C_CONFIG."""
+    _u8(endereco2)
+    return montar_quadro(seq, CMD_I2C_SLAVE_ADDR2, bytes([endereco2]))
+
+
 def montar_i2c_dump(seq, offset, quantidade):
     """I2C_SLAVE_DUMP: payload [offset (u8)][quantidade (u8)]; o ACK traz os bytes do mapa."""
     _u8(offset, quantidade)
@@ -509,6 +524,7 @@ def tamanho_passo(passos, i):
     disponivel = len(passos) - i
     fixos = {CMD_DAC_SET: 4, CMD_GPIO_SET: 3, CMD_GPIO_READ: 1, CMD_PWM_SET: 8, CMD_PWM_STOP: 2, CMD_ADC_READ: 2,
              CMD_I2C_CONFIG: 4, CMD_I2C_SLAVE_LOAD: 3, CMD_I2C_SLAVE_DUMP: 3, CMD_I2C_MASTER_XFER: 4,
+             CMD_I2C_SLAVE_MASK: 3, CMD_I2C_SLAVE_ADDR2: 2,
              CMD_SPI_CONFIG: 7, CMD_SPI_SLAVE_LOAD: 2, CMD_SPI_SLAVE_READ: 1, CMD_SPI_MASTER_XFER: 2,
              CMD_UART_CONFIG: 5, CMD_UART_WRITE: 2, CMD_UART_READ: 2, PASSO_ESPERA: 5, PASSO_ESPERA_GPIO: 7}
     if disponivel <= 0 or passos[i] not in fixos or fixos[passos[i]] > disponivel:
@@ -533,6 +549,10 @@ def tamanho_passo(passos, i):
                   (p[1] == I2C_PAPEL_MESTRE or I2C_ENDERECO_MIN <= p[2] <= I2C_ENDERECO_MAX))
     elif cmd == CMD_I2C_SLAVE_LOAD:
         valido, t = p[2] > 0 and p[1] + p[2] <= I2C_TAMANHO_MAPA, t + p[2]
+    elif cmd == CMD_I2C_SLAVE_MASK:
+        valido, t = p[2] > 0 and p[1] + p[2] <= I2C_TAMANHO_MAPA, t + p[2]
+    elif cmd == CMD_I2C_SLAVE_ADDR2:
+        valido = p[1] == 0 or I2C_ENDERECO_MIN <= p[1] <= I2C_ENDERECO_MAX
     elif cmd == CMD_I2C_SLAVE_DUMP:
         valido, registro = 0 < p[2] <= PAYLOAD_MAX and p[1] + p[2] <= I2C_TAMANHO_MAPA, p[2]
     elif cmd == CMD_I2C_MASTER_XFER:
@@ -856,6 +876,9 @@ class JigaSimulada:
     i2c_endereco: int = None
     i2c_ponteiro: int = 0
     i2c_mapa: bytearray = field(default_factory=lambda: bytearray(I2C_TAMANHO_MAPA))
+    i2c_mascara: bytearray = field(default_factory=lambda: bytearray([0xFF] * I2C_TAMANHO_MAPA))
+    i2c_endereco2: int = 0             # segundo endereco pedido (I2C_SLAVE_ADDR2), aplicado no I2C_CONFIG
+    i2c_endereco2_ativo: int = None    # segundo endereco em que a escrava responde agora
     i2c_dispositivos: dict = field(default_factory=dict)
     spi_papel: int = None
     spi_tx: bytes = b""
@@ -915,6 +938,8 @@ class JigaSimulada:
         self.pwm = {canal: (frequencia, 0) for canal, (frequencia, _) in self.pwm.items()}
         self.i2c_papel, self.i2c_endereco, self.i2c_ponteiro = None, None, 0
         self.i2c_mapa = bytearray(I2C_TAMANHO_MAPA)
+        self.i2c_mascara = bytearray([0xFF] * I2C_TAMANHO_MAPA)
+        self.i2c_endereco2, self.i2c_endereco2_ativo = 0, None
         self.spi_papel, self.spi_tx, self.spi_rx = None, b"", bytearray()
         self.uart_baud, self.uart_rx = None, bytearray()
 
@@ -1074,7 +1099,7 @@ class JigaSimulada:
             frequencia, _ = self.pwm[payload[0]]
             self.pwm[payload[0]] = (frequencia, 0)
             return 0, b""
-        if CMD_I2C_CONFIG <= quadro.cmd <= CMD_I2C_MASTER_XFER:
+        if CMD_I2C_CONFIG <= quadro.cmd <= CMD_I2C_SLAVE_MASK or quadro.cmd == CMD_I2C_SLAVE_ADDR2:
             return self._executar_i2c(quadro.cmd, payload)
         if CMD_SPI_CONFIG <= quadro.cmd <= CMD_SPI_MASTER_XFER:
             return self._executar_spi(quadro.cmd, payload)
@@ -1093,6 +1118,21 @@ class JigaSimulada:
                 return ERRO_PARAMETRO_INVALIDO, b""
             self.i2c_papel = papel
             self.i2c_endereco = endereco if papel == I2C_PAPEL_ESCRAVO else None
+            escravo2 = papel == I2C_PAPEL_ESCRAVO and self.i2c_endereco2 not in (0, endereco)
+            self.i2c_endereco2_ativo = self.i2c_endereco2 if escravo2 else None
+            return 0, b""
+        if cmd == CMD_I2C_SLAVE_MASK:
+            if len(payload) < 2 or len(payload) != 2 + payload[1]:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            offset, quantidade = payload[0], payload[1]
+            if quantidade == 0 or offset + quantidade > I2C_TAMANHO_MAPA:
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.i2c_mascara[offset:offset + quantidade] = payload[2:]
+            return 0, b""
+        if cmd == CMD_I2C_SLAVE_ADDR2:
+            if len(payload) != 1 or (payload[0] != 0 and not I2C_ENDERECO_MIN <= payload[0] <= I2C_ENDERECO_MAX):
+                return ERRO_PARAMETRO_INVALIDO, b""
+            self.i2c_endereco2 = payload[0]
             return 0, b""
         if cmd == CMD_I2C_SLAVE_LOAD:
             if len(payload) < 2 or len(payload) != 2 + payload[1]:
@@ -1183,15 +1223,17 @@ class JigaSimulada:
     def i2c_mestre_externo(self, endereco, escrita, nr):
         """Transacao do DUT mestre com a jiga escrava (24C02, como o I2cBus): None se ela nao responde.
 
-        Escrita: o 1o byte e o ponteiro e os demais vao para o mapa com auto-incremento. Leitura: a partir do
-        ponteiro, que avanca (uma leitura sem escrita continua de onde parou).
+        Escrita: o 1o byte e o ponteiro e os demais vao para o mapa com auto-incremento, so nos bits gravaveis
+        (I2C_SLAVE_MASK). Leitura: a partir do ponteiro, que avanca (uma leitura sem escrita continua de onde parou).
+        Responde no endereco do I2C_CONFIG e no segundo (I2C_SLAVE_ADDR2), que dividem o mapa.
         """
-        if self.i2c_papel != I2C_PAPEL_ESCRAVO or endereco != self.i2c_endereco:
+        if self.i2c_papel != I2C_PAPEL_ESCRAVO or endereco not in (self.i2c_endereco, self.i2c_endereco2_ativo):
             return None
         if escrita:
             self.i2c_ponteiro = escrita[0]
             for byte in escrita[1:]:
-                self.i2c_mapa[self.i2c_ponteiro] = byte
+                mascara = self.i2c_mascara[self.i2c_ponteiro]
+                self.i2c_mapa[self.i2c_ponteiro] = (self.i2c_mapa[self.i2c_ponteiro] & ~mascara & 0xFF) | (byte & mascara)
                 self.i2c_ponteiro = (self.i2c_ponteiro + 1) % I2C_TAMANHO_MAPA
         lidos = bytearray()
         for _ in range(nr):
