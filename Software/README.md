@@ -95,7 +95,7 @@ validação: divida em dois.
 |---|---|---|
 | `baterias/sem_fios.yaml` | nenhuma | conferir o app com a placa (mapa I2C, buffers, estímulos e esperas) |
 | `baterias/loopback.yaml` | jumpers do CT10, CT11 e CT13 | CT21 (dez execuções com os mesmos vereditos) |
-| `baterias/ct22_ventilador.yaml` | DAC1 → sensor do DUT, saída do DUT → GPIO5 | CT22 (ESP32-S3 e Arduino Uno, *black-box*) |
+| `baterias/ct22_ventilador.yaml` | DAC1 → sensor do DUT, saída do DUT → GPIO5 | CT22 (ESP32-S3, *black-box*; serve também ao Arduino Uno) |
 | `baterias/ct25_sensores.yaml` | a do CT20 (UART e I2C com o ESP32-S3) | CT25: o DUT lê o MPU-6500 e o BME280 emulados |
 | `baterias/ondas_sem_fios.yaml` | nenhuma | ondas num sensor emulado (lidas pelo mapa), no DAC por DMA e no PWM |
 | `baterias/ct26_sensores_spi.yaml` | a do CT20 (UART, I2C e SPI com o ESP32-S3) | CT26: BME280 no SPI e MPU-6500 no I2C ao mesmo tempo |

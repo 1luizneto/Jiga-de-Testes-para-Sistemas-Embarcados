@@ -1,4 +1,7 @@
-# Segundo DUT do CT22 (Arduino Uno)
+# DUT alternativo do CT22 (Arduino Uno)
+
+> **Não validado.** A validação do TCC é feita só com o ESP32-S3 (decisão de 04/11/2026: sem a placa). O sketch
+> fica como ponto de partida para validar a jiga em outro microcontrolador (trabalhos futuros da monografia).
 
 O CT22 confere que a jiga testa microcontroladores diferentes **sem mudar o firmware deles** (RNF02): a mesma
 bateria *black-box* (`Software/baterias/ct22_ventilador.yaml`) roda contra o ESP32-S3
