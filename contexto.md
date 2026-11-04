@@ -59,6 +59,9 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   ímpar; escrava I2C do ESP32 sem o reset da FSM durante o stretch (lia 7F FF FF); descarte da linha do DUT no
   preparo. 211/211 Unity, 73/73 HIL; com o ESP32: CT20 78/78, CT22/CT25/CT26 10×10 (CT22: reação 0,04–1,0 ms).
   Bancada: pull-up de 4,7 Ω no lugar de 4,7 kΩ e SCL no GPIO7 (corrigidos pelo usuário).
+- **Decisão de 04/11/2026: a validação do TCC é só com o ESP32-S3** (o usuário não tem o Arduino Uno). Objetivo
+  específico (e), RNF02, CT22, resumos e conclusão da monografia reescritos; o sketch `DUT_ArduinoUno` fica como
+  não validado e entra nos trabalhos futuros. Falta para a 1.0.0: só o osciloscópio (CT19 e CT27).
 - Combinado em 04/11/2026: antes da 1.0.0 entram também 0.13.0 (gerador de ondas: rampa, senoide, triangular, quadrada,
   dente de serra, exponencial, pontos e ruído; `passo_us`, mínimo 100 µs no software e 1 µs no DAC por DMA) e 0.14.0
   (sensores em SPI, com a restrição da pausa entre o endereço e os dados; um sensor SPI por vez).
