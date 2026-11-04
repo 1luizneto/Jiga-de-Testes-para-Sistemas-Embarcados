@@ -85,6 +85,7 @@ casos:
 | `i2c_dump` | `offset`, `esperado` (hex) | I2C_SLAVE_DUMP; bytes iguais |
 | `i2c_xfer` | `endereco`, `escrita`, `esperado` (hex) | I2C_MASTER_XFER; bytes lidos iguais |
 | `spi_read` / `spi_xfer` | `esperado` / `dados` + `esperado` (hex) | SPI_SLAVE_READ / SPI_MASTER_XFER; bytes iguais |
+| `uart_valores` | `comando` (texto), `esperado` (números), `tolerancia`, `baud`, `espera_ms` | UART_WRITE, ESPERA e UART_READ; cada número da resposta dentro da tolerância |
 
 O tempo máximo de cada rotina é (esperas + limites + transmissão da UART) × 1,1 + 100 ms; `tempo_max_ms` no caso
 substitui o cálculo. Um caso que não cabe em um quadro (240 B) ou cujos resultados passam de 2048 B é recusado na
@@ -95,10 +96,41 @@ validação: divida em dois.
 | `baterias/sem_fios.yaml` | nenhuma | conferir o app com a placa (mapa I2C, buffers, estímulos e esperas) |
 | `baterias/loopback.yaml` | jumpers do CT10, CT11 e CT13 | CT21 (dez execuções com os mesmos vereditos) |
 | `baterias/ct22_ventilador.yaml` | DAC1 → sensor do DUT, saída do DUT → GPIO5 | CT22 (ESP32-S3 e Arduino Uno, *black-box*) |
+| `baterias/ct25_sensores.yaml` | a do CT20 (UART e I2C com o ESP32-S3) | CT25: o DUT lê o MPU-6500 e o BME280 emulados |
 | `baterias/exemplo_monografia.yaml` | DUT hipotético da figura | exemplo da seção 3.6.3 (compilado no CT06) |
 
 Sem os jumpers, a `loopback.yaml` falha nos casos analógicos, da UART e do SPI; os de GPIO dão resultado
 indefinido (entrada solta, sem pull).
+
+### Sensores emulados (MPU-6500 e BME280)
+
+A jiga pode responder no I2C como um **MPU-6500** (acelerômetro, giroscópio e temperatura) e um **BME280**
+(temperatura, pressão e umidade), ao mesmo tempo: o DUT lê a jiga com o driver normal do sensor. Na bateria:
+
+```yaml
+sensores:
+  mpu6500: {barramento: i2c, endereco: 0x68, escala_g: 2, escala_dps: 250}   # 0x68 ou 0x69
+  bme280:  {barramento: i2c, endereco: 0x76}                                  # 0x76 ou 0x77
+casos:
+  - nome: placa inclinada, dia quente
+    estimulos:
+      - mpu6500: {aceleracao: [0.5, 0, 0.866], giro: [10, -20, 90], temperatura: 31.5}
+      - bme280: {temperatura: 35.2, pressao: 1005.8, umidade: 82.5}
+    verificar:
+      - uart_valores: {comando: "MPU\n", esperado: [0.5, 0, 0.866, 10, -20, 90, 31.5], tolerancia: 0.01}
+```
+
+- A configuração dos sensores (registradores de reset, calibração do BME280, máscaras dos bits que o DUT pode
+  escrever e os dois endereços) é o **preparo** do caso: comandos diretos que o motor manda antes do RUN_ROUTINE
+  (não cabe nos 240 B da rotina). Na rotina ficam só as mudanças de valor.
+- Os registradores só de leitura (WHO_AM_I, chip_id, dados, calibração) não mudam quando o DUT escreve; os bits de
+  reset (DEVICE_RESET do MPU-6500, 0xE0 do BME280) leem 0 depois da escrita, como se o reset tivesse terminado.
+- O BME280 entrega valores brutos que o DUT compensa com a calibração: o PC calcula o valor bruto pela inversa da
+  compensação da Bosch (`sensores.py`), com erro de até ±0,005 nas três grandezas.
+- O valor de aceleração do MPU-6500 depende do fundo de escala que o driver do DUT configura: `escala_g` e
+  `escala_dps` na bateria têm que ser os do driver.
+- `uart_valores` manda um comando de texto ao DUT pela UART (115200 baud por padrão), espera 50 ms, lê a resposta e
+  confere cada número com a tolerância (um número para todos ou uma lista).
 
 Camadas (figura de classes da seção 3.6.2): `cliente.py` (`TransporteSerial`, `TransporteSimulado` e
 `ClienteJiga`: SEQ, tempo limite de 100 ms e 3 tentativas com o mesmo SEQ), `bateria.py`

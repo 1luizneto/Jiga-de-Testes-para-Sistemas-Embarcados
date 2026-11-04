@@ -11,6 +11,7 @@
 #include "comandos.h"
 #include "mapa_i2c.h"
 #include "ventilador.h"
+#include "drivers_sensores.h"
 #include "versao_dut.h"
 
 /// Registro das chamadas aos barramentos falsos
@@ -18,6 +19,7 @@ static struct barramentosFalsos
 {
 	int         desliga;
 	int         i2cMestre;
+	int         i2cMestreJiga;   ///< 1: o I2C mestre responde como o mapa da jiga
 	uint8_t     endereco;
 	uint8_t     escrita[dCOMANDOS_DADOS_MAX];
 	size_t      nw;
@@ -41,9 +43,15 @@ static dutReturn_t Falso_Desliga(void)
 	return falso.retorno;
 }
 
-// Le 0xA0, 0xA1, ... do dispositivo
+static dutReturn_t JigaI2c(uint8_t endereco, const uint8_t *escrita, size_t nw, uint8_t *leitura, size_t nr);
+
+// Le 0xA0, 0xA1, ... do dispositivo (ou responde como o mapa da jiga, nos testes dos sensores)
 static dutReturn_t Falso_I2cMestre(uint8_t endereco, const uint8_t *escrita, size_t nw, uint8_t *leitura, size_t nr)
 {
+	if (falso.i2cMestreJiga != 0)
+	{
+		return JigaI2c(endereco, escrita, nw, leitura, nr);
+	}
 	falso.i2cMestre++;
 	falso.endereco = endereco;
 	memcpy(falso.escrita, escrita, nw);
@@ -341,6 +349,131 @@ void Test_Dut_VentiladorHisterese(void)
 	TEST_ASSERT_FALSE(Ventilador_Atualiza(true, 1499U));
 }
 
+// --- Sensores emulados (como a jiga: mapa de 256 registradores com mascara dos bits gravaveis) ---------------------
+
+static uint8_t mapaJiga[256];
+static uint8_t mascaraJiga[256];
+static uint8_t ponteiroJiga;
+
+static dutReturn_t JigaI2c(uint8_t endereco, const uint8_t *escrita, size_t nw, uint8_t *leitura, size_t nr)
+{
+	(void)endereco;
+	if (nw > 0U)
+	{
+		ponteiroJiga = escrita[0];
+		for (size_t i = 1U; i < nw; i++)
+		{
+			mapaJiga[ponteiroJiga] = (uint8_t)((mapaJiga[ponteiroJiga] & (uint8_t)~mascaraJiga[ponteiroJiga]) |
+			                                   (escrita[i] & mascaraJiga[ponteiroJiga]));
+			ponteiroJiga++;
+		}
+	}
+	for (size_t i = 0U; i < nr; i++)
+	{
+		leitura[i] = mapaJiga[ponteiroJiga++];
+	}
+	return eDUT_RETURN_OK;
+}
+
+static void JigaCarrega(uint8_t offset, const uint8_t *valores, size_t n, uint8_t mascara)
+{
+	memcpy(&mapaJiga[offset], valores, n);
+	memset(&mascaraJiga[offset], mascara, n);
+}
+
+static void JigaMpu(void)
+{
+	// 0.5 g, -0.25 g, 1 g; temperatura bruta 0 (21 C); giroscopio 131 (~1 grau/s), 0, -131
+	const uint8_t dados[14] = {0x20, 0x00, 0xF0, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x83, 0x00, 0x00, 0xFF, 0x7D};
+	const uint8_t pwr       = 0x01U;
+	const uint8_t whoAmI    = 0x70U;
+	memset(mapaJiga, 0, sizeof(mapaJiga));
+	memset(mascaraJiga, 0xFF, sizeof(mascaraJiga));
+	JigaCarrega(0x3BU, dados, sizeof(dados), 0x00U);
+	JigaCarrega(0x6BU, &pwr, 1U, 0x7FU);      // bit 7 (DEVICE_RESET) volta a 0
+	JigaCarrega(0x75U, &whoAmI, 1U, 0x00U);
+}
+
+static void JigaBme(void)
+{
+	// Calibracao do exemplo da folha de dados (T e P) e tipica (H); adc_P = 415148, adc_T = 519888, adc_H = 30000
+	const uint8_t tp[26] = {0x70, 0x6B, 0x43, 0x67, 0x18, 0xFC, 0x7D, 0x8E, 0x43, 0xD6, 0xD0, 0x0B, 0x27, 0x0B, 0x8C,
+	                        0x00, 0xF9, 0xFF, 0x8C, 0x3C, 0xF8, 0xC6, 0x70, 0x17, 0x00, 0x4B};
+	const uint8_t h[7]   = {0x6A, 0x01, 0x00, 0x13, 0x29, 0x03, 0x1E};
+	const uint8_t d[8]   = {0x65, 0x5A, 0xC0, 0x7E, 0xED, 0x00, 0x75, 0x30};
+	const uint8_t id     = 0x60U;
+	const uint8_t zero   = 0x00U;
+	memset(mapaJiga, 0, sizeof(mapaJiga));
+	memset(mascaraJiga, 0xFF, sizeof(mascaraJiga));
+	JigaCarrega(0x88U, tp, sizeof(tp), 0x00U);
+	JigaCarrega(0xD0U, &id, 1U, 0x00U);
+	JigaCarrega(0xE0U, &zero, 1U, 0x00U);      // escrever 0xB6 "reseta" e le 0x00
+	JigaCarrega(0xE1U, h, sizeof(h), 0x00U);
+	JigaCarrega(0xF3U, &zero, 1U, 0x00U);      // status sempre pronto
+	JigaCarrega(0xF7U, d, sizeof(d), 0x00U);
+}
+
+// 19. MPU-6500: o driver reseta (o bit volta a 0 pela mascara), confere o WHO_AM_I e converte os dados
+void Test_Dut_MpuLeitura(void)
+{
+	sensoresMpu_t m;
+	JigaMpu();
+
+	TEST_ASSERT_EQUAL(eDUT_RETURN_OK, Sensores_LeMpu(JigaI2c, 0x68U, &m));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, m.aceleracao[0]);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, -0.25f, m.aceleracao[1]);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, m.aceleracao[2]);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 21.0f, m.temperatura);
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.99945f, m.giro[0]);
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, -0.99945f, m.giro[2]);
+	TEST_ASSERT_EQUAL_HEX8(0x01U, mapaJiga[0x6BU]);     // PWR_MGMT_1: clock do PLL, sem o bit de reset
+}
+
+// 20. MPU-6500 com WHO_AM_I errado ou reset que nunca termina: ERR PERIFERICO; pelo comando, o texto da resposta
+void Test_Dut_MpuErrosEComando(void)
+{
+	sensoresMpu_t m;
+	char resposta[dCOMANDOS_RESPOSTA_MAX];
+
+	JigaMpu();
+	mapaJiga[0x75U] = 0x71U;
+	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeMpu(JigaI2c, 0x68U, &m));
+
+	JigaMpu();
+	mascaraJiga[0x6BU] = 0xFFU;                      // bit de reset gravavel: fica em 1 para sempre
+	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeMpu(JigaI2c, 0x68U, &m));
+
+	JigaMpu();
+	falso.i2cMestreJiga = 1;
+	Comandos_Executa("MPU", resposta, sizeof(resposta));
+	TEST_ASSERT_EQUAL_STRING("OK 0.5000 -0.2500 1.0000 0.999 0.000 -0.999 21.00\n", resposta);
+	Comandos_Executa("MPU 78", resposta, sizeof(resposta));
+	TEST_ASSERT_EQUAL_STRING("ERR ARG\n", resposta);
+	falso.i2cMestreJiga = 0;
+}
+
+// 21. BME280: compensacao igual a folha de dados (25,08 C e 100 653 Pa) e a do Software/sensores.py
+void Test_Dut_BmeLeitura(void)
+{
+	sensoresBme_t b;
+	char resposta[dCOMANDOS_RESPOSTA_MAX];
+	JigaBme();
+
+	TEST_ASSERT_EQUAL(eDUT_RETURN_OK, Sensores_LeBme(JigaI2c, 0x76U, &b));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.08f, b.temperatura);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 1006.53f, b.pressao);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.00f, b.umidade);
+	TEST_ASSERT_EQUAL_HEX8(0x01U, mapaJiga[0xF2U]);     // ctrl_hum
+	TEST_ASSERT_EQUAL_HEX8(0x27U, mapaJiga[0xF4U]);     // ctrl_meas: modo normal
+
+	falso.i2cMestreJiga = 1;
+	Comandos_Executa("BME", resposta, sizeof(resposta));
+	TEST_ASSERT_EQUAL_STRING("OK 25.08 1006.53 55.00\n", resposta);
+	falso.i2cMestreJiga = 0;
+	mapaJiga[0xD0U] = 0x58U;                         // BMP280, nao BME280
+	TEST_ASSERT_EQUAL(eDUT_RETURN_ERROR, Sensores_LeBme(JigaI2c, 0x76U, &b));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -362,5 +495,8 @@ int main(void)
 	RUN_TEST(Test_Dut_MapaEscritaELeitura);
 	RUN_TEST(Test_Dut_MapaCargaNaoMexeNoPonteiro);
 	RUN_TEST(Test_Dut_VentiladorHisterese);
+	RUN_TEST(Test_Dut_MpuLeitura);
+	RUN_TEST(Test_Dut_MpuErrosEComando);
+	RUN_TEST(Test_Dut_BmeLeitura);
 	return UNITY_END();
 }

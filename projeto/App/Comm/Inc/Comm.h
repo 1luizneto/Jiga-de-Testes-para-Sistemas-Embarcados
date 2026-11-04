@@ -47,6 +47,8 @@
 #define dCOMM_CMD_I2C_SLAVE_LOAD  (0x51U)
 #define dCOMM_CMD_I2C_SLAVE_DUMP  (0x52U)
 #define dCOMM_CMD_I2C_MASTER_XFER (0x53U)
+#define dCOMM_CMD_I2C_SLAVE_MASK  (0x54U)
+#define dCOMM_CMD_I2C_SLAVE_ADDR2 (0x56U)   ///< 0x55 fica livre: os casos de teste usam como comando inexistente
 #define dCOMM_CMD_SPI_CONFIG      (0x60U)
 #define dCOMM_CMD_SPI_SLAVE_LOAD  (0x61U)
 #define dCOMM_CMD_SPI_SLAVE_READ  (0x62U)

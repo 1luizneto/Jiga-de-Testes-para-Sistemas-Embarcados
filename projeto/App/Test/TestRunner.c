@@ -128,6 +128,9 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_RotinaEsperaInstante);
 		RUN_TEST(Test_Exec_PassoInvalido);
 		RUN_TEST(Test_Exec_RotinaArgumentosInvalidos);
+		RUN_TEST(Test_Exec_I2cMascaraESegundoEndereco);
+		RUN_TEST(Test_Exec_I2cMascaraESegundoEnderecoInvalidos);
+		RUN_TEST(Test_Exec_RotinaPassosDeSensor);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -191,6 +194,10 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_I2cBus_MasterXfer);
 		RUN_TEST(Test_I2cBus_SafeState);
 		RUN_TEST(Test_I2cBus_SafeStateComFalha);
+		RUN_TEST(Test_I2cBus_MascaraDaEscritaDoDut);
+		RUN_TEST(Test_I2cBus_MascaraInvalida);
+		RUN_TEST(Test_I2cBus_SegundoEndereco);
+		RUN_TEST(Test_I2cBus_SafeStateLimpaMascaraESegundoEndereco);
 
 		RUN_TEST(Test_SpiBus_InitInvalido);
 		RUN_TEST(Test_SpiBus_Divisor);

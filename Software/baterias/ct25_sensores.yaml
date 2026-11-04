@@ -1,0 +1,38 @@
+# CT25: emulacao de sensores. A jiga responde no I2C como um MPU-6500 (0x68) e um BME280 (0x76); o ESP32-S3 le os
+# dois com drivers comuns (comandos MPU e BME pela UART: reset, identificacao, configuracao e leitura) e a bateria
+# confere se o DUT leu o que a jiga simulou.
+# Ligacao: a do CT20 (PD0 <- GPIO17, PD1 -> GPIO18, PF0 <-> GPIO8, PF1 <-> GPIO9 com pull-ups de 4,7 kOhm, GND).
+# Rodar: python executar_bateria.py baterias/ct25_sensores.yaml --repetir 10
+bateria: ct25-sensores
+dut: ESP32-S3 (DUT de referencia, drivers do MPU-6500 e do BME280)
+sensores:
+  mpu6500: {barramento: i2c, endereco: 0x68, escala_g: 2, escala_dps: 250}
+  bme280: {barramento: i2c, endereco: 0x76}
+casos:
+  - nome: placa parada, ambiente padrão
+    verificar:
+      - uart_valores: {comando: "MPU\n", esperado: [0, 0, 1, 0, 0, 0, 25],
+                       tolerancia: [0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.02]}
+      - uart_valores: {comando: "BME\n", esperado: [25, 1013.25, 50], tolerancia: 0.02}
+  - nome: placa inclinada 30 graus e girando
+    estimulos:
+      - mpu6500: {aceleracao: [0.5, 0, 0.866], giro: [10, -20, 90], temperatura: 31.5}
+    verificar:
+      - uart_valores: {comando: "MPU\n", esperado: [0.5, 0, 0.866, 10, -20, 90, 31.5],
+                       tolerancia: [0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.02]}
+  - nome: dia quente e úmido
+    estimulos:
+      - bme280: {temperatura: 35.2, pressao: 1005.8, umidade: 82.5}
+    verificar:
+      - uart_valores: {comando: "BME\n", esperado: [35.2, 1005.8, 82.5], tolerancia: 0.02}
+  - nome: frio e pressão de altitude
+    estimulos:
+      - bme280: {temperatura: -5, pressao: 780, umidade: 20}
+    verificar:
+      - uart_valores: {comando: "BME\n", esperado: [-5, 780, 20], tolerancia: 0.02}
+  - nome: placa de lado, girando ao contrário
+    estimulos:
+      - mpu6500: {aceleracao: [-0.707, 0.707, 0], giro: [-250, 0, 125.5]}
+    verificar:
+      - uart_valores: {comando: "MPU\n", esperado: [-0.707, 0.707, 0, -250, 0, 125.5, 25],
+                       tolerancia: [0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.02]}
