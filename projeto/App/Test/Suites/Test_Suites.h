@@ -217,6 +217,7 @@ void Test_SpiBus_MasterXferNaoConfigurado(void);
 void Test_SpiBus_MasterXfer(void);
 void Test_SpiBus_SafeState(void);
 void Test_SpiBus_SafeStateComFalha(void);
+void Test_SpiBus_LoadRearma(void);
 
 // Testes da UART do DUT (UartBus)
 void Test_UartBus_InitInvalido(void);
