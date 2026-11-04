@@ -132,6 +132,8 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_I2cMascaraESegundoEnderecoInvalidos);
 		RUN_TEST(Test_Exec_RotinaPassosDeSensor);
 		RUN_TEST(Test_Exec_RotinaPassoOnda);
+		RUN_TEST(Test_Exec_SpiRegistros);
+		RUN_TEST(Test_Exec_RotinaPassoSpiRegistros);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
