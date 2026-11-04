@@ -59,6 +59,8 @@ Uma linha por comando, terminada em `\n` (`\r` é ignorado), UART em 115200 8N1.
 | `SPIS <modo>` | `OK` | arma o escravo SPI |
 | `SPIS_LOAD <dados>` | `OK` | o que o escravo envia (do byte 0, completando com FF) |
 | `SPIS_READ` | `OK [dados]` | o que a jiga mestra enviou desde a última leitura |
+| `MPU [end]` | `OK ax ay az gx gy gz t` | lê um MPU-6500 (padrão 0x68) com um driver comum: reset, WHO_AM_I, 2 g e 250 °/s, 14 bytes do 0x3B; em g, °/s e °C (CT25) |
+| `BME [end]` | `OK t p h` | lê um BME280 (padrão 0x76): chip_id, soft reset, calibração, modo normal e os 8 bytes do 0xF7 compensados; em °C, hPa e % (CT25) |
 
 Erros: `ERR CMD` (comando desconhecido), `ERR ARG` (argumento fora da faixa), `ERR NACK` (dispositivo I2C não
 respondeu), `ERR ESTADO` (barramento ocupado no outro papel: mandar `OFF`), `ERR PERIFERICO` (falha do driver).
@@ -112,6 +114,7 @@ mesmos vetores (`Software/tests/test_dut.py`): é ele que define a resposta espe
 | `main/mapa_i2c.c` | mapa de registradores do escravo I2C (lógica pura) |
 | `main/barramentos.c` | I2C e SPI mestre/escravo com os drivers do ESP-IDF |
 | `main/main.c` | UART0 (USB) e UART1 (jiga), uma task por UART, e a task do ventilador |
+| `main/drivers_sensores.c` | drivers do MPU-6500 e do BME280 (lógica pura, testada no PC com um mapa igual ao da jiga) |
 | `main/ventilador.c` | comportamento do CT22 (a regra da histerese é testada no PC) |
 | `main/versao_dut.h` | versão, igual à da jiga (conferida pelo `test_versao.py`) |
 | `test_host/` | testes Unity no PC |
