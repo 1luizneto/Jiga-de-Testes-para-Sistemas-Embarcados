@@ -98,6 +98,7 @@ validação: divida em dois.
 | `baterias/ct22_ventilador.yaml` | DAC1 → sensor do DUT, saída do DUT → GPIO5 | CT22 (ESP32-S3 e Arduino Uno, *black-box*) |
 | `baterias/ct25_sensores.yaml` | a do CT20 (UART e I2C com o ESP32-S3) | CT25: o DUT lê o MPU-6500 e o BME280 emulados |
 | `baterias/ondas_sem_fios.yaml` | nenhuma | ondas num sensor emulado (lidas pelo mapa), no DAC por DMA e no PWM |
+| `baterias/ct26_sensores_spi.yaml` | a do CT20 (UART, I2C e SPI com o ESP32-S3) | CT26: BME280 no SPI e MPU-6500 no I2C ao mesmo tempo |
 | `baterias/exemplo_monografia.yaml` | DUT hipotético da figura | exemplo da seção 3.6.3 (compilado no CT06) |
 
 Sem os jumpers, a `loopback.yaml` falha nos casos analógicos, da UART e do SPI; os de GPIO dão resultado
@@ -112,6 +113,7 @@ A jiga pode responder no I2C como um **MPU-6500** (acelerômetro, giroscópio e 
 sensores:
   mpu6500: {barramento: i2c, endereco: 0x68, escala_g: 2, escala_dps: 250}   # 0x68 ou 0x69
   bme280:  {barramento: i2c, endereco: 0x76}                                  # 0x76 ou 0x77
+  # ou um dos dois no SPI (modo 0 ou 3): bme280: {barramento: spi, modo: 0}
 casos:
   - nome: placa inclinada, dia quente
     estimulos:
@@ -130,6 +132,14 @@ casos:
   compensação da Bosch (`sensores.py`), com erro de até ±0,005 nas três grandezas.
 - O valor de aceleração do MPU-6500 depende do fundo de escala que o driver do DUT configura: `escala_g` e
   `escala_dps` na bateria têm que ser os do driver.
+- **Sensor no SPI** (`barramento: spi`, um sensor por vez: a jiga tem um CS): a escrava SPI entra no **modo
+  registradores** (`SPI_SLAVE_REG`) e usa o mesmo mapa e as mesmas máscaras da escrava I2C. Em cada transação, o 1º
+  byte é o endereço (bit 7 = leitura) e os seguintes são os dados, com auto-incremento; no BME280, que manda só 7
+  bits de endereço no SPI, a jiga completa com 0x80. **Restrição:** o mestre precisa de uma pausa de alguns µs entre
+  o byte de endereço e o 1º dado: só depois de receber o endereço a jiga sabe qual registrador enviar (no I2C, ela
+  pode segurar o clock; no SPI, não). Depois do 1º dado a FIFO de 4 bytes vai cheia e a leitura segue na velocidade
+  do mestre. O DUT de referência manda o endereço numa transferência e os dados em outra, com o CS baixo e 20 µs
+  entre elas (comandos `MPUS` e `BMES`).
 - `uart_valores` manda um comando de texto ao DUT pela UART (115200 baud por padrão), espera 50 ms, lê a resposta e
   confere cada número com a tolerância (um número para todos ou uma lista).
 
