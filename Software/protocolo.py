@@ -1996,6 +1996,24 @@ CASOS_TESTE = [
               [QUADRO_OK] * 3,
               [montar_ack(49, CMD_I2C_SLAVE_LOAD), montar_ack(50, CMD_RESET_ALL),
                montar_ack(51, CMD_I2C_SLAVE_DUMP, b"\x00")]),
+    # Emulacao de sensores (v0.12.0), sem DUT: os comandos e o efeito no mapa; a escrita do DUT pela mascara e o
+    # segundo endereco sao conferidos no CT25, com o DUT de referencia
+    CasoTeste("I2C_SLAVE_MASK e ADDR2", "segundo endereco 0x76, mascara so leitura no 0x75 e escrava no 0x68: ACKs",
+              [("enviar", montar_i2c_addr2(144, 0x76)), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_i2c_load(145, 0x75, b"\x70")), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_i2c_mask(146, 0x75, b"\x00")), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_i2c_config(147, I2C_PAPEL_ESCRAVO, 0x68, 1)), ("esperar", PAUSA_COMANDO),
+               ("enviar", montar_i2c_dump(148, 0x75, 1))],
+              [QUADRO_OK] * 5,
+              [montar_ack(144, CMD_I2C_SLAVE_ADDR2), montar_ack(145, CMD_I2C_SLAVE_LOAD),
+               montar_ack(146, CMD_I2C_SLAVE_MASK), montar_ack(147, CMD_I2C_CONFIG),
+               montar_ack(148, CMD_I2C_SLAVE_DUMP, b"\x70")]),
+    CasoTeste("I2C_SLAVE_MASK alem do mapa", "2 mascaras a partir do 0xFF: NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_i2c_mask(149, 0xFF, b"\x00\x00"))],
+              [QUADRO_OK], [montar_nack(149, CMD_I2C_SLAVE_MASK, ERRO_PARAMETRO_INVALIDO)]),
+    CasoTeste("I2C_SLAVE_ADDR2 reservado", "segundo endereco 0x78 (reservado): NACK PARAMETRO_INVALIDO",
+              [("enviar", montar_i2c_addr2(38, 0x78))],
+              [QUADRO_OK], [montar_nack(38, CMD_I2C_SLAVE_ADDR2, ERRO_PARAMETRO_INVALIDO)]),
     # SPI (v0.8.0), sem DUT: so os comandos e os buffers; a transferencia como mestre e conferida no CT13, com o
     # jumper MOSI -> MISO, e a escrava no CT20, com o DUT de referencia
     CasoTeste("SPI_CONFIG mestre", "jiga mestre no modo 0 a 1 MHz (54 MHz / 64 = 843 750 Hz): ACK",
