@@ -85,6 +85,8 @@ i2cBusReturn_t I2cBus_Dump(uint8_t offset, uint8_t quantidade, uint8_t *dados);
 i2cBusReturn_t I2cBus_Mascara(uint8_t offset, uint8_t quantidade, const uint8_t *mascaras);
 i2cBusReturn_t I2cBus_Endereco2(uint8_t endereco2);
 i2cBusReturn_t I2cBus_EscreveIsr(uint8_t offset, const uint8_t *dados, uint8_t quantidade);
+uint8_t        I2cBus_LeRegistro(uint8_t registro);
+void           I2cBus_EscreveRegistro(uint8_t registro, uint8_t valor);
 i2cBusReturn_t I2cBus_MasterXfer(uint8_t endereco, const uint8_t *escrita, uint8_t nw, uint8_t *leitura, uint8_t nr);
 i2cBusReturn_t I2cBus_SafeState(void);
 

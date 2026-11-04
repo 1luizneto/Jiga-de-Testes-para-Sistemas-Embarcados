@@ -31,6 +31,7 @@ typedef enum bspSpiReturn
  **********************************************************************************************************************/
 
 bspSpiReturn_t BspSpi_Init(void);
+uint8_t        BspSpi_Irq(void);
 
 #endif /* HAL_WRAPPER_INC_BSP_SPI_H_ */
 

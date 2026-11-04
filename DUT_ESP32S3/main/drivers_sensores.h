@@ -29,6 +29,20 @@
 typedef dutReturn_t (*sensoresI2cFunc_t)(uint8_t endereco, const uint8_t *escrita, size_t nw, uint8_t *leitura,
                                          size_t nr);
 
+/// @brief Registradores por SPI (a mesma de dutBarramentos_t): bit 7 do endereco = leitura
+typedef dutReturn_t (*sensoresSpiFunc_t)(uint8_t modo, uint32_t frequencia, uint8_t endereco, const uint8_t *escrita,
+                                         uint8_t *leitura, size_t quantidade);
+
+/// @brief Onde o sensor esta: I2C (i2c != NULL, endereco) ou SPI (spi != NULL, modo e frequencia)
+typedef struct sensoresBarramento
+{
+	sensoresI2cFunc_t i2c;
+	uint8_t           endereco;
+	sensoresSpiFunc_t spi;
+	uint8_t           modo;
+	uint32_t          frequencia;
+} sensoresBarramento_t;
+
 /// @brief Leitura do MPU-6500 em unidades fisicas (fundo de escala de 2 g e 250 graus/s)
 typedef struct sensoresMpu
 {
@@ -49,8 +63,8 @@ typedef struct sensoresBme
  * PROTOTIPOS PUBLICOS
  **********************************************************************************************************************/
 
-dutReturn_t Sensores_LeMpu(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresMpu_t *leitura);
-dutReturn_t Sensores_LeBme(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresBme_t *leitura);
+dutReturn_t Sensores_LeMpu(const sensoresBarramento_t *barramento, sensoresMpu_t *leitura);
+dutReturn_t Sensores_LeBme(const sensoresBarramento_t *barramento, sensoresBme_t *leitura);
 
 #endif /* MAIN_DRIVERS_SENSORES_H_ */
 

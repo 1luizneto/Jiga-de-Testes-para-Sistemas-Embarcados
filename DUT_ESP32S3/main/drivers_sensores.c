@@ -16,6 +16,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 04/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Os mesmos drivers por SPI (bit 7 do endereco = leitura;
+ *                                                          no BME280 o endereco vai com 7 bits)
  *
  *   @{
  **********************************************************************************************************************/
@@ -74,8 +76,8 @@ typedef struct bmeCalib
  * PROTOTIPOS LOCAIS
  **********************************************************************************************************************/
 
-static dutReturn_t Sensores_Escreve(sensoresI2cFunc_t i2c, uint8_t endereco, uint8_t registro, uint8_t valor);
-static dutReturn_t Sensores_Le(sensoresI2cFunc_t i2c, uint8_t endereco, uint8_t registro, uint8_t *dados, size_t n);
+static dutReturn_t Sensores_Escreve(const sensoresBarramento_t *b, uint8_t registro, uint8_t valor);
+static dutReturn_t Sensores_Le(const sensoresBarramento_t *b, uint8_t registro, uint8_t *dados, size_t n);
 static int32_t Sensores_BmeTFine(const bmeCalib_t *c, int32_t adcT);
 static uint32_t Sensores_BmePressao(const bmeCalib_t *c, int32_t adcP, int32_t tFine);
 static uint32_t Sensores_BmeUmidade(const bmeCalib_t *c, int32_t adcH, int32_t tFine);
@@ -86,26 +88,25 @@ static uint32_t Sensores_BmeUmidade(const bmeCalib_t *c, int32_t adcH, int32_t t
 
 /***********************************************************************************************************************
  * @brief      Le o MPU-6500: reset, identificacao, configuracao (2 g, 250 graus/s) e os 14 bytes de dados.
- * @param[in]  i2c       Transferencia como mestre
- * @param[in]  endereco  0x68 ou 0x69
+ * @param[in]  barramento  I2C (0x68 ou 0x69) ou SPI
  * @param[out] leitura   Aceleracao (g), giroscopio (graus/s) e temperatura (graus C)
  * @return     eDUT_RETURN_OK, o erro do barramento ou eDUT_RETURN_ERROR (WHO_AM_I errado ou reset que nao termina)
  **********************************************************************************************************************/
-dutReturn_t Sensores_LeMpu(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresMpu_t *leitura)
+dutReturn_t Sensores_LeMpu(const sensoresBarramento_t *barramento, sensoresMpu_t *leitura)
 {
 	uint8_t dados[14];
 	uint8_t valor = 0U;
 	dutReturn_t ret;
 
-	if ((i2c == NULL) || (leitura == NULL))
+	if ((barramento == NULL) || ((barramento->i2c == NULL) && (barramento->spi == NULL)) || (leitura == NULL))
 	{
 		return eDUT_RETURN_INVALID_ARGUMENT;
 	}
 
-	ret = Sensores_Escreve(i2c, endereco, dMPU_PWR_MGMT_1, dMPU_DEVICE_RESET);
+	ret = Sensores_Escreve(barramento, dMPU_PWR_MGMT_1, dMPU_DEVICE_RESET);
 	for (uint8_t i = 0U; (ret == eDUT_RETURN_OK) && (i < dSENSORES_TENTATIVAS); i++)
 	{
-		ret = Sensores_Le(i2c, endereco, dMPU_PWR_MGMT_1, &valor, 1U);
+		ret = Sensores_Le(barramento, dMPU_PWR_MGMT_1, &valor, 1U);
 		if ((ret == eDUT_RETURN_OK) && ((valor & dMPU_DEVICE_RESET) == 0U))
 		{
 			break;
@@ -116,15 +117,15 @@ dutReturn_t Sensores_LeMpu(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresMpu_
 		return eDUT_RETURN_ERROR;
 	}
 
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(i2c, endereco, dMPU_PWR_MGMT_1, dMPU_CLKSEL_PLL); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(i2c, endereco, dMPU_WHO_AM_I, &valor, 1U); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(barramento, dMPU_PWR_MGMT_1, dMPU_CLKSEL_PLL); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(barramento, dMPU_WHO_AM_I, &valor, 1U); }
 	if ((ret == eDUT_RETURN_OK) && (valor != dMPU_WHO_AM_I_VALOR))
 	{
 		return eDUT_RETURN_ERROR;
 	}
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(i2c, endereco, dMPU_GYRO_CONFIG, 0x00U); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(i2c, endereco, dMPU_ACCEL_CONFIG, 0x00U); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(i2c, endereco, dMPU_ACCEL_XOUT_H, dados, sizeof(dados)); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(barramento, dMPU_GYRO_CONFIG, 0x00U); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(barramento, dMPU_ACCEL_CONFIG, 0x00U); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(barramento, dMPU_ACCEL_XOUT_H, dados, sizeof(dados)); }
 	if (ret != eDUT_RETURN_OK)
 	{
 		return ret;
@@ -144,12 +145,11 @@ dutReturn_t Sensores_LeMpu(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresMpu_
 
 /***********************************************************************************************************************
  * @brief      Le o BME280: identificacao, soft reset, calibracao, modo normal e os 8 bytes de dados compensados.
- * @param[in]  i2c       Transferencia como mestre
- * @param[in]  endereco  0x76 ou 0x77
+ * @param[in]  barramento  I2C (0x76 ou 0x77) ou SPI
  * @param[out] leitura   Temperatura (graus C), pressao (hPa) e umidade (%)
  * @return     eDUT_RETURN_OK, o erro do barramento ou eDUT_RETURN_ERROR (chip_id errado ou reset que nao termina)
  **********************************************************************************************************************/
-dutReturn_t Sensores_LeBme(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresBme_t *leitura)
+dutReturn_t Sensores_LeBme(const sensoresBarramento_t *barramento, sensoresBme_t *leitura)
 {
 	uint8_t tp[26];
 	uint8_t h[7];
@@ -158,20 +158,20 @@ dutReturn_t Sensores_LeBme(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresBme_
 	bmeCalib_t c;
 	dutReturn_t ret;
 
-	if ((i2c == NULL) || (leitura == NULL))
+	if ((barramento == NULL) || ((barramento->i2c == NULL) && (barramento->spi == NULL)) || (leitura == NULL))
 	{
 		return eDUT_RETURN_INVALID_ARGUMENT;
 	}
 
-	ret = Sensores_Le(i2c, endereco, dBME_CHIP_ID, &valor, 1U);
+	ret = Sensores_Le(barramento, dBME_CHIP_ID, &valor, 1U);
 	if ((ret == eDUT_RETURN_OK) && (valor != dBME_CHIP_ID_VALOR))
 	{
 		return eDUT_RETURN_ERROR;
 	}
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(i2c, endereco, dBME_RESET, dBME_RESET_VALOR); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(barramento, dBME_RESET, dBME_RESET_VALOR); }
 	for (uint8_t i = 0U; (ret == eDUT_RETURN_OK) && (i < dSENSORES_TENTATIVAS); i++)
 	{
-		ret = Sensores_Le(i2c, endereco, dBME_STATUS, &valor, 1U);
+		ret = Sensores_Le(barramento, dBME_STATUS, &valor, 1U);
 		if ((ret == eDUT_RETURN_OK) && ((valor & dBME_IM_UPDATE) == 0U))
 		{
 			break;
@@ -181,11 +181,11 @@ dutReturn_t Sensores_LeBme(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresBme_
 	{
 		return eDUT_RETURN_ERROR;
 	}
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(i2c, endereco, dBME_CALIB_T_P, tp, sizeof(tp)); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(i2c, endereco, dBME_CALIB_H, h, sizeof(h)); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(i2c, endereco, dBME_CTRL_HUM, 0x01U); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(i2c, endereco, dBME_CTRL_MEAS, 0x27U); }
-	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(i2c, endereco, dBME_DADOS, d, sizeof(d)); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(barramento, dBME_CALIB_T_P, tp, sizeof(tp)); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(barramento, dBME_CALIB_H, h, sizeof(h)); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(barramento, dBME_CTRL_HUM, 0x01U); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Escreve(barramento, dBME_CTRL_MEAS, 0x27U); }
+	if (ret == eDUT_RETURN_OK) { ret = Sensores_Le(barramento, dBME_DADOS, d, sizeof(d)); }
 	if (ret != eDUT_RETURN_OK)
 	{
 		return ret;
@@ -227,21 +227,31 @@ dutReturn_t Sensores_LeBme(sensoresI2cFunc_t i2c, uint8_t endereco, sensoresBme_
  **********************************************************************************************************************/
 
 /***********************************************************************************************************************
- * @brief      Escreve um registrador: [registro][valor].
+ * @brief      Escreve um registrador: [registro][valor] no I2C; no SPI, o endereco com o bit 7 em 0.
  **********************************************************************************************************************/
-static dutReturn_t Sensores_Escreve(sensoresI2cFunc_t i2c, uint8_t endereco, uint8_t registro, uint8_t valor)
+static dutReturn_t Sensores_Escreve(const sensoresBarramento_t *b, uint8_t registro, uint8_t valor)
 {
 	const uint8_t escrita[2] = {registro, valor};
 
-	return i2c(endereco, escrita, sizeof(escrita), NULL, 0U);
+	if (b->spi != NULL)
+	{
+		return b->spi(b->modo, b->frequencia, (uint8_t)(registro & 0x7FU), &valor, NULL, 1U);
+	}
+
+	return b->i2c(b->endereco, escrita, sizeof(escrita), NULL, 0U);
 }
 
 /***********************************************************************************************************************
- * @brief      Le n registradores a partir de registro (escrita do ponteiro + leitura com repeated start).
+ * @brief      Le n registradores a partir de registro: ponteiro + repeated start no I2C; bit 7 em 1 no SPI.
  **********************************************************************************************************************/
-static dutReturn_t Sensores_Le(sensoresI2cFunc_t i2c, uint8_t endereco, uint8_t registro, uint8_t *dados, size_t n)
+static dutReturn_t Sensores_Le(const sensoresBarramento_t *b, uint8_t registro, uint8_t *dados, size_t n)
 {
-	return i2c(endereco, &registro, 1U, dados, n);
+	if (b->spi != NULL)
+	{
+		return b->spi(b->modo, b->frequencia, (uint8_t)(registro | 0x80U), NULL, dados, n);
+	}
+
+	return b->i2c(b->endereco, &registro, 1U, dados, n);
 }
 
 /***********************************************************************************************************************

@@ -246,6 +246,7 @@ class SensorEmulado:
     escala_g: int = 2
     escala_dps: int = 250
     estado: dict = field(default_factory=dict)
+    modo_spi: int = 0           # modo do SPI (0 ou 3, os dos dois sensores), so com barramento "spi"
 
     def __post_init__(self):
         if not self.estado:

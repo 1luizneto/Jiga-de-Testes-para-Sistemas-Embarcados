@@ -52,6 +52,9 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   passo ONDA 0x7A, tick no CC2 do TIM5 (passo ≥ 100 µs) e DAC por DMA (TIM7/TIM4, DMA1 Stream5/6, passo de 1 a 99 µs,
   até 1024 amostras), `Pwm_Razao` (só o CCR), `ondas.py` (formas). 208/208 Unity, 71/71 HIL, `ondas_sem_fios.yaml`
   passa na placa; 620 pytest. Osciloscópio do DAC/PWM: teste manual.
+- **v0.14.0** (sensores no SPI, CT26): `SPI_SLAVE_REG` 0x64, escrava SPI no modo registradores com o mapa da
+  escrava I2C (ISR byte a byte, FIFO cheia na leitura; restrição: pausa entre o endereço e os dados), DUT `MPUS`/`BMES`.
+  210/210 Unity, 73/73 HIL, 625 pytest. ESP32 **não** gravado com as versões 0.12–0.14 (desconectado).
 - Combinado em 04/11/2026: antes da 1.0.0 entram também 0.13.0 (gerador de ondas: rampa, senoide, triangular, quadrada,
   dente de serra, exponencial, pontos e ruído; `passo_us`, mínimo 100 µs no software e 1 µs no DAC por DMA) e 0.14.0
   (sensores em SPI, com a restrição da pausa entre o endereço e os dados; um sensor SPI por vez).
