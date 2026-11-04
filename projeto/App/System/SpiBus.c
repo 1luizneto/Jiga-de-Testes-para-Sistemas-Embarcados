@@ -16,13 +16,16 @@
  *     depois do fim dele, dSPIBUS_BYTE_VAZIO. O que o DUT envia se acumula ate o SPI_SLAVE_READ, que devolve e
  *     esvazia; o excedente e descartado.
  *   - A BSP mantem o escravo armado com uma copia do buffer de transmissao (SpiBus_PreparaTx): um SPI_SLAVE_LOAD
- *     vale a partir da transacao seguinte.
+ *     vale a partir da transacao seguinte. Com a escrava ja armada e o CS alto, a BSP rearma na hora
+ *     (SpiBus_InitRecarga), e o LOAD depois do SPI_CONFIG ja vale na 1a transacao.
  *   - Load/Read funcionam sem SPI_CONFIG: o PC carrega o buffer antes de ligar o escravo.
  *
  *   Changelog
  *   @version      <b>1.0.0 - 28/10/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Modo registradores da escrava (SpiBus_Registros), para
  *                                                          emular um sensor SPI com o mapa da escrava I2C
+ *   @version      <b>1.1.1 - 04/11/2026</b> \n Luiz Neto \n SpiBus_Load pede a BSP para rearmar a escrava (a 1a
+ *                                                          transacao depois do LOAD saia com o buffer antigo, CT20)
  *
  *   @copyright
  *   @{
@@ -58,6 +61,7 @@ static struct spiBus
 	uint8_t rxTamanho;
 	uint8_t papel;                        ///< dSPIBUS_PAPEL_ESCRAVO, dSPIBUS_PAPEL_MESTRE ou dSPIBUS_PAPEL_NENHUM
 	spiBusRegistrosFunc_t registros;      ///< Modo registradores na BSP (SpiBus_InitRegistros)
+	spiBusRecargaFunc_t   recarga;        ///< Rearma a escrava com o buffer novo (SpiBus_InitRecarga)
 } spiBus;
 
 /***********************************************************************************************************************
@@ -184,6 +188,11 @@ spiBusReturn_t SpiBus_Load(const uint8_t *dados, uint8_t quantidade)
 	spiBus.txTamanho = quantidade;
 	spiBus.func.unlock();
 
+	if (spiBus.recarga != NULL)
+	{
+		spiBus.recarga();
+	}
+
 	return eSPIBUS_RETURN_OK;
 }
 
@@ -277,6 +286,21 @@ spiBusReturn_t SpiBus_InitRegistros(spiBusRegistrosFunc_t registrosFunc)
 	}
 
 	spiBus.registros = registrosFunc;
+
+	return eSPIBUS_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      Registra a funcao da BSP que rearma a escrava depois de um SpiBus_Load (opcional).
+ **********************************************************************************************************************/
+spiBusReturn_t SpiBus_InitRecarga(spiBusRecargaFunc_t recargaFunc)
+{
+	if (recargaFunc == NULL)
+	{
+		return eSPIBUS_RETURN_INVALID_ARGUMENT;
+	}
+
+	spiBus.recarga = recargaFunc;
 
 	return eSPIBUS_RETURN_OK;
 }

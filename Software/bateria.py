@@ -52,6 +52,7 @@ SENSORES = {"mpu6500": 0x68, "bme280": 0x76}          # modelo -> endereco padra
 ENDERECOS_SENSOR = {"mpu6500": (0x68, 0x69), "bme280": (0x76, 0x77)}
 UART_DUT_BAUD = 115200                                # UART do DUT de referencia
 ESPERA_DUT_MS = 50                                    # tempo para o DUT responder um comando de texto
+PAUSA_DESCARTE_UART = 0.01                            # s: o DUT responde ao fim de linha do descarte
 
 
 class ErroBateria(Exception):
@@ -80,7 +81,7 @@ class CasoDeTeste:
     verificacoes: list
     tempo_max_ms: int
     estimulos: list = field(default_factory=list)     # descricao de cada estimulo, para o relatorio
-    preparo: list = field(default_factory=list)       # (cmd, payload) enviados antes do RUN_ROUTINE (sensores)
+    preparo: list = field(default_factory=list)       # (cmd, payload) ou pausa em s, antes do RUN_ROUTINE
 
     @property
     def payload(self):
@@ -188,6 +189,7 @@ class _Compilador:
         self.passos, self.verificacoes, self.estimulos = [], [], []
         self.tempo_us = 0
         self.uart_baud = None
+        self.descarte_uart = None   # baud do descarte da linha do DUT no preparo (uart_valores)
         self.sensores = {s.modelo: s for s in sensores}
         self.estados = {s.modelo: dict(s.estado) for s in sensores}
         self.gerador = 0
@@ -355,6 +357,8 @@ class _Compilador:
             if self.uart_baud != baud:
                 self._passo(CMD_UART_CONFIG, baud.to_bytes(4, "little"))
                 self.uart_baud = baud
+            if self.descarte_uart is None:
+                self.descarte_uart = baud
             self._passo(CMD_UART_WRITE, bytes([len(comando)]) + comando)
             us = round(espera * 1000) + math.ceil(len(comando) * BITS_POR_BYTE_UART * 1_000_000 / baud)
             self._passo(PASSO_ESPERA, us.to_bytes(4, "little"))
@@ -437,6 +441,19 @@ def _um_item(item_yaml, contexto, erros):
 def tempo_maximo_ms(tempo_us):
     """(esperas + limites) x 1,1 + 100 ms, em ms inteiros (arredondado para cima), ate 1 h."""
     return min(ROTINA_TEMPO_MAX_MS, -(-tempo_us * 11 // 10_000) + MARGEM_TEMPO_MS)
+
+
+def preparo_descarte_uart(baud):
+    """Descarte da linha do DUT antes da rotina (casos com uart_valores): UART_CONFIG, um fim de linha e uma pausa.
+
+    Com a UART da jiga desligada (estado seguro entre os casos) o TX fica solto, e o DUT pode juntar bytes sem fim
+    de linha na frente do comando; o fim de linha os encerra (o DUT responde ERR CMD) e o UART_CONFIG da propria
+    rotina esvazia a recepcao antes do comando. Sem pausa, a resposta poderia chegar depois desse UART_CONFIG.
+    """
+    if baud is None:
+        return []
+    return [(CMD_UART_CONFIG, baud.to_bytes(4, "little")), (CMD_UART_WRITE, bytes([1]) + b"\n"),
+            PAUSA_DESCARTE_UART]
 
 
 def preparo_sensores(sensores):
@@ -553,7 +570,7 @@ def compilar_caso(dados, identificador, erros, sensores=()):
     else:
         tempo = tempo_maximo_ms(compilador.tempo_us)
     caso = CasoDeTeste(nome, identificador, compilador.passos, compilador.verificacoes, tempo, compilador.estimulos,
-                       preparo_sensores(sensores))
+                       preparo_sensores(sensores) + preparo_descarte_uart(compilador.descarte_uart))
     try:
         payload = caso.payload
     except ValueError as e:

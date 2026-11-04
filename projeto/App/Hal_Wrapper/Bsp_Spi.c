@@ -32,6 +32,10 @@
  *                                                          trata byte a byte e enche a FIFO com os registradores
  *   @version      <b>1.1.1 - 03/11/2026</b> \n Luiz Neto \n BspSpi_Off reseta o SPI2 pelo RCC: a FIFO de recepcao
  *                 (4 bytes) guardava bytes da escrava e a 1a transferencia como mestre saia atrasada 4 bytes (CT13)
+ *   @version      <b>1.2.1 - 04/11/2026</b> \n Luiz Neto \n BspSpi_Recarga: o SPI_SLAVE_LOAD com a escrava armada e o
+ *                 CS alto rearma na hora (a 1a transacao do DUT saia com o buffer antigo, CT20); o rearme nao usa
+ *                 mais o HAL_SPI_Abort, que travava ~200 ms esperando a ISR desligada; na subida do CS a FIFO de
+ *                 recepcao e esvaziada pelo nivel (o ultimo byte de uma transacao impar se perdia)
  *
  *   @copyright
  *   @{
@@ -100,6 +104,8 @@ static spiBusReturn_t BspSpi_ArmaEscravo(void);
 static void BspSpi_FimTransacao(void);
 static spiBusReturn_t BspSpi_Registros(uint8_t ativo, uint8_t ou);
 static void BspSpi_EncheFifo(void);
+static void BspSpi_Recarga(void);
+static spiBusReturn_t BspSpi_Rearma(void);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -127,7 +133,8 @@ bspSpiReturn_t BspSpi_Init(void)
 		return eBSP_SPI_RETURN_ERROR;
 	}
 
-	if ((SpiBus_InitRegistros(BspSpi_Registros) != eSPIBUS_RETURN_OK) || (SpiBus_SafeState() != eSPIBUS_RETURN_OK))
+	if ((SpiBus_InitRegistros(BspSpi_Registros) != eSPIBUS_RETURN_OK) ||
+	    (SpiBus_InitRecarga(BspSpi_Recarga) != eSPIBUS_RETURN_OK) || (SpiBus_SafeState() != eSPIBUS_RETURN_OK))
 	{
 		return eBSP_SPI_RETURN_ERROR;
 	}
@@ -441,9 +448,13 @@ static void BspSpi_FimTransacao(void)
 {
 	SET_BIT(hspi2.Instance->CR1, SPI_CR1_SSI);
 
-	while ((__HAL_SPI_GET_FLAG(&hspi2, SPI_FLAG_RXNE) != RESET) && (hspi2.RxXferCount > 0U))
+	// Pelo nivel da FIFO, nao pelo RXNE: com mais de 1 byte pendente o HAL usa o limiar de 16 bits, e um byte
+	// sozinho (transacao de tamanho impar) nao levanta o RXNE
+	while (((hspi2.Instance->SR & SPI_SR_FRLVL) != 0U) && (hspi2.RxXferCount > 0U))
 	{
-		HAL_SPI_IRQHandler(&hspi2);
+		*hspi2.pRxBuffPtr = dBSP_SPI_DR8;
+		hspi2.pRxBuffPtr++;
+		hspi2.RxXferCount--;
 	}
 
 	if (bspSpi.registros != 0U)
@@ -474,23 +485,49 @@ static spiBusReturn_t BspSpi_Registros(uint8_t ativo, uint8_t ou)
 	bspSpi.registros = ativo;
 	bspSpi.ou        = ou;
 
-	if (bspSpi.escravo != 0U)
-	{
-		SET_BIT(hspi2.Instance->CR1, SPI_CR1_SSI);
-		(void)HAL_SPI_Abort(&hspi2);
-		__HAL_RCC_SPI2_FORCE_RESET();
-		__HAL_RCC_SPI2_RELEASE_RESET();
-		HAL_NVIC_ClearPendingIRQ(SPI2_IRQn);
+	spiBusReturn_t ret = (bspSpi.escravo != 0U) ? BspSpi_Rearma() : eSPIBUS_RETURN_OK;
 
-		if ((HAL_SPI_Init(&hspi2) != HAL_OK) || (BspSpi_ArmaEscravo() != eSPIBUS_RETURN_OK))
-		{
-			bspSpi.escravo = 0U;
-			BspSpi_Unlock();
-			return eSPIBUS_RETURN_ERROR;
-		}
+	BspSpi_Unlock();
+
+	return ret;
+}
+
+/***********************************************************************************************************************
+ * @brief      Depois de um SPI_SLAVE_LOAD: rearma a escrava para a 1a transacao ja sair com o buffer novo.
+ * @details    So com a escrava armada, no modo buffers e o CS alto (nenhuma transacao em curso); com o CS baixo, o
+ *             buffer novo vale a partir da transacao seguinte, como antes.
+ **********************************************************************************************************************/
+static void BspSpi_Recarga(void)
+{
+	BspSpi_Lock();
+
+	if ((bspSpi.escravo != 0U) && (bspSpi.registros == 0U) &&
+	    (HAL_GPIO_ReadPin(SPI_CS_GPIO_Port, SPI_CS_Pin) == GPIO_PIN_SET))
+	{
+		(void)BspSpi_Rearma();
 	}
 
 	BspSpi_Unlock();
+}
+
+/***********************************************************************************************************************
+ * @brief      Rearma a escrava do zero (chamada com as IRQs travadas): descarta a transacao armada, limpa as FIFOs pelo
+ *             RCC e arma de novo com o modo e o buffer atuais.
+ * @details    Sem HAL_SPI_Abort: no modo IT ele espera a ISR, travada aqui, e so saia pelo timeout (~100 ms por
+ *             sentido). O reset pelo RCC ja desliga o periferico e o HAL_SPI_Init devolve o handle a READY.
+ **********************************************************************************************************************/
+static spiBusReturn_t BspSpi_Rearma(void)
+{
+	SET_BIT(hspi2.Instance->CR1, SPI_CR1_SSI);
+	__HAL_RCC_SPI2_FORCE_RESET();
+	__HAL_RCC_SPI2_RELEASE_RESET();
+	HAL_NVIC_ClearPendingIRQ(SPI2_IRQn);
+
+	if ((HAL_SPI_Init(&hspi2) != HAL_OK) || (BspSpi_ArmaEscravo() != eSPIBUS_RETURN_OK))
+	{
+		bspSpi.escravo = 0U;   // fica sem escrava ate o proximo SPI_CONFIG ou RESET_ALL
+		return eSPIBUS_RETURN_ERROR;
+	}
 
 	return eSPIBUS_RETURN_OK;
 }

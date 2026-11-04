@@ -366,3 +366,27 @@ void Test_SpiBus_SafeStateComFalha(void)
 	SpiBus_PreparaTx(tx);
 	TEST_ASSERT_EQUAL_HEX8(dSPIBUS_BYTE_VAZIO, tx[0]);
 }
+
+static uint8_t recargas;
+
+static void RecargaFalsa(void)
+{
+	recargas++;
+}
+
+// 18. Load pede a BSP para rearmar a escrava (a 1a transacao depois do LOAD ja sai com o buffer novo); Load
+// invalido nao rearma
+void Test_SpiBus_LoadRearma(void)
+{
+	const uint8_t dados[2] = {0xC0U, 0xFFU};
+
+	IniciaSpiBus();
+	recargas = 0U;
+	TEST_ASSERT_EQUAL(eSPIBUS_RETURN_INVALID_ARGUMENT, SpiBus_InitRecarga(NULL));
+	TEST_ASSERT_EQUAL(eSPIBUS_RETURN_OK, SpiBus_InitRecarga(RecargaFalsa));
+
+	TEST_ASSERT_EQUAL(eSPIBUS_RETURN_OK, SpiBus_Load(dados, 2U));
+	TEST_ASSERT_EQUAL_UINT8(1U, recargas);
+	TEST_ASSERT_EQUAL(eSPIBUS_RETURN_INVALID_ARGUMENT, SpiBus_Load(NULL, 1U));
+	TEST_ASSERT_EQUAL_UINT8(1U, recargas);
+}

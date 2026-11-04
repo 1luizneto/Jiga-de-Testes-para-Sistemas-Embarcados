@@ -219,6 +219,7 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_SpiBus_MasterXfer);
 		RUN_TEST(Test_SpiBus_SafeState);
 		RUN_TEST(Test_SpiBus_SafeStateComFalha);
+		RUN_TEST(Test_SpiBus_LoadRearma);
 
 		RUN_TEST(Test_UartBus_InitInvalido);
 		RUN_TEST(Test_UartBus_ConfigValido);
