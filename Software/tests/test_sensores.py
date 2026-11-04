@@ -10,8 +10,8 @@ from cliente import ClienteJiga, TransporteSimulado
 from dut import DutSimulado
 from motor import MotorDeTestes
 from protocolo import (
-    CMD_I2C_CONFIG, CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_LOAD, CMD_I2C_SLAVE_MASK, JigaSimulada, montar_i2c_addr2,
-    montar_i2c_config, montar_i2c_load, montar_i2c_mask,
+    CMD_I2C_CONFIG, CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_LOAD, CMD_I2C_SLAVE_MASK, CMD_SPI_SLAVE_REG, JigaSimulada,
+    montar_i2c_addr2, montar_i2c_config, montar_i2c_load, montar_i2c_mask, montar_spi_reg,
 )
 from relatorio import FALHOU, PASSOU
 from sensores import (
@@ -152,3 +152,28 @@ def test_erros_de_descricao(texto, trecho):
     with pytest.raises(ErroBateria) as erro:
         CarregadorDeBaterias().carregar_texto("bateria: x\n" + texto)
     assert trecho is None or any(trecho in e for e in erro.value.erros), erro.value.erros
+
+
+# 11. CT26: BME280 na escrava SPI (modo registradores, 'ou' 0x80) e MPU-6500 no I2C ao mesmo tempo, lidos pelo DUT
+def test_ct26_sensor_spi_com_o_dut_simulado():
+    relatorio = _executar(BATERIAS / "ct26_sensores_spi.yaml")
+    assert [c.veredito for c in relatorio.casos] == [PASSOU] * 3, relatorio.texto()
+    preparo = CarregadorDeBaterias().carregar(BATERIAS / "ct26_sensores_spi.yaml").casos[0].preparo
+    assert preparo[-1] == (CMD_SPI_SLAVE_REG, bytes([1, 0x80]))
+
+
+# 12. Sem o modo registradores, o MISO solto le 0xFF: o driver do DUT nao reconhece o sensor (ERR PERIFERICO)
+def test_spi_sem_modo_registradores():
+    jiga = _jiga_com_dut()
+    assert jiga.dut.executar("BMES") == b"ERR PERIFERICO\n"
+    jiga.processar(montar_spi_reg(1, 1, 0x80))
+    assert jiga.spi_registros == 1 and jiga.spi_registro_externo(0xD0, b"", 1) is None   # sem SPI_CONFIG escrava
+
+
+# 13. Dois sensores no SPI: recusado (um CS so)
+def test_dois_sensores_no_spi():
+    with pytest.raises(ErroBateria) as erro:
+        CarregadorDeBaterias().carregar_texto(
+            "bateria: x\nsensores: {bme280: {barramento: spi}, mpu6500: {barramento: spi}}\n"
+            "casos: [{nome: a, estimulos: [{espera_ms: 1}]}]")
+    assert any("so um sensor no SPI" in e for e in erro.value.erros)

@@ -144,13 +144,21 @@ class DutSimulado:
         nome, argumentos = campos[0], campos[1:]
         if nome == "PING":
             return resposta_dut(erro="ARG") if argumentos else (DUT_IDENTIFICACAO + "\n").encode()
-        if nome in ("MPU", "BME"):
+        if nome in ("MPU", "BME", "MPUS", "BMES"):
             try:
                 if len(argumentos) > 1:
                     raise _Erro("ARG")
-                padrao = DUT_MPU_ENDERECO if nome == "MPU" else DUT_BME_ENDERECO
-                endereco = _endereco(argumentos[0]) if argumentos else padrao
-                return (self._mpu(endereco) if nome == "MPU" else self._bme(endereco)).encode()
+                if nome.endswith("S"):
+                    # Por SPI: o argumento e a frequencia; o endereco do sensor nao existe
+                    if argumentos:
+                        _decimal(argumentos[0], DUT_SPI_FREQUENCIA_MAX)
+                        if int(argumentos[0]) < DUT_SPI_FREQUENCIA_MIN:
+                            raise _Erro("ARG")
+                    endereco = None
+                else:
+                    padrao = DUT_MPU_ENDERECO if nome == "MPU" else DUT_BME_ENDERECO
+                    endereco = _endereco(argumentos[0]) if argumentos else padrao
+                return (self._mpu(endereco) if nome.startswith("MPU") else self._bme(endereco)).encode()
             except _Erro as erro:
                 return resposta_dut(erro=str(erro))
         tabela = {
@@ -187,6 +195,16 @@ class DutSimulado:
     # --- sensores (drivers_sensores.c) ----------------------------------------------
 
     def _mestre(self, endereco, escrita, nr=0):
+        """Acesso do driver a um registrador: I2C (endereco) ou SPI (endereco None: bit 7 do 1o byte = leitura, com 7
+        bits de endereco; sem a jiga no modo registradores, o MISO solto le 0xFF)."""
+        if endereco is None:
+            if self.spi_modo is not None:
+                raise _Erro("ESTADO")
+            leitura = nr > 0
+            primeiro = (escrita[0] | 0x80) if leitura else (escrita[0] & 0x7F)
+            dados = bytes(escrita[1:]) if not leitura else bytes(nr)
+            lidos = self.jiga.spi_registro_externo(primeiro, dados, nr if leitura else len(dados)) if self.jiga else None
+            return lidos if lidos is not None else bytes([0xFF] * nr)
         if self.i2c_endereco is not None:
             raise _Erro("ESTADO")
         lidos = self.jiga.i2c_mestre_externo(endereco, bytes(escrita), nr) if self.jiga else None
