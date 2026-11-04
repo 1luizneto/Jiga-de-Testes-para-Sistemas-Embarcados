@@ -55,6 +55,10 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - **v0.14.0** (sensores no SPI, CT26): `SPI_SLAVE_REG` 0x64, escrava SPI no modo registradores com o mapa da
   escrava I2C (ISR byte a byte, FIFO cheia na leitura; restrição: pausa entre o endereço e os dados), DUT `MPUS`/`BMES`.
   210/210 Unity, 73/73 HIL, 625 pytest. ESP32 **não** gravado com as versões 0.12–0.14 (desconectado).
+- **v0.14.1** (1º teste com o ESP32 ligado): escrava SPI rearma no LOAD, sem `HAL_SPI_Abort` e sem perder o byte
+  ímpar; escrava I2C do ESP32 sem o reset da FSM durante o stretch (lia 7F FF FF); descarte da linha do DUT no
+  preparo. 211/211 Unity, 73/73 HIL; com o ESP32: CT20 78/78, CT22/CT25/CT26 10×10 (CT22: reação 0,04–1,0 ms).
+  Bancada: pull-up de 4,7 Ω no lugar de 4,7 kΩ e SCL no GPIO7 (corrigidos pelo usuário).
 - Combinado em 04/11/2026: antes da 1.0.0 entram também 0.13.0 (gerador de ondas: rampa, senoide, triangular, quadrada,
   dente de serra, exponencial, pontos e ruído; `passo_us`, mínimo 100 µs no software e 1 µs no DAC por DMA) e 0.14.0
   (sensores em SPI, com a restrição da pausa entre o endereço e os dados; um sensor SPI por vez).
