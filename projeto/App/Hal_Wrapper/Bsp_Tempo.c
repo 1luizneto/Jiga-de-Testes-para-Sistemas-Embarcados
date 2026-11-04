@@ -27,6 +27,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n A comparacao do canal 2 do TIM5 vai para o gerador de ondas
  *
  *   @copyright
  *   @{
@@ -37,6 +38,7 @@
  **********************************************************************************************************************/
 
 #include "Bsp_Tempo.h"
+#include "Bsp_Onda.h"
 #include "Rotina.h"
 #include "DigitalIo.h"
 #include "main.h"
@@ -324,6 +326,12 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim->Instance != TIM5)
 	{
+		return;
+	}
+
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+	{
+		BspOnda_Tick();
 		return;
 	}
 

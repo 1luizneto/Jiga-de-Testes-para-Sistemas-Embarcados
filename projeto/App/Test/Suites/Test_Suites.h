@@ -123,6 +123,7 @@ void Test_Exec_RotinaArgumentosInvalidos(void);
 void Test_Exec_I2cMascaraESegundoEndereco(void);
 void Test_Exec_I2cMascaraESegundoEnderecoInvalidos(void);
 void Test_Exec_RotinaPassosDeSensor(void);
+void Test_Exec_RotinaPassoOnda(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -231,5 +232,14 @@ void Test_UartBus_ConfigEsvazia(void);
 void Test_UartBus_ReadTrava(void);
 void Test_UartBus_SafeState(void);
 void Test_UartBus_SafeStateComFalha(void);
+
+// Testes do gerador de ondas (Onda)
+void Test_Onda_Valida(void);
+void Test_Onda_Valor(void);
+void Test_Onda_IniciaETicks(void);
+void Test_Onda_FimDosCiclos(void);
+void Test_Onda_DestinosERuido(void);
+void Test_Onda_DacPorDma(void);
+void Test_Onda_Para(void);
 
 #endif /* APP_TEST_SUITES_TEST_SUITES_H_ */

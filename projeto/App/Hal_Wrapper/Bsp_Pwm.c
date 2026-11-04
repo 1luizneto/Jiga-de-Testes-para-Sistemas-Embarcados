@@ -17,6 +17,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 21/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n BspPwm_Comparacao (Pwm_Razao, ondas na razao ciclica)
  *
  *   @copyright
  *   @{
@@ -49,6 +50,7 @@ static TIM_HandleTypeDef * const bspPwmHandles[dPWM_CANAL_MAX] =
 
 static uint32_t BspPwm_ClockTimer(uint8_t apb2);
 static pwmReturn_t BspPwm_Apply(uint8_t canal, const pwmConfig_t *config);
+static void        BspPwm_Comparacao(uint8_t canal, uint32_t comparacao);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -71,7 +73,8 @@ bspPwmReturn_t BspPwm_Init(void)
 	DebugLog_SendTerminal("[BSP -> PWM] Clock dos timers: TIM1 %lu Hz, TIM2 %lu Hz, TIM3 %lu Hz\r\n",
 	                      timers[0].clockHz, timers[1].clockHz, timers[2].clockHz);
 
-	if (Pwm_Init(BspPwm_Apply, timers) != ePWM_RETURN_OK)
+	if ((Pwm_Init(BspPwm_Apply, timers) != ePWM_RETURN_OK) ||
+	    (Pwm_InitComparacao(BspPwm_Comparacao) != ePWM_RETURN_OK))
 	{
 		return eBSP_PWM_RETURN_ERROR;
 	}
@@ -118,6 +121,14 @@ static uint32_t BspPwm_ClockTimer(uint8_t apb2)
  * @param[in]  config  Valores dos registradores
  * @return     ePWM_RETURN_OK ou ePWM_RETURN_ERROR (falha do HAL ao iniciar o canal)
  **********************************************************************************************************************/
+/***********************************************************************************************************************
+ * @brief      So o CCR do canal (preload ligado: entra no proximo periodo, sem reiniciar o contador).
+ **********************************************************************************************************************/
+static void BspPwm_Comparacao(uint8_t canal, uint32_t comparacao)
+{
+	__HAL_TIM_SET_COMPARE(bspPwmHandles[canal - 1U], TIM_CHANNEL_1, comparacao);
+}
+
 static pwmReturn_t BspPwm_Apply(uint8_t canal, const pwmConfig_t *config)
 {
 	TIM_HandleTypeDef *htim = bspPwmHandles[canal - 1U];
