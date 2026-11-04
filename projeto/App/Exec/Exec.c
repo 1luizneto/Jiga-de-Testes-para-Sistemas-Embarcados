@@ -27,10 +27,9 @@
  *                                                          SPI_MASTER_XFER; estado seguro desliga o SPI
  *   @version      <b>1.5.0 - 29/10/2026</b> \n Luiz Neto \n UART_CONFIG, UART_WRITE e UART_READ; estado seguro desliga
  *                                                          a UART
- *   @version      <b>1.6.0 - 03/11/2026</b> 
- Luiz Neto 
- RUN_ROUTINE e READ_RESULT (Rotina); Exec_Passo executa
+ *   @version      <b>1.6.0 - 03/11/2026</b> \n Luiz Neto \n RUN_ROUTINE e READ_RESULT (Rotina); Exec_Passo executa
  *                                                          um passo de rotina; RESET_ALL descarta os resultados
+ *   @version      <b>1.7.0 - 04/11/2026</b> \n Luiz Neto \n I2C_SLAVE_MASK e I2C_SLAVE_ADDR2 (emulacao de sensores)
  *
  *   @copyright
  *   @{
@@ -86,6 +85,9 @@
 /// Payload do I2C_SLAVE_DUMP: offset (u8) + quantidade (u8)
 #define dEXEC_I2C_DUMP_SIZE (2U)
 
+/// Payload do I2C_SLAVE_ADDR2: segundo endereco (u8, 0 = nenhum)
+#define dEXEC_I2C_ADDR2_SIZE (1U)
+
 /// Cabecalho do I2C_MASTER_XFER: endereco (u8) + nw (u8) + nr (u8), seguido dos nw bytes a escrever
 #define dEXEC_I2C_XFER_HEADER_SIZE (3U)
 
@@ -123,6 +125,8 @@ static uint8_t Exec_I2cConfig(const commFrame_t *frame);
 static uint8_t Exec_I2cLoad(const commFrame_t *frame);
 static uint8_t Exec_I2cDump(const commFrame_t *frame, execResult_t *result);
 static uint8_t Exec_I2cXfer(const commFrame_t *frame, execResult_t *result);
+static uint8_t Exec_I2cMask(const commFrame_t *frame);
+static uint8_t Exec_I2cAddr2(const commFrame_t *frame);
 static uint8_t Exec_ErroI2c(i2cBusReturn_t ret);
 static uint8_t Exec_SpiConfig(const commFrame_t *frame);
 static uint8_t Exec_SpiLoad(const commFrame_t *frame);
@@ -226,6 +230,18 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 		case dCOMM_CMD_I2C_MASTER_XFER:
 
 			result->erro = Exec_I2cXfer(frame, result);
+
+		break;
+
+		case dCOMM_CMD_I2C_SLAVE_MASK:
+
+			result->erro = Exec_I2cMask(frame);
+
+		break;
+
+		case dCOMM_CMD_I2C_SLAVE_ADDR2:
+
+			result->erro = Exec_I2cAddr2(frame);
 
 		break;
 
@@ -657,6 +673,40 @@ static uint8_t Exec_I2cLoad(const commFrame_t *frame)
 	}
 
 	return Exec_ErroI2c(I2cBus_Load(frame->payload[0], frame->payload[1], &frame->payload[2]));
+}
+
+/***********************************************************************************************************************
+ * @brief      I2C_SLAVE_MASK: payload [offset (u8)][quantidade (u8)][mascaras (quantidade bytes)].
+ * @details    Mesmo formato do I2C_SLAVE_LOAD; bit em 1 = o DUT pode escrever. O limite do mapa e conferido pelo
+ *             I2cBus_Mascara.
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_I2cMask(const commFrame_t *frame)
+{
+	if ((frame->size < dEXEC_I2C_LOAD_HEADER_SIZE) ||
+	    (frame->size != (dEXEC_I2C_LOAD_HEADER_SIZE + frame->payload[1])))
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	return Exec_ErroI2c(I2cBus_Mascara(frame->payload[0], frame->payload[1], &frame->payload[2]));
+}
+
+/***********************************************************************************************************************
+ * @brief      I2C_SLAVE_ADDR2: payload [segundo endereco (u8, 0x08-0x77, ou 0 = nenhum)].
+ * @details    Vale a partir do proximo I2C_CONFIG de escrava; o estado seguro volta para nenhum.
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_I2cAddr2(const commFrame_t *frame)
+{
+	if (frame->size != dEXEC_I2C_ADDR2_SIZE)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	return Exec_ErroI2c(I2cBus_Endereco2(frame->payload[0]));
 }
 
 /***********************************************************************************************************************

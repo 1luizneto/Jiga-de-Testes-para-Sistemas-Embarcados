@@ -129,6 +129,7 @@ static struct i2cFalso
 	uint8_t        xferChamadas;
 	uint8_t        papel;
 	uint8_t        endereco;
+	uint8_t        endereco2;
 	uint8_t        velocidade;
 	uint8_t        xferEndereco;
 	uint8_t        xferEscrita;   ///< 1o byte escrito
@@ -137,11 +138,12 @@ static struct i2cFalso
 	i2cBusReturn_t retornoXfer;   ///< simula falta de ACK do dispositivo
 } i2cFalso;
 
-static i2cBusReturn_t I2cFalso_Config(uint8_t papel, uint8_t endereco, uint8_t velocidade)
+static i2cBusReturn_t I2cFalso_Config(uint8_t papel, uint8_t endereco, uint8_t endereco2, uint8_t velocidade)
 {
 	i2cFalso.configChamadas++;
 	i2cFalso.papel      = papel;
 	i2cFalso.endereco   = endereco;
+	i2cFalso.endereco2  = endereco2;
 	i2cFalso.velocidade = velocidade;
 
 	return eI2CBUS_RETURN_OK;
@@ -2059,4 +2061,86 @@ void Test_Exec_RotinaArgumentosInvalidos(void)
 	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Carrega(dados, 8, NULL));
 	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_Status(NULL, &size));
 	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ARGUMENT, Rotina_LeResultado(0, dados, NULL));
+}
+
+// 77. Emulacao de sensores: I2C_SLAVE_ADDR2 + I2C_CONFIG respondem em dois enderecos e I2C_SLAVE_MASK protege bits
+void Test_Exec_I2cMascaraESegundoEndereco(void)
+{
+	const uint8_t addr2[]   = {0x76};
+	const uint8_t config[]  = {0x00, 0x68, 0x01};
+	const uint8_t carga[]   = {0x75, 0x01, 0x70};
+	const uint8_t mascara[] = {0x75, 0x01, 0x00};
+	const uint8_t dump[]    = {0x75, 0x01};
+	const uint8_t escrita   = 0x12U;
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x90, dCOMM_CMD_I2C_SLAVE_ADDR2, addr2, sizeof(addr2));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	MontaComando(&frame, 0x91, dCOMM_CMD_I2C_CONFIG, config, sizeof(config));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+	TEST_ASSERT_EQUAL_HEX8(0x68, i2cFalso.endereco);
+	TEST_ASSERT_EQUAL_HEX8(0x76, i2cFalso.endereco2);
+
+	MontaComando(&frame, 0x92, dCOMM_CMD_I2C_SLAVE_LOAD, carga, sizeof(carga));
+	Exec_Process(&frame, &result);
+	MontaComando(&frame, 0x93, dCOMM_CMD_I2C_SLAVE_MASK, mascara, sizeof(mascara));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(0, result.erro);
+
+	I2cBus_InicioEscrita();             // o DUT tenta escrever no WHO_AM_I
+	I2cBus_ByteRecebido(0x75U);
+	I2cBus_ByteRecebido(escrita);
+	MontaComando(&frame, 0x94, dCOMM_CMD_I2C_SLAVE_DUMP, dump, sizeof(dump));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(1, result.size);
+	TEST_ASSERT_EQUAL_HEX8(0x70, result.dados[0]);
+}
+
+// 78. I2C_SLAVE_MASK e I2C_SLAVE_ADDR2 invalidos: NACK PARAMETRO_INVALIDO
+void Test_Exec_I2cMascaraESegundoEnderecoInvalidos(void)
+{
+	const uint8_t mascaraForaDoMapa[] = {0xFF, 0x02, 0x00, 0x00};
+	const uint8_t mascaraCurta[]      = {0x10, 0x02, 0x00};
+	const uint8_t addr2Reservado[]    = {0x78};
+	const uint8_t addr2Longo[]        = {0x76, 0x00};
+	commFrame_t frame;
+	execResult_t result;
+	IniciaExec();
+
+	MontaComando(&frame, 0x95, dCOMM_CMD_I2C_SLAVE_MASK, mascaraForaDoMapa, sizeof(mascaraForaDoMapa));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	MontaComando(&frame, 0x96, dCOMM_CMD_I2C_SLAVE_MASK, mascaraCurta, sizeof(mascaraCurta));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	MontaComando(&frame, 0x97, dCOMM_CMD_I2C_SLAVE_ADDR2, addr2Reservado, sizeof(addr2Reservado));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+	MontaComando(&frame, 0x98, dCOMM_CMD_I2C_SLAVE_ADDR2, addr2Longo, sizeof(addr2Longo));
+	Exec_Process(&frame, &result);
+	TEST_ASSERT_EQUAL_UINT8(eCOMM_ERROR_PARAMETRO_INVALIDO, result.erro);
+}
+
+// 79. Rotina com os passos novos: aceita (ADDR2, MASK de 2 bytes) e recusa o ADDR2 reservado no indice certo
+void Test_Exec_RotinaPassosDeSensor(void)
+{
+	const uint8_t validos[]   = {dCOMM_CMD_I2C_SLAVE_ADDR2, 0x76,
+	                             dCOMM_CMD_I2C_SLAVE_MASK, 0x75, 0x02, 0x00, 0x7F};
+	const uint8_t invalidos[] = {dCOMM_CMD_I2C_SLAVE_MASK, 0x75, 0x01, 0x00,
+	                             dCOMM_CMD_I2C_SLAVE_ADDR2, 0x05};
+	uint8_t payload[dCOMM_PAYLOAD_MAX_SIZE];
+	uint8_t indice = 0xAAU;
+	IniciaRotina();
+
+	uint8_t total = MontaRotina(payload, 1U, 100U, 2U, validos, sizeof(validos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_OK, Rotina_Carrega(payload, total, &indice));
+	IniciaRotina();
+
+	total = MontaRotina(payload, 2U, 100U, 2U, invalidos, sizeof(invalidos));
+	TEST_ASSERT_EQUAL(eROTINA_RETURN_INVALID_ROUTINE, Rotina_Carrega(payload, total, &indice));
+	TEST_ASSERT_EQUAL_UINT8(1, indice);
 }

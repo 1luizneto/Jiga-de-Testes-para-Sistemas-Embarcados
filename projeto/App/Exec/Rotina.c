@@ -25,6 +25,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Passos I2C_SLAVE_MASK e I2C_SLAVE_ADDR2
  *
  *   @copyright
  *   @{
@@ -505,6 +506,8 @@ static uint8_t Rotina_ValidaPasso(const uint8_t *p, uint16_t disponivel, uint16_
 		case dCOMM_CMD_I2C_SLAVE_LOAD:  t = 3U; break;
 		case dCOMM_CMD_I2C_SLAVE_DUMP:  t = 3U; break;
 		case dCOMM_CMD_I2C_MASTER_XFER: t = 4U; break;
+		case dCOMM_CMD_I2C_SLAVE_MASK:  t = 3U; break;
+		case dCOMM_CMD_I2C_SLAVE_ADDR2: t = 2U; break;
 		case dCOMM_CMD_SPI_CONFIG:      t = 7U; break;
 		case dCOMM_CMD_SPI_SLAVE_LOAD:  t = 2U; break;
 		case dCOMM_CMD_SPI_SLAVE_READ:  t = 1U; break;
@@ -564,6 +567,16 @@ static uint8_t Rotina_ValidaPasso(const uint8_t *p, uint16_t disponivel, uint16_
 		case dCOMM_CMD_I2C_SLAVE_LOAD:
 			valido = ((p[2] > 0U) && (((uint16_t)p[1] + p[2]) <= dI2CBUS_TAMANHO_MAPA)) ? 1U : 0U;
 			t      = (uint16_t)(t + p[2]);
+		break;
+
+		case dCOMM_CMD_I2C_SLAVE_MASK:
+			valido = ((p[2] > 0U) && (((uint16_t)p[1] + p[2]) <= dI2CBUS_TAMANHO_MAPA)) ? 1U : 0U;
+			t      = (uint16_t)(t + p[2]);
+		break;
+
+		case dCOMM_CMD_I2C_SLAVE_ADDR2:
+			valido = ((p[1] == dI2CBUS_ENDERECO2_NENHUM) ||
+			          ((p[1] >= dI2CBUS_ENDERECO_MIN) && (p[1] <= dI2CBUS_ENDERECO_MAX))) ? 1U : 0U;
 		break;
 
 		case dCOMM_CMD_I2C_SLAVE_DUMP:
