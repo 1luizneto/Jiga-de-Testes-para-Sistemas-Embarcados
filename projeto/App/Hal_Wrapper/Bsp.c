@@ -21,6 +21,7 @@
  *   @version      <b>1.4.0 - 28/10/2026</b> \n Luiz Neto \n Inicializa o SPI (desligado ate o SPI_CONFIG)
  *   @version      <b>1.5.0 - 28/10/2026</b> \n Luiz Neto \n Inicializa a UART4 (desligada ate o UART_CONFIG)
  *   @version      <b>1.6.0 - 03/11/2026</b> \n Luiz Neto \n Inicializa a base de tempo das rotinas (TIM5)
+ *   @version      <b>1.7.0 - 04/11/2026</b> \n Luiz Neto \n Inicializa o gerador de ondas
  *   @copyright
  *   @{
  **********************************************************************************************************************/
@@ -41,6 +42,7 @@
 #include "Bsp_Spi.h"
 #include "Bsp_Uart4.h"
 #include "Bsp_Tempo.h"
+#include "Bsp_Onda.h"
 
 /***********************************************************************************************************************
  * DEFINES LOCAIS
@@ -75,6 +77,7 @@ void Bsp_Init(void)
 	BspSpi_Init();
 	BspUart4_Init();
 	BspTempo_Init();
+	BspOnda_Init();
 }
 
 /***********************************************************************************************************************

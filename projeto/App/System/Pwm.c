@@ -17,6 +17,7 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 21/10/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Pwm_Razao: so a razao, sem reiniciar o contador (ondas)
  *
  *   @copyright
  *   @{
@@ -45,6 +46,7 @@ static struct pwm
 	struct func
 	{
 		pwmApplyFunc_t apply;
+		pwmComparacaoFunc_t comparacao;
 	} func;
 
 	pwmTimer_t timers[dPWM_CANAL_MAX];
@@ -175,6 +177,49 @@ pwmReturn_t Pwm_Set(uint8_t canal, uint32_t frequencia, uint16_t razao)
 	}
 
 	return Pwm_Aplica(canal, &config);
+}
+
+/***********************************************************************************************************************
+ * @brief      Registra a funcao da BSP que troca so a comparacao do canal (Pwm_Razao).
+ **********************************************************************************************************************/
+pwmReturn_t Pwm_InitComparacao(pwmComparacaoFunc_t comparacaoFunc)
+{
+	if (comparacaoFunc == NULL)
+	{
+		return ePWM_RETURN_INVALID_ARGUMENT;
+	}
+
+	pwm.func.comparacao = comparacaoFunc;
+
+	return ePWM_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      Troca so a razao ciclica, na frequencia ja configurada (onda na razao do PWM).
+ * @details    Sem recalcular prescaler e periodo e sem evento de update: o contador segue, e o novo CCR entra no
+ *             proximo periodo (preload). Pode ser chamada na interrupcao do gerador de ondas.
+ * @param[in]  canal  1 a 3
+ * @param[in]  razao  0 a dPWM_RAZAO_MAX, em centesimos de por cento
+ **********************************************************************************************************************/
+pwmReturn_t Pwm_Razao(uint8_t canal, uint16_t razao)
+{
+	if (pwm.func.comparacao == NULL)
+	{
+		return ePWM_RETURN_ERROR;
+	}
+
+	if ((canal < dPWM_CANAL_MIN) || (canal > dPWM_CANAL_MAX) || (razao > dPWM_RAZAO_MAX))
+	{
+		return ePWM_RETURN_INVALID_ARGUMENT;
+	}
+
+	uint32_t contagens = pwm.configs[canal - 1U].periodo + 1U;
+	uint32_t comparacao = (uint32_t)((((uint64_t)razao * contagens) + (dPWM_RAZAO_MAX / 2U)) / dPWM_RAZAO_MAX);
+
+	pwm.configs[canal - 1U].comparacao = comparacao;
+	pwm.func.comparacao(canal, comparacao);
+
+	return ePWM_RETURN_OK;
 }
 
 /***********************************************************************************************************************

@@ -30,6 +30,7 @@
  *   @version      <b>1.6.0 - 03/11/2026</b> \n Luiz Neto \n RUN_ROUTINE e READ_RESULT (Rotina); Exec_Passo executa
  *                                                          um passo de rotina; RESET_ALL descarta os resultados
  *   @version      <b>1.7.0 - 04/11/2026</b> \n Luiz Neto \n I2C_SLAVE_MASK e I2C_SLAVE_ADDR2 (emulacao de sensores)
+ *   @version      <b>1.8.0 - 04/11/2026</b> \n Luiz Neto \n Estado seguro para as ondas antes de zerar as saidas
  *
  *   @copyright
  *   @{
@@ -48,6 +49,7 @@
 #include "SpiBus.h"
 #include "UartBus.h"
 #include "Rotina.h"
+#include "Onda.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -319,6 +321,9 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 execReturn_t Exec_SafeState(void)
 {
 	execReturn_t ret = eEXEC_RETURN_OK;
+
+	// Primeiro as ondas: senao a interrupcao do gerador escreveria de novo no DAC, no PWM ou no sensor
+	Onda_Para();
 
 	if (AnalogOut_SafeState() != eANALOGOUT_RETURN_OK)
 	{

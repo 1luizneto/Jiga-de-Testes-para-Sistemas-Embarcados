@@ -131,6 +131,7 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_Exec_I2cMascaraESegundoEndereco);
 		RUN_TEST(Test_Exec_I2cMascaraESegundoEnderecoInvalidos);
 		RUN_TEST(Test_Exec_RotinaPassosDeSensor);
+		RUN_TEST(Test_Exec_RotinaPassoOnda);
 
 		RUN_TEST(Test_Comm_ResultAck);
 		RUN_TEST(Test_Comm_ResultNack);
@@ -232,6 +233,13 @@ static void TestRunnerTast(void *argument)
 		RUN_TEST(Test_UartBus_ReadTrava);
 		RUN_TEST(Test_UartBus_SafeState);
 		RUN_TEST(Test_UartBus_SafeStateComFalha);
+		RUN_TEST(Test_Onda_Valida);
+		RUN_TEST(Test_Onda_Valor);
+		RUN_TEST(Test_Onda_IniciaETicks);
+		RUN_TEST(Test_Onda_FimDosCiclos);
+		RUN_TEST(Test_Onda_DestinosERuido);
+		RUN_TEST(Test_Onda_DacPorDma);
+		RUN_TEST(Test_Onda_Para);
 
 	UNITY_END();
 
