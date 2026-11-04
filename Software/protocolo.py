@@ -1734,6 +1734,24 @@ def _dut(seq, linha, resposta):
             _comando(montar_uart_read(seq + 1), montar_ack(seq + 1, CMD_UART_READ, bytes([len(resposta)]) + resposta))]
 
 
+def _descarte_dut(seq):
+    """Fim de linha ao DUT e leitura de qualquer resposta: descarta o que os casos sem DUT deixaram na linha.
+
+    Os casos da UART (UART_CONFIG e WRITE) e o RESET_ALL, que solta o TX da jiga, deixam bytes sem fim de linha
+    no DUT; sem o descarte, o 1o comando sairia "ERR CMD".
+    """
+    def qualquer_leitura(quadro):
+        try:
+            resposta = interpretar_resposta(quadro)
+        except ValueError as e:
+            return str(e)
+        if not resposta.ack or resposta.cmd != CMD_UART_READ or resposta.seq != seq + 1:
+            return f"{resposta.descrever()}; esperado ACK UART_READ SEQ={seq + 1}"
+        return None
+    return [_comando(montar_uart_write(seq, b"\n"), montar_ack(seq, CMD_UART_WRITE)),
+            (montar_uart_read(seq + 1), montar_ack(seq + 1, CMD_UART_READ, b"\x00"), qualquer_leitura)]
+
+
 def _caso_ct20(nome, descricao, comandos, resumo):
     passos, esperado, respostas, conferir = _sequencia(comandos)
     return CasoTeste(nome, descricao, passos, esperado, respostas, conferir=conferir, requer_dut=True,
@@ -1748,11 +1766,11 @@ def _casos_ct20(seq):
     s = seq
     casos.append(_caso_ct20(
         "CT20 DUT PING", "UART4 a 115200 baud: o DUT responde OFF e PING pela UART",
-        [uart(s)] + _dut(s + 1, linha_dut("OFF"), resposta_dut()) +
-        _dut(s + 3, linha_dut("PING"), (DUT_IDENTIFICACAO + "\n").encode()),
-        f"5 ACKs; o DUT responde \"{DUT_IDENTIFICACAO}\""))
+        [uart(s)] + _descarte_dut(s + 1) + _dut(s + 3, linha_dut("OFF"), resposta_dut()) +
+        _dut(s + 5, linha_dut("PING"), (DUT_IDENTIFICACAO + "\n").encode()),
+        f"7 ACKs; o DUT responde \"{DUT_IDENTIFICACAO}\""))
 
-    s += 5
+    s += 7
     mapa = bytes(range(1, 9))
     casos.append(_caso_ct20(
         "CT20 I2C jiga escrava", "DUT mestre le a jiga escrava 0x50 (com e sem ponteiro) e escreve nela",
