@@ -3,7 +3,7 @@
  *
  * Testes do I2cBus com um barramento falso: configuracao (sem tocar na BSP quando invalida), carga e leitura do
  * mapa, eventos do barramento como o DUT faria (escrita do ponteiro, auto-incremento, volta de 0xFF para 0x00),
- * transferencia de mestre e estado seguro.
+ * transferencia de mestre e estado seguro; mascara dos bits gravaveis e segundo endereco (emulacao de sensores).
  */
 
 #include <string.h>
@@ -21,6 +21,7 @@ static struct barramentoFalso
 
 	uint8_t papel;
 	uint8_t endereco;
+	uint8_t endereco2;
 	uint8_t velocidade;
 
 	uint8_t xferEndereco;
@@ -33,11 +34,12 @@ static struct barramentoFalso
 	i2cBusReturn_t retornoXfer;
 } barramentoFalso;
 
-static i2cBusReturn_t BarramentoFalso_Config(uint8_t papel, uint8_t endereco, uint8_t velocidade)
+static i2cBusReturn_t BarramentoFalso_Config(uint8_t papel, uint8_t endereco, uint8_t endereco2, uint8_t velocidade)
 {
 	barramentoFalso.configChamadas++;
 	barramentoFalso.papel      = papel;
 	barramentoFalso.endereco   = endereco;
+	barramentoFalso.endereco2  = endereco2;
 	barramentoFalso.velocidade = velocidade;
 
 	return barramentoFalso.retornoConfig;
@@ -365,4 +367,81 @@ void Test_I2cBus_SafeStateComFalha(void)
 	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_ERROR, I2cBus_SafeState());
 	I2cBus_Dump(0U, 1U, lidos);
 	TEST_ASSERT_EQUAL_UINT8(0U, lidos[0]);
+}
+
+// 18. Mascara: o DUT so muda os bits gravaveis; o Load do PC grava todos
+void Test_I2cBus_MascaraDaEscritaDoDut(void)
+{
+	const uint8_t valores[]  = {0x70, 0x01, 0x00};
+	const uint8_t mascaras[] = {0x00, 0x7F, 0xFF};   // so leitura (WHO_AM_I), bit 7 de reset, livre
+	const uint8_t escrita[]  = {0xAA, 0x80, 0x55};
+	uint8_t lido[3];
+	IniciaI2cBus();
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Load(0x75U, 3U, valores));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Mascara(0x75U, 3U, mascaras));
+	DutEscreve(0x75U, escrita, 3U);
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Dump(0x75U, 3U, lido));
+	TEST_ASSERT_EQUAL_HEX8(0x70U, lido[0]);   // nao mudou
+	TEST_ASSERT_EQUAL_HEX8(0x00U, lido[1]);   // o DUT escreveu 0x80 (reset) e le 0x00: reset "terminado"
+	TEST_ASSERT_EQUAL_HEX8(0x55U, lido[2]);
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Load(0x75U, 1U, escrita));   // o PC grava mesmo so leitura
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Dump(0x75U, 1U, lido));
+	TEST_ASSERT_EQUAL_HEX8(0xAAU, lido[0]);
+}
+
+// 19. Mascara fora do mapa, sem dados ou vazia: recusada
+void Test_I2cBus_MascaraInvalida(void)
+{
+	const uint8_t mascaras[2] = {0x00, 0x00};
+	IniciaI2cBus();
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_INVALID_ARGUMENT, I2cBus_Mascara(0xFFU, 2U, mascaras));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_INVALID_ARGUMENT, I2cBus_Mascara(0x10U, 0U, mascaras));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_INVALID_ARGUMENT, I2cBus_Mascara(0x10U, 1U, NULL));
+}
+
+// 20. Segundo endereco: chega na BSP como escravo; mestre, igual ao primeiro ou nenhum -> nenhum; fora da faixa,
+// recusado
+void Test_I2cBus_SegundoEndereco(void)
+{
+	IniciaI2cBus();
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Endereco2(0x76U));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Config(dI2CBUS_PAPEL_ESCRAVO, 0x68U, 1U));
+	TEST_ASSERT_EQUAL_HEX8(0x68U, barramentoFalso.endereco);
+	TEST_ASSERT_EQUAL_HEX8(0x76U, barramentoFalso.endereco2);
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Config(dI2CBUS_PAPEL_MESTRE, 0x00U, 0U));
+	TEST_ASSERT_EQUAL_HEX8(dI2CBUS_ENDERECO2_NENHUM, barramentoFalso.endereco2);
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Config(dI2CBUS_PAPEL_ESCRAVO, 0x76U, 0U));
+	TEST_ASSERT_EQUAL_HEX8(dI2CBUS_ENDERECO2_NENHUM, barramentoFalso.endereco2);
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_INVALID_ARGUMENT, I2cBus_Endereco2(0x07U));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_INVALID_ARGUMENT, I2cBus_Endereco2(0x78U));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Endereco2(dI2CBUS_ENDERECO2_NENHUM));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Config(dI2CBUS_PAPEL_ESCRAVO, 0x68U, 0U));
+	TEST_ASSERT_EQUAL_HEX8(dI2CBUS_ENDERECO2_NENHUM, barramentoFalso.endereco2);
+}
+
+// 21. Estado seguro: mascaras voltam a 0xFF e o segundo endereco e esquecido
+void Test_I2cBus_SafeStateLimpaMascaraESegundoEndereco(void)
+{
+	const uint8_t mascara = 0x00U;
+	const uint8_t escrita = 0x5AU;
+	uint8_t lido = 0U;
+	IniciaI2cBus();
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Mascara(0x20U, 1U, &mascara));
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Endereco2(0x76U));
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_SafeState());
+	DutEscreve(0x20U, &escrita, 1U);
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Dump(0x20U, 1U, &lido));
+	TEST_ASSERT_EQUAL_HEX8(0x5AU, lido);
+
+	TEST_ASSERT_EQUAL(eI2CBUS_RETURN_OK, I2cBus_Config(dI2CBUS_PAPEL_ESCRAVO, 0x68U, 0U));
+	TEST_ASSERT_EQUAL_HEX8(dI2CBUS_ENDERECO2_NENHUM, barramentoFalso.endereco2);
 }

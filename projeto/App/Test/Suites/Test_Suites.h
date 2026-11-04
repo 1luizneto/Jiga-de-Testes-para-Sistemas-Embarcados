@@ -120,6 +120,9 @@ void Test_Exec_RotinaResetAllLimpa(void);
 void Test_Exec_RotinaEsperaInstante(void);
 void Test_Exec_PassoInvalido(void);
 void Test_Exec_RotinaArgumentosInvalidos(void);
+void Test_Exec_I2cMascaraESegundoEndereco(void);
+void Test_Exec_I2cMascaraESegundoEnderecoInvalidos(void);
+void Test_Exec_RotinaPassosDeSensor(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);
@@ -188,6 +191,10 @@ void Test_I2cBus_MasterXferNaoConfigurado(void);
 void Test_I2cBus_MasterXfer(void);
 void Test_I2cBus_SafeState(void);
 void Test_I2cBus_SafeStateComFalha(void);
+void Test_I2cBus_MascaraDaEscritaDoDut(void);
+void Test_I2cBus_MascaraInvalida(void);
+void Test_I2cBus_SegundoEndereco(void);
+void Test_I2cBus_SafeStateLimpaMascaraESegundoEndereco(void);
 
 // Testes do barramento SPI (SpiBus)
 void Test_SpiBus_InitInvalido(void);

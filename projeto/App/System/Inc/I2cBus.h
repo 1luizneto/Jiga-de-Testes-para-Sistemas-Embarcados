@@ -28,6 +28,9 @@
 // Velocidade: 0 = 100 kHz (Standard), 1 = 400 kHz (Fast)
 #define dI2CBUS_VELOCIDADE_MAX (1U)
 
+// Segundo endereco de escrava desligado (I2cBus_Endereco2)
+#define dI2CBUS_ENDERECO2_NENHUM (0x00U)
+
 // Mapa de registradores emulado no papel de escravo
 #define dI2CBUS_TAMANHO_MAPA (256U)
 
@@ -47,8 +50,9 @@ typedef enum i2cBusReturn
 	eI2CBUS_RETURN_END_ENUM
 } i2cBusReturn_t;
 
-/// @brief Configura o periferico no papel pedido e, como escravo, liga a escuta do endereco
-typedef i2cBusReturn_t (*i2cBusConfigFunc_t)(uint8_t papel, uint8_t endereco, uint8_t velocidade);
+/// @brief Configura o periferico no papel pedido e, como escravo, liga a escuta do endereco (e do segundo,
+///        se endereco2 != dI2CBUS_ENDERECO2_NENHUM)
+typedef i2cBusReturn_t (*i2cBusConfigFunc_t)(uint8_t papel, uint8_t endereco, uint8_t endereco2, uint8_t velocidade);
 
 /// @brief Desliga o periferico: barramento livre, pinos soltos
 typedef i2cBusReturn_t (*i2cBusOffFunc_t)(void);
@@ -78,6 +82,8 @@ i2cBusReturn_t I2cBus_Init(const i2cBusFunc_t *func);
 i2cBusReturn_t I2cBus_Config(uint8_t papel, uint8_t endereco, uint8_t velocidade);
 i2cBusReturn_t I2cBus_Load(uint8_t offset, uint8_t quantidade, const uint8_t *dados);
 i2cBusReturn_t I2cBus_Dump(uint8_t offset, uint8_t quantidade, uint8_t *dados);
+i2cBusReturn_t I2cBus_Mascara(uint8_t offset, uint8_t quantidade, const uint8_t *mascaras);
+i2cBusReturn_t I2cBus_Endereco2(uint8_t endereco2);
 i2cBusReturn_t I2cBus_MasterXfer(uint8_t endereco, const uint8_t *escrita, uint8_t nw, uint8_t *leitura, uint8_t nr);
 i2cBusReturn_t I2cBus_SafeState(void);
 
