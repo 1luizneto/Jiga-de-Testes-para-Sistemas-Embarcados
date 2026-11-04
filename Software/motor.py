@@ -12,6 +12,7 @@ Motor de testes (secao 3.6.4 da monografia, fluxograma de execucao de uma bateri
 4. RESET_ALL no fim, mesmo quando a bateria para no meio.
 """
 
+import re
 import threading
 import time
 
@@ -21,6 +22,8 @@ from protocolo import (
     TENSAO_REFERENCIA, VERSAO_PROTOCOLO, interpretar_resultados,
 )
 from relatorio import FALHOU, INCONCLUSIVO, PASSOU, Relatorio, ResultadoCaso, ResultadoVerificacao
+
+NUMERO = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 
 INTERVALO_STATUS = 0.02     # s entre dois ROUTINE_STATUS
 FOLGA_TEMPO = 1.0           # s alem do tempo maximo da rotina antes de desistir de esperar o estado final
@@ -53,6 +56,13 @@ def avaliar(verificacao, registro):
         decorrido = int.from_bytes(d[1:5], "little")
         passou = d[0] == GPIO_OCORREU
         obtido = f"{decorrido / 1000:.3f} ms" if passou else f"nao mudou em {decorrido / 1000:.3f} ms"
+    elif tipo == "uart_valores":
+        texto = bytes(d[1:1 + d[0]]).decode("ascii", errors="replace")
+        valores = [float(v) for v in NUMERO.findall(texto)]
+        esperado, tolerancia = p["esperado"], p["tolerancia"]
+        passou = len(valores) == len(esperado) and all(
+            abs(v - e) <= t + EPSILON_V for v, e, t in zip(valores, esperado, tolerancia))
+        obtido = f"{valores} ({texto.strip()!r})" if valores else repr(texto)
     elif tipo in ("uart_read", "spi_read"):
         recebidos = d[1:1 + d[0]]
         passou, obtido = recebidos == p["esperado"], _texto(recebidos)
@@ -82,6 +92,8 @@ def _esperado(verificacao):
         return f"<= {p['max_ms']:g} ms"
     if tipo in ("uart_read", "spi_read"):
         return _texto(p["esperado"])
+    if tipo == "uart_valores":
+        return " ".join(f"{e:g}+-{t:g}" for e, t in zip(p["esperado"], p["tolerancia"]))
     return _hex(p["esperado"])
 
 
@@ -144,6 +156,10 @@ class MotorDeTestes:
         return resultado
 
     def _rodar(self, caso, resultado):
+        for cmd, payload in caso.preparo:
+            resposta = self.cliente.comando(cmd, payload)
+            if not resposta.ack:
+                raise ErroNack(resposta)
         self.cliente.run_routine(caso.identificador, caso.tempo_max_ms, caso.passos)
         esperado, abortado = 0.0, False
         while True:

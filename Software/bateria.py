@@ -16,6 +16,11 @@ tolerancias ficam no PC, para avaliar as medicoes (motor.py). Toda a bateria e v
 ErroBateria traz todos os erros encontrados, cada um com o caso e o item.
 
 A rotina termina sempre no estado seguro: cada caso configura o que usa (UART, I2C, SPI), sem depender do anterior.
+
+Sensores emulados (secao 'sensores' da bateria, sensores.py): a configuracao do sensor (registradores iniciais,
+mascaras, enderecos) passa de 100 B e nao cabe junto com o caso nos 240 B de uma rotina; ela vira o 'preparo' do caso,
+comandos diretos que o motor envia antes do RUN_ROUTINE, com a jiga livre. Na rotina ficam so as mudancas de valor
+(estimulos 'mpu6500' e 'bme280', um I2C_SLAVE_LOAD dos registradores de dados).
 """
 
 import math
@@ -32,7 +37,9 @@ from protocolo import (
     PWM_FREQUENCIA_MIN, ROTINA_ENTRADAS, ROTINA_INDICE_CABECALHO, ROTINA_TEMPO_MAX_MS, SPI_FREQUENCIA_MIN,
     SPI_MODO_MAX, SPI_PAPEL_ESCRAVO, SPI_PAPEL_MESTRE, SPI_TAMANHO_BUFFER, TENSAO_REFERENCIA, UART_BAUD_MAX,
     UART_BAUD_MIN, UART_TAMANHO_MAX, montar_rotina, porcento_para_razao, validar_rotina,
+    CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_MASK,
 )
+from sensores import SensorEmulado
 
 TOLERANCIA_ADC_V = 0.033            # 1 % do fundo de escala (criterios de aceitacao, secao 3.7.3)
 MARGEM_TEMPO_MS = 100               # tempo maximo da rotina = (esperas + limites) x 1,1 + 100 ms
@@ -40,6 +47,10 @@ BITS_POR_BYTE_UART = 10
 SPI_PAPEIS = {"escrava": SPI_PAPEL_ESCRAVO, "mestre": SPI_PAPEL_MESTRE}
 I2C_PAPEIS = {"escravo": I2C_PAPEL_ESCRAVO, "mestre": I2C_PAPEL_MESTRE}
 I2C_VELOCIDADES_KHZ = {100: 0, 400: 1}
+SENSORES = {"mpu6500": 0x68, "bme280": 0x76}          # modelo -> endereco padrao
+ENDERECOS_SENSOR = {"mpu6500": (0x68, 0x69), "bme280": (0x76, 0x77)}
+UART_DUT_BAUD = 115200                                # UART do DUT de referencia
+ESPERA_DUT_MS = 50                                    # tempo para o DUT responder um comando de texto
 
 
 class ErroBateria(Exception):
@@ -68,6 +79,7 @@ class CasoDeTeste:
     verificacoes: list
     tempo_max_ms: int
     estimulos: list = field(default_factory=list)     # descricao de cada estimulo, para o relatorio
+    preparo: list = field(default_factory=list)       # (cmd, payload) enviados antes do RUN_ROUTINE (sensores)
 
     @property
     def payload(self):
@@ -80,6 +92,7 @@ class Bateria:
     casos: list
     dut: str = ""
     arquivo: str = ""
+    sensores: list = field(default_factory=list)      # SensorEmulado
 
 
 class _Item:
@@ -169,11 +182,13 @@ def _texto_ou_hex(dados):
 class _Compilador:
     """Compila um caso: lista de passos, verificacoes e o tempo das esperas."""
 
-    def __init__(self, item):
+    def __init__(self, item, sensores=()):
         self.item = item
         self.passos, self.verificacoes, self.estimulos = [], [], []
         self.tempo_us = 0
         self.uart_baud = None
+        self.sensores = {s.modelo: s for s in sensores}
+        self.estados = {s.modelo: dict(s.estado) for s in sensores}
 
     def _passo(self, cmd, parametros=b""):
         self.passos.append(bytes([cmd]) + bytes(parametros))
@@ -264,6 +279,8 @@ class _Compilador:
             self.uart_baud = it.numero(d, "baud", UART_BAUD_MIN, UART_BAUD_MAX, inteiro=True)
             self._passo(CMD_UART_CONFIG, self.uart_baud.to_bytes(4, "little"))
             texto = f"UART {self.uart_baud} baud"
+        elif tipo in SENSORES:
+            texto = self.estimulo_sensor(tipo, d)
         elif tipo == "uart_write":
             it.sem_sobras(d, ("dados", "texto"))
             if self.uart_baud is None:
@@ -276,9 +293,67 @@ class _Compilador:
             it.falha(f"estimulo desconhecido '{tipo}'")
         self.estimulos.append(texto)
 
+    def estimulo_sensor(self, modelo, d):
+        """Novo valor de um sensor emulado: atualiza o estado do caso e carrega os registradores de dados."""
+        it = self.item
+        if modelo not in self.sensores:
+            it.falha(f"'{modelo}' nao esta na secao 'sensores' da bateria")
+        estado = self.estados[modelo]
+        if modelo == "mpu6500":
+            it.sem_sobras(d, ("aceleracao", "giro", "temperatura"))
+            sensor = self.sensores[modelo]
+            for chave, limite in (("aceleracao", sensor.escala_g), ("giro", sensor.escala_dps)):
+                if chave in d:
+                    valor = d[chave]
+                    if (not isinstance(valor, list) or len(valor) != 3 or
+                            any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in valor)):
+                        it.falha(f"'{chave}' precisa ser [x, y, z]")
+                    if any(abs(v) > limite for v in valor):
+                        it.falha(f"'{chave}' fora do fundo de escala de +-{limite}")
+                    estado[chave] = tuple(float(v) for v in valor)
+            if "temperatura" in d:
+                estado["temperatura"] = it.numero(d, "temperatura", -40, 85)
+        else:
+            it.sem_sobras(d, ("temperatura", "pressao", "umidade"))
+            for chave, minimo, maximo in (("temperatura", -40, 85), ("pressao", 300, 1100), ("umidade", 0, 100)):
+                if chave in d:
+                    estado[chave] = it.numero(d, chave, minimo, maximo)
+        if not d:
+            it.falha("sem valores")
+        offset, dados = self.sensores[modelo].dados(estado)
+        self._passo(CMD_I2C_SLAVE_LOAD, bytes([offset, len(dados)]) + dados)
+        return f"{modelo}: " + ", ".join(f"{k} {v}" for k, v in d.items())
+
     def verificacao(self, tipo, d):
         it = self.item
-        if tipo == "gpio_in":
+        if tipo == "uart_valores":
+            it.sem_sobras(d, ("comando", "esperado", "tolerancia", "baud", "espera_ms", "max"))
+            comando = it.bytes_(d, "comando", maximo=UART_TAMANHO_MAX, texto="comando") if isinstance(
+                d.get("comando"), str) else it.falha("'comando' precisa ser texto (ex.: \"MPU\\n\")")
+            esperado = d.get("esperado")
+            if (not isinstance(esperado, list) or not esperado or
+                    any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in esperado)):
+                it.falha("'esperado' precisa ser uma lista de numeros")
+            tolerancia = d.get("tolerancia", 0)
+            tolerancias = tolerancia if isinstance(tolerancia, list) else [tolerancia] * len(esperado)
+            if (len(tolerancias) != len(esperado) or
+                    any(isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0 for v in tolerancias)):
+                it.falha("'tolerancia' precisa ser um numero >= 0 ou uma lista do tamanho de 'esperado'")
+            baud = it.numero(d, "baud", UART_BAUD_MIN, UART_BAUD_MAX, inteiro=True, padrao=UART_DUT_BAUD)
+            espera = it.numero(d, "espera_ms", 0, 60_000, padrao=ESPERA_DUT_MS)
+            maximo = it.numero(d, "max", 1, UART_TAMANHO_MAX, inteiro=True, padrao=UART_TAMANHO_MAX)
+            if self.uart_baud != baud:
+                self._passo(CMD_UART_CONFIG, baud.to_bytes(4, "little"))
+                self.uart_baud = baud
+            self._passo(CMD_UART_WRITE, bytes([len(comando)]) + comando)
+            us = round(espera * 1000) + math.ceil(len(comando) * BITS_POR_BYTE_UART * 1_000_000 / baud)
+            self._passo(PASSO_ESPERA, us.to_bytes(4, "little"))
+            self.tempo_us += us
+            indice = self._passo(CMD_UART_READ, bytes([maximo]))
+            self._verificacao(tipo, {"esperado": [float(v) for v in esperado],
+                                     "tolerancia": [float(v) for v in tolerancias]}, indice,
+                              f"DUT responde a {_texto_ou_hex(comando)} com {esperado}")
+        elif tipo == "gpio_in":
             it.sem_sobras(d, ("pino", "esperado"))
             pino = it.escolha(d, "pino", ROTINA_ENTRADAS)
             esperado = it.escolha(d, "esperado", (0, 1))
@@ -354,7 +429,59 @@ def tempo_maximo_ms(tempo_us):
     return min(ROTINA_TEMPO_MAX_MS, -(-tempo_us * 11 // 10_000) + MARGEM_TEMPO_MS)
 
 
-def compilar_caso(dados, identificador, erros):
+def preparo_sensores(sensores):
+    """Comandos diretos que deixam a jiga respondendo como os sensores: (cmd, payload) na ordem de envio.
+
+    Segundo endereco antes do I2C_CONFIG (que o aplica); o mapa e as mascaras antes de ligar a escrava, para o DUT
+    nunca ler um registrador vazio. O I2C fica a 400 kHz (atende tambem mestres de 100 kHz).
+    """
+    i2c = [s for s in sensores if s.barramento == "i2c"]
+    if not i2c:
+        return []
+    comandos = [(CMD_I2C_SLAVE_ADDR2, bytes([i2c[1].endereco if len(i2c) > 1 else 0]))]
+    for sensor in i2c:
+        for offset, valores, mascaras in sensor.registradores():
+            comandos.append((CMD_I2C_SLAVE_LOAD, bytes([offset, len(valores)]) + valores))
+            comandos.append((CMD_I2C_SLAVE_MASK, bytes([offset, len(mascaras)]) + mascaras))
+    comandos.append((CMD_I2C_CONFIG, bytes([I2C_PAPEL_ESCRAVO, i2c[0].endereco, I2C_VELOCIDADES_KHZ[400]])))
+    return comandos
+
+
+def carregar_sensores(dados, erros):
+    """Secao 'sensores' -> lista de SensorEmulado (erros em 'erros')."""
+    if dados is None:
+        return []
+    if not isinstance(dados, dict):
+        erros.append("'sensores' precisa ser um mapa (ex.: {mpu6500: {barramento: i2c, endereco: 0x68}})")
+        return []
+    sensores = []
+    for modelo, config in dados.items():
+        item = _Item(f"sensores, {modelo}", erros)
+        try:
+            if modelo not in SENSORES:
+                item.falha(f"sensor desconhecido; opcoes: {', '.join(SENSORES)}")
+            config = config or {}
+            if not isinstance(config, dict):
+                item.falha("precisa ser um mapa (barramento, endereco, ...)")
+            chaves = ("barramento", "endereco", "escala_g", "escala_dps") if modelo == "mpu6500" else (
+                "barramento", "endereco")
+            item.sem_sobras(config, chaves)
+            barramento = item.escolha(config, "barramento", ("i2c",)) if "barramento" in config else "i2c"
+            endereco = item.escolha(config, "endereco", ENDERECOS_SENSOR[modelo]) if "endereco" in config \
+                else SENSORES[modelo]
+            sensor = SensorEmulado(modelo, endereco, barramento)
+            if modelo == "mpu6500":
+                if "escala_g" in config:
+                    sensor.escala_g = item.escolha(config, "escala_g", (2, 4, 8, 16))
+                if "escala_dps" in config:
+                    sensor.escala_dps = item.escolha(config, "escala_dps", (250, 500, 1000, 2000))
+            sensores.append(sensor)
+        except _ItemInvalido:
+            pass
+    return sensores
+
+
+def compilar_caso(dados, identificador, erros, sensores=()):
     """Um caso do YAML -> CasoDeTeste (ou None, com as mensagens em 'erros')."""
     nome = dados.get("nome") if isinstance(dados, dict) else None
     rotulo = f"caso {identificador}" + (f" ('{nome}')" if nome else "")
@@ -367,7 +494,7 @@ def compilar_caso(dados, identificador, erros):
         erros.append(f"{rotulo}: campo(s) desconhecido(s): {', '.join(map(str, desconhecidos))}")
     if not isinstance(nome, str) or not nome.strip():
         erros.append(f"{rotulo}: falta 'nome'")
-    compilador = _Compilador(None)
+    compilador = _Compilador(None, sensores)
     for secao, tratar in (("estimulos", compilador.estimulo), ("verificar", compilador.verificacao)):
         lista = dados.get(secao) or []
         if not isinstance(lista, list):
@@ -403,7 +530,8 @@ def compilar_caso(dados, identificador, erros):
             return None
     else:
         tempo = tempo_maximo_ms(compilador.tempo_us)
-    caso = CasoDeTeste(nome, identificador, compilador.passos, compilador.verificacoes, tempo, compilador.estimulos)
+    caso = CasoDeTeste(nome, identificador, compilador.passos, compilador.verificacoes, tempo, compilador.estimulos,
+                       preparo_sensores(sensores))
     try:
         payload = caso.payload
     except ValueError as e:
@@ -438,7 +566,7 @@ class CarregadorDeBaterias:
         if not isinstance(dados, dict):
             raise ErroBateria(["a bateria precisa ser um mapa com 'bateria' e 'casos'"])
         erros = []
-        desconhecidos = sorted(set(dados) - {"bateria", "dut", "descricao", "casos"})
+        desconhecidos = sorted(set(dados) - {"bateria", "dut", "descricao", "sensores", "casos"})
         if desconhecidos:
             erros.append(f"campo(s) desconhecido(s): {', '.join(map(str, desconhecidos))}")
         nome = dados.get("bateria")
@@ -450,7 +578,10 @@ class CarregadorDeBaterias:
             casos_yaml = []
         if len(casos_yaml) > 0xFFFF:
             erros.append("casos demais")
-        casos = [compilar_caso(caso, n, erros) for n, caso in enumerate(casos_yaml, 1)]
+        sensores = carregar_sensores(dados.get("sensores"), erros)
+        if len({s.endereco for s in sensores}) != len(sensores):
+            erros.append("sensores: dois sensores no mesmo endereco")
+        casos = [compilar_caso(caso, n, erros, sensores) for n, caso in enumerate(casos_yaml, 1)]
         if erros:
             raise ErroBateria(erros)
-        return Bateria(nome, casos, str(dados.get("dut") or ""))
+        return Bateria(nome, casos, str(dados.get("dut") or ""), sensores=sensores)
