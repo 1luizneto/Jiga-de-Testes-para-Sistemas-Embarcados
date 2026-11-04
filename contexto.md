@@ -48,6 +48,10 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
 - **v0.12.0** (emulação de sensores, CT25): MPU-6500 e BME280 na escrava I2C (`I2C_SLAVE_MASK` 0x54, `I2C_SLAVE_ADDR2`
   0x56), `sensores.py` (compensação e inversa do BME280), seção `sensores` e `uart_valores` na bateria, preparo do caso
   por comandos diretos, drivers no DUT (`MPU`, `BME`). 200/200 Unity, 71/71 HIL, 596 pytest. ESP32 **não** gravado.
+- **v0.13.0** (gerador de ondas): `Onda.c` (tabela de até 32 pontos, 6 geradores, interpolação/degrau, ruído),
+  passo ONDA 0x7A, tick no CC2 do TIM5 (passo ≥ 100 µs) e DAC por DMA (TIM7/TIM4, DMA1 Stream5/6, passo de 1 a 99 µs,
+  até 1024 amostras), `Pwm_Razao` (só o CCR), `ondas.py` (formas). 208/208 Unity, 71/71 HIL, `ondas_sem_fios.yaml`
+  passa na placa; 620 pytest. Osciloscópio do DAC/PWM: teste manual.
 - Combinado em 04/11/2026: antes da 1.0.0 entram também 0.13.0 (gerador de ondas: rampa, senoide, triangular, quadrada,
   dente de serra, exponencial, pontos e ruído; `passo_us`, mínimo 100 µs no software e 1 µs no DAC por DMA) e 0.14.0
   (sensores em SPI, com a restrição da pausa entre o endereço e os dados; um sensor SPI por vez).
