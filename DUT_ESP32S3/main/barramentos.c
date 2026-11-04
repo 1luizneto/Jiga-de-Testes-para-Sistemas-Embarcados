@@ -21,6 +21,9 @@
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n spiRegistro: endereco e dados em duas transferencias com o
  *                                                          CS baixo (sensores por SPI)
+ *   @version      <b>1.1.1 - 04/11/2026</b> \n Luiz Neto \n Escrava I2C: o bloco da leitura vai em duas partes, a 1a
+ *                                                          menor que a FIFO (o i2c_slave_write do IDF 6.1 nao poe na
+ *                                                          FIFO um bloco >= espaco livre, e o mestre lia 7F FF FF; CT20)
  *
  *   @{
  **********************************************************************************************************************/
@@ -42,6 +45,7 @@
 #include "driver/i2c_slave.h"
 #include "driver/spi_master.h"
 #include "driver/spi_slave.h"
+#include "hal/i2c_ll.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -52,7 +56,7 @@
 
 #define dBAR_I2C_PORTA           (I2C_NUM_0)
 #define dBAR_I2C_TIMEOUT_MS      (50)
-#define dBAR_I2C_BLOCO_LEITURA   (128U)   ///< Bytes postos na FIFO a cada leitura do mestre
+#define dBAR_I2C_BLOCO_LEITURA   (31U)    ///< Bytes postos na FIFO a cada leitura do mestre: menor que a FIFO (32)
 #define dBAR_SPI_HOST            (SPI2_HOST)
 #define dBAR_SPI_BUFFER          (240U)   ///< Multiplo de 4 (DMA); a transacao usa ate 239
 #define dBAR_SPI_ESPERA_MS       (100)    ///< Periodo em que a task do escravo confere o pedido de parada
@@ -619,8 +623,27 @@ static void Barramentos_I2cTask(void *parametro)
 
 		if (evento.leitura && (bar.i2cEscrava != NULL))
 		{
-			(void)i2c_slave_reset_tx_fifo(bar.i2cEscrava);
+			// So a FIFO de transmissao e zerada (sobra da leitura anterior): o i2c_slave_reset_tx_fifo tambem reseta
+			// a maquina de estados e quebrava a leitura em curso (SCL segurado), e o mestre lia 7F FF FF. O bloco
+			// fica menor que a FIFO: o i2c_slave_write o poe direto nela e nada sobra no ring buffer.
+			i2c_ll_txfifo_rst(I2C_LL_GET_HW(dBAR_I2C_PORTA));
 			(void)i2c_slave_write(bar.i2cEscrava, bloco, sizeof(bloco), &escritos, dBAR_I2C_TIMEOUT_MS);
+
+			// O hardware ja carregou o byte seguinte ao ultimo lido, e so o reset completo o descarta. Com o
+			// barramento livre (STOP do mestre) e nenhum evento pendente, o reset nao quebra transacao nenhuma.
+			for (uint32_t espera = 0U; espera < dBAR_I2C_TIMEOUT_MS; espera++)
+			{
+				vTaskDelay(pdMS_TO_TICKS(1));
+				if (!i2c_ll_is_bus_busy(I2C_LL_GET_HW(dBAR_I2C_PORTA)))
+				{
+					break;
+				}
+			}
+
+			if ((uxQueueMessagesWaiting(bar.i2cEventos) == 0U) && !i2c_ll_is_bus_busy(I2C_LL_GET_HW(dBAR_I2C_PORTA)))
+			{
+				(void)i2c_slave_reset_tx_fifo(bar.i2cEscrava);
+			}
 		}
 	}
 }
