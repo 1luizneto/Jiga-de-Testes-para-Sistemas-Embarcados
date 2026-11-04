@@ -7,6 +7,28 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [0.14.0] - 2026-11-04
+
+Sensores emulados também no SPI: a escrava SPI responde como um sensor (MPU-6500 ou BME280), com o mesmo mapa da
+escrava I2C, e um sensor pode ficar no I2C e o outro no SPI ao mesmo tempo. Na placa: **210 testes Unity** e **73 casos
+HIL**; o CT26 com o ESP32-S3 ligado fica para o teste manual.
+
+### Adicionado
+- Firmware: `SPI_SLAVE_REG` (0x64): modo registradores da escrava SPI. A interrupção do SPI2 trata byte a byte: o 1º
+  é o endereço (bit 7 = leitura, 7 bits completados pelo `ou`, 0x80 no BME280); na leitura, a FIFO de transmissão (4
+  bytes) é cheia com os registradores seguintes e reposta a cada byte; na escrita, os bytes vão para o mapa só nos bits
+  graváveis. Também como passo de rotina. `I2cBus_LeRegistro` e `I2cBus_EscreveRegistro`. 2 testes Unity (210).
+- DUT ESP32-S3: drivers do MPU-6500 e do BME280 por SPI (`MPUS`, `BMES`): o endereço numa transferência e os dados em
+  outra, com o CS baixo e 20 µs entre elas. 22 testes Unity no PC.
+- Software: `barramento: spi` (e `modo`) nos sensores da bateria, com o preparo `SPI_CONFIG` escrava +
+  `SPI_SLAVE_REG`; jiga e DUT simulados com o modo registradores; bateria `ct26_sensores_spi.yaml` (CT26), 2 casos HIL
+  e 5 testes pytest (**625 no total**).
+
+### Restrição conhecida
+- No SPI, o mestre precisa de uma pausa de alguns µs entre o byte de endereço e o 1º dado: só depois de receber o
+  endereço a jiga sabe qual registrador enviar, e o SPI, ao contrário do I2C, não deixa a escrava segurar o clock. Um
+  mestre que emenda o endereço e os dados sem pausa (DMA) recebe o 1º dado errado.
+
 ## [0.13.0] - 2026-11-04
 
 Gerador de ondas: a jiga varia um valor no tempo sozinha, em segundo plano, durante a rotina (DAC, razão do PWM e
@@ -401,7 +423,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.13.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.10.0...v0.11.0
