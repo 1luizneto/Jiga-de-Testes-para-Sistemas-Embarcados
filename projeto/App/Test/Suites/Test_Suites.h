@@ -124,6 +124,8 @@ void Test_Exec_I2cMascaraESegundoEndereco(void);
 void Test_Exec_I2cMascaraESegundoEnderecoInvalidos(void);
 void Test_Exec_RotinaPassosDeSensor(void);
 void Test_Exec_RotinaPassoOnda(void);
+void Test_Exec_SpiRegistros(void);
+void Test_Exec_RotinaPassoSpiRegistros(void);
 
 // Testes do repasse e do resultado (Comm_BuildResult)
 void Test_Comm_ResultAck(void);

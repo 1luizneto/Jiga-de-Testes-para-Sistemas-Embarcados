@@ -37,7 +37,7 @@ from protocolo import (
     PWM_FREQUENCIA_MIN, ROTINA_ENTRADAS, ROTINA_INDICE_CABECALHO, ROTINA_TEMPO_MAX_MS, SPI_FREQUENCIA_MIN,
     SPI_MODO_MAX, SPI_PAPEL_ESCRAVO, SPI_PAPEL_MESTRE, SPI_TAMANHO_BUFFER, TENSAO_REFERENCIA, UART_BAUD_MAX,
     UART_BAUD_MIN, UART_TAMANHO_MAX, montar_rotina, porcento_para_razao, validar_rotina,
-    CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_MASK,
+    CMD_I2C_SLAVE_ADDR2, CMD_I2C_SLAVE_MASK, CMD_SPI_SLAVE_REG,
 )
 from sensores import SensorEmulado
 from ondas import ErroOnda, compilar as compilar_onda
@@ -445,15 +445,23 @@ def preparo_sensores(sensores):
     Segundo endereco antes do I2C_CONFIG (que o aplica); o mapa e as mascaras antes de ligar a escrava, para o DUT
     nunca ler um registrador vazio. O I2C fica a 400 kHz (atende tambem mestres de 100 kHz).
     """
-    i2c = [s for s in sensores if s.barramento == "i2c"]
-    if not i2c:
+    if not sensores:
         return []
-    comandos = [(CMD_I2C_SLAVE_ADDR2, bytes([i2c[1].endereco if len(i2c) > 1 else 0]))]
-    for sensor in i2c:
+    i2c = [s for s in sensores if s.barramento == "i2c"]
+    spi = [s for s in sensores if s.barramento == "spi"]
+    comandos = [(CMD_I2C_SLAVE_ADDR2, bytes([i2c[1].endereco if len(i2c) > 1 else 0]))] if i2c else []
+    # O mapa e as mascaras sao os da escrava I2C, usados tambem pela escrava SPI no modo registradores
+    for sensor in sensores:
         for offset, valores, mascaras in sensor.registradores():
             comandos.append((CMD_I2C_SLAVE_LOAD, bytes([offset, len(valores)]) + valores))
             comandos.append((CMD_I2C_SLAVE_MASK, bytes([offset, len(mascaras)]) + mascaras))
-    comandos.append((CMD_I2C_CONFIG, bytes([I2C_PAPEL_ESCRAVO, i2c[0].endereco, I2C_VELOCIDADES_KHZ[400]])))
+    if i2c:
+        comandos.append((CMD_I2C_CONFIG, bytes([I2C_PAPEL_ESCRAVO, i2c[0].endereco, I2C_VELOCIDADES_KHZ[400]])))
+    if spi:
+        # BME280: so 7 bits de endereco no SPI; a jiga completa com 0x80 (registradores 0x80-0xFF)
+        ou = 0x80 if spi[0].modelo == "bme280" else 0x00
+        comandos.append((CMD_SPI_CONFIG, bytes([SPI_PAPEL_ESCRAVO, spi[0].modo_spi]) + bytes(4)))
+        comandos.append((CMD_SPI_SLAVE_REG, bytes([1, ou])))
     return comandos
 
 
@@ -473,13 +481,17 @@ def carregar_sensores(dados, erros):
             config = config or {}
             if not isinstance(config, dict):
                 item.falha("precisa ser um mapa (barramento, endereco, ...)")
-            chaves = ("barramento", "endereco", "escala_g", "escala_dps") if modelo == "mpu6500" else (
-                "barramento", "endereco")
+            chaves = ("barramento", "endereco", "escala_g", "escala_dps", "modo") if modelo == "mpu6500" else (
+                "barramento", "endereco", "modo")
             item.sem_sobras(config, chaves)
-            barramento = item.escolha(config, "barramento", ("i2c",)) if "barramento" in config else "i2c"
+            barramento = item.escolha(config, "barramento", ("i2c", "spi")) if "barramento" in config else "i2c"
             endereco = item.escolha(config, "endereco", ENDERECOS_SENSOR[modelo]) if "endereco" in config \
                 else SENSORES[modelo]
             sensor = SensorEmulado(modelo, endereco, barramento)
+            if "modo" in config:
+                if barramento != "spi":
+                    item.falha("'modo' so com 'barramento: spi'")
+                sensor.modo_spi = item.escolha(config, "modo", (0, 3))
             if modelo == "mpu6500":
                 if "escala_g" in config:
                     sensor.escala_g = item.escolha(config, "escala_g", (2, 4, 8, 16))
@@ -589,8 +601,11 @@ class CarregadorDeBaterias:
         if len(casos_yaml) > 0xFFFF:
             erros.append("casos demais")
         sensores = carregar_sensores(dados.get("sensores"), erros)
-        if len({s.endereco for s in sensores}) != len(sensores):
+        i2c = [s for s in sensores if s.barramento == "i2c"]
+        if len({s.endereco for s in i2c}) != len(i2c):
             erros.append("sensores: dois sensores no mesmo endereco")
+        if sum(s.barramento == "spi" for s in sensores) > 1:
+            erros.append("sensores: so um sensor no SPI (a jiga tem um CS)")
         casos = [compilar_caso(caso, n, erros, sensores) for n, caso in enumerate(casos_yaml, 1)]
         if erros:
             raise ErroBateria(erros)

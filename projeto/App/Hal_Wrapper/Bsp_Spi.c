@@ -28,6 +28,8 @@
  *   @version      <b>1.0.0 - 28/10/2026</b> \n Luiz Neto \n Primeira versao
  *   @version      <b>1.1.0 - 03/11/2026</b> \n Luiz Neto \n HAL_GPIO_EXTI_Callback repassa as bordas das entradas
  *                 ao BspTempo_Borda (ESPERA_GPIO das rotinas)
+ *   @version      <b>1.2.0 - 04/11/2026</b> \n Luiz Neto \n Modo registradores da escrava (sensor SPI emulado): a ISR
+ *                                                          trata byte a byte e enche a FIFO com os registradores
  *   @version      <b>1.1.1 - 03/11/2026</b> \n Luiz Neto \n BspSpi_Off reseta o SPI2 pelo RCC: a FIFO de recepcao
  *                 (4 bytes) guardava bytes da escrava e a 1a transferencia como mestre saia atrasada 4 bytes (CT13)
  *
@@ -41,6 +43,7 @@
 
 #include "Bsp_Spi.h"
 #include "SpiBus.h"
+#include "I2cBus.h"
 #include "Bsp_Tempo.h"
 #include "DebugLog.h"
 #include "spi.h"
@@ -53,6 +56,17 @@
 // Tempo maximo de uma transferencia como mestre: 239 bytes a ~211 kHz levam ~9 ms
 #define dBSP_SPI_TIMEOUT_MS (50U)
 
+// Modo registradores: o que o proximo byte recebido e
+#define dBSP_SPI_REG_ENDERECO (0U)
+#define dBSP_SPI_REG_LEITURA  (1U)
+#define dBSP_SPI_REG_ESCRITA  (2U)
+
+// Bit 7 do 1o byte: leitura (MPU-6500 e BME280)
+#define dBSP_SPI_REG_LER (0x80U)
+
+// Acesso de 8 bits ao DR (o de 16 bits empacotaria dois bytes na FIFO)
+#define dBSP_SPI_DR8 (*(__IO uint8_t *)&hspi2.Instance->DR)
+
 /***********************************************************************************************************************
  * VARIAVEIS LOCAIS
  **********************************************************************************************************************/
@@ -64,6 +78,10 @@ static struct bspSpi
 	uint8_t rx[dSPIBUS_TAMANHO_BUFFER];        ///< O que o DUT enviou na transacao armada
 	uint8_t irqSpiLigada;                      ///< Estado das IRQs antes do lock
 	uint8_t irqCsLigada;
+	volatile uint8_t registros;                ///< 1: modo registradores (sensor emulado, mapa da escrava I2C)
+	uint8_t ou;                                ///< Completa o endereco de 7 bits (0x80 no BME280)
+	uint8_t estado;                            ///< dBSP_SPI_REG_ENDERECO, _LEITURA ou _ESCRITA
+	uint8_t registro;                          ///< Proximo registrador lido (posto na FIFO) ou escrito
 } bspSpi;
 
 /***********************************************************************************************************************
@@ -80,6 +98,8 @@ static void BspSpi_CsSaida(void);
 static void BspSpi_CsEntrada(void);
 static spiBusReturn_t BspSpi_ArmaEscravo(void);
 static void BspSpi_FimTransacao(void);
+static spiBusReturn_t BspSpi_Registros(uint8_t ativo, uint8_t ou);
+static void BspSpi_EncheFifo(void);
 
 /***********************************************************************************************************************
  * FUNCOES PUBLICAS
@@ -107,7 +127,7 @@ bspSpiReturn_t BspSpi_Init(void)
 		return eBSP_SPI_RETURN_ERROR;
 	}
 
-	if (SpiBus_SafeState() != eSPIBUS_RETURN_OK)
+	if ((SpiBus_InitRegistros(BspSpi_Registros) != eSPIBUS_RETURN_OK) || (SpiBus_SafeState() != eSPIBUS_RETURN_OK))
 	{
 		return eBSP_SPI_RETURN_ERROR;
 	}
@@ -116,6 +136,54 @@ bspSpiReturn_t BspSpi_Init(void)
 	                      clockHz);
 
 	return eBSP_SPI_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      IRQ do SPI2 no modo registradores (chamada no inicio do SPI2_IRQHandler): 1 se tratou.
+ * @details    Byte a byte: o 1o e o endereco (bit 7 = leitura). Na leitura, a FIFO de transmissao (4 bytes) e cheia
+ *             com os registradores seguintes, e reposta a cada byte: so entre o endereco e o 1o dado o mestre precisa
+ *             de uma pausa (o dado so existe depois que o endereco chega). Na escrita, cada byte vai para o mapa
+ *             (bits gravaveis) e a FIFO recebe 0xFF para nao ficar vazia.
+ **********************************************************************************************************************/
+uint8_t BspSpi_Irq(void)
+{
+	if ((bspSpi.registros == 0U) || (bspSpi.escravo == 0U))
+	{
+		return 0U;
+	}
+
+	while (__HAL_SPI_GET_FLAG(&hspi2, SPI_FLAG_RXNE) != RESET)
+	{
+		uint8_t byte = dBSP_SPI_DR8;
+
+		switch (bspSpi.estado)
+		{
+			case dBSP_SPI_REG_ENDERECO:
+				bspSpi.registro = (uint8_t)((byte & (uint8_t)~dBSP_SPI_REG_LER) | bspSpi.ou);
+				bspSpi.estado   = ((byte & dBSP_SPI_REG_LER) != 0U) ? dBSP_SPI_REG_LEITURA : dBSP_SPI_REG_ESCRITA;
+				if (bspSpi.estado == dBSP_SPI_REG_ESCRITA)
+				{
+					dBSP_SPI_DR8 = dSPIBUS_BYTE_VAZIO;
+				}
+			break;
+
+			case dBSP_SPI_REG_ESCRITA:
+				I2cBus_EscreveRegistro(bspSpi.registro, byte);
+				bspSpi.registro++;
+				dBSP_SPI_DR8 = dSPIBUS_BYTE_VAZIO;
+			break;
+
+			default:
+			break;
+		}
+
+		if (bspSpi.estado == dBSP_SPI_REG_LEITURA)
+		{
+			BspSpi_EncheFifo();
+		}
+	}
+
+	return 1U;
 }
 
 /***********************************************************************************************************************
@@ -334,6 +402,21 @@ static void BspSpi_CsEntrada(void)
  **********************************************************************************************************************/
 static spiBusReturn_t BspSpi_ArmaEscravo(void)
 {
+	if (bspSpi.registros != 0U)
+	{
+		// Modo registradores: so 1 byte (0xFF) na FIFO para o endereco; a ISR trata os seguintes
+		bspSpi.estado = dBSP_SPI_REG_ENDERECO;
+		if (HAL_GPIO_ReadPin(SPI_CS_GPIO_Port, SPI_CS_Pin) == GPIO_PIN_SET)
+		{
+			SET_BIT(hspi2.Instance->CR1, SPI_CR1_SSI);
+		}
+		__HAL_SPI_ENABLE(&hspi2);
+		dBSP_SPI_DR8 = dSPIBUS_BYTE_VAZIO;
+		__HAL_SPI_ENABLE_IT(&hspi2, SPI_IT_RXNE);
+		HAL_NVIC_EnableIRQ(SPI2_IRQn);
+		return eSPIBUS_RETURN_OK;
+	}
+
 	SpiBus_PreparaTx(bspSpi.tx);
 
 	if (HAL_GPIO_ReadPin(SPI_CS_GPIO_Port, SPI_CS_Pin) == GPIO_PIN_SET)
@@ -363,7 +446,14 @@ static void BspSpi_FimTransacao(void)
 		HAL_SPI_IRQHandler(&hspi2);
 	}
 
-	SpiBus_FimTransacao(bspSpi.rx, (uint16_t)(dSPIBUS_TAMANHO_BUFFER - hspi2.RxXferCount));
+	if (bspSpi.registros != 0U)
+	{
+		(void)BspSpi_Irq();   // byte que chegou junto com a subida do CS
+	}
+	else
+	{
+		SpiBus_FimTransacao(bspSpi.rx, (uint16_t)(dSPIBUS_TAMANHO_BUFFER - hspi2.RxXferCount));
+	}
 
 	__HAL_RCC_SPI2_FORCE_RESET();
 	__HAL_RCC_SPI2_RELEASE_RESET();
@@ -372,6 +462,48 @@ static void BspSpi_FimTransacao(void)
 	if ((HAL_SPI_Init(&hspi2) != HAL_OK) || (BspSpi_ArmaEscravo() != eSPIBUS_RETURN_OK))
 	{
 		bspSpi.escravo = 0U;   // fica sem escrava ate o proximo SPI_CONFIG ou RESET_ALL
+	}
+}
+
+/***********************************************************************************************************************
+ * @brief      Liga/desliga o modo registradores; com a escrava armada, rearma do zero no modo novo.
+ **********************************************************************************************************************/
+static spiBusReturn_t BspSpi_Registros(uint8_t ativo, uint8_t ou)
+{
+	BspSpi_Lock();
+	bspSpi.registros = ativo;
+	bspSpi.ou        = ou;
+
+	if (bspSpi.escravo != 0U)
+	{
+		SET_BIT(hspi2.Instance->CR1, SPI_CR1_SSI);
+		(void)HAL_SPI_Abort(&hspi2);
+		__HAL_RCC_SPI2_FORCE_RESET();
+		__HAL_RCC_SPI2_RELEASE_RESET();
+		HAL_NVIC_ClearPendingIRQ(SPI2_IRQn);
+
+		if ((HAL_SPI_Init(&hspi2) != HAL_OK) || (BspSpi_ArmaEscravo() != eSPIBUS_RETURN_OK))
+		{
+			bspSpi.escravo = 0U;
+			BspSpi_Unlock();
+			return eSPIBUS_RETURN_ERROR;
+		}
+	}
+
+	BspSpi_Unlock();
+
+	return eSPIBUS_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      Poe na FIFO de transmissao os proximos registradores, ate ela encher (4 bytes em 8 bits).
+ **********************************************************************************************************************/
+static void BspSpi_EncheFifo(void)
+{
+	while ((hspi2.Instance->SR & SPI_SR_FTLVL) != SPI_SR_FTLVL)
+	{
+		dBSP_SPI_DR8 = I2cBus_LeRegistro(bspSpi.registro);
+		bspSpi.registro++;
 	}
 }
 

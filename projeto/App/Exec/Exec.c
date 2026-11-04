@@ -31,6 +31,7 @@
  *                                                          um passo de rotina; RESET_ALL descarta os resultados
  *   @version      <b>1.7.0 - 04/11/2026</b> \n Luiz Neto \n I2C_SLAVE_MASK e I2C_SLAVE_ADDR2 (emulacao de sensores)
  *   @version      <b>1.8.0 - 04/11/2026</b> \n Luiz Neto \n Estado seguro para as ondas antes de zerar as saidas
+ *   @version      <b>1.9.0 - 04/11/2026</b> \n Luiz Neto \n SPI_SLAVE_REG (sensor SPI emulado)
  *
  *   @copyright
  *   @{
@@ -127,6 +128,7 @@ static uint8_t Exec_I2cConfig(const commFrame_t *frame);
 static uint8_t Exec_I2cLoad(const commFrame_t *frame);
 static uint8_t Exec_I2cDump(const commFrame_t *frame, execResult_t *result);
 static uint8_t Exec_I2cXfer(const commFrame_t *frame, execResult_t *result);
+static uint8_t Exec_SpiReg(const commFrame_t *frame);
 static uint8_t Exec_I2cMask(const commFrame_t *frame);
 static uint8_t Exec_I2cAddr2(const commFrame_t *frame);
 static uint8_t Exec_ErroI2c(i2cBusReturn_t ret);
@@ -238,6 +240,12 @@ execReturn_t Exec_Process(const commFrame_t *frame, execResult_t *result)
 		case dCOMM_CMD_I2C_SLAVE_MASK:
 
 			result->erro = Exec_I2cMask(frame);
+
+		break;
+
+		case dCOMM_CMD_SPI_SLAVE_REG:
+
+			result->erro = Exec_SpiReg(frame);
 
 		break;
 
@@ -678,6 +686,27 @@ static uint8_t Exec_I2cLoad(const commFrame_t *frame)
 	}
 
 	return Exec_ErroI2c(I2cBus_Load(frame->payload[0], frame->payload[1], &frame->payload[2]));
+}
+
+/***********************************************************************************************************************
+ * @brief      SPI_SLAVE_REG: payload [ativo (u8, 0/1)][ou do endereco (u8, 0x00 ou 0x80)].
+ * @details    Liga o modo registradores da escrava SPI (sensor emulado com o mapa da escrava I2C).
+ * @param[in]  frame  Quadro do comando
+ * @return     0 (ACK) ou codigo commError_t (NACK)
+ **********************************************************************************************************************/
+static uint8_t Exec_SpiReg(const commFrame_t *frame)
+{
+	if (frame->size != 2U)
+	{
+		return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+	}
+
+	switch (SpiBus_Registros(frame->payload[0], frame->payload[1]))
+	{
+		case eSPIBUS_RETURN_OK:               return 0U;
+		case eSPIBUS_RETURN_INVALID_ARGUMENT: return (uint8_t)eCOMM_ERROR_PARAMETRO_INVALIDO;
+		default:                              return (uint8_t)eCOMM_ERROR_PERIFERICO;
+	}
 }
 
 /***********************************************************************************************************************

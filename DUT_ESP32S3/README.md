@@ -60,6 +60,7 @@ Uma linha por comando, terminada em `\n` (`\r` é ignorado), UART em 115200 8N1.
 | `SPIS_LOAD <dados>` | `OK` | o que o escravo envia (do byte 0, completando com FF) |
 | `SPIS_READ` | `OK [dados]` | o que a jiga mestra enviou desde a última leitura |
 | `MPU [end]` | `OK ax ay az gx gy gz t` | lê um MPU-6500 (padrão 0x68) com um driver comum: reset, WHO_AM_I, 2 g e 250 °/s, 14 bytes do 0x3B; em g, °/s e °C (CT25) |
+| `MPUS [freq]` / `BMES [freq]` | os mesmos | os mesmos sensores por SPI (modo 0, padrão de 500 kHz): o endereço numa transferência e os dados em outra, com o CS baixo e 20 µs entre elas (a pausa que a jiga escrava precisa) (CT26) |
 | `BME [end]` | `OK t p h` | lê um BME280 (padrão 0x76): chip_id, soft reset, calibração, modo normal e os 8 bytes do 0xF7 compensados; em °C, hPa e % (CT25) |
 
 Erros: `ERR CMD` (comando desconhecido), `ERR ARG` (argumento fora da faixa), `ERR NACK` (dispositivo I2C não

@@ -33,6 +33,9 @@
 #define dCOMANDOS_SPI_FREQUENCIA_MIN  (1000U)
 #define dCOMANDOS_SPI_FREQUENCIA_MAX  (10000000U)
 
+// Frequencia padrao dos sensores por SPI (MPUS, BMES)
+#define dCOMANDOS_SENSOR_SPI_FREQUENCIA (500000U)
+
 /***********************************************************************************************************************
  * TIPOS DE DADOS PUBLICOS
  **********************************************************************************************************************/
@@ -61,6 +64,10 @@ typedef struct dutBarramentos
 	dutReturn_t (*spiEscrava)(uint8_t modo);
 	dutReturn_t (*spiCarrega)(const uint8_t *dados, size_t quantidade);
 	dutReturn_t (*spiLe)(uint8_t *dados, size_t *quantidade);
+	/// Leitura/escrita de registradores como mestre: o 1o byte (endereco) numa transferencia e os dados em outra, com
+	/// o CS baixo entre as duas (a pausa que a jiga escrava precisa para buscar o registrador)
+	dutReturn_t (*spiRegistro)(uint8_t modo, uint32_t frequencia, uint8_t endereco, const uint8_t *escrita,
+	                           uint8_t *leitura, size_t quantidade);
 } dutBarramentos_t;
 
 /***********************************************************************************************************************

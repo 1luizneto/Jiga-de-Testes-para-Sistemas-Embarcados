@@ -26,6 +26,7 @@
  *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n Mascara dos bits que o DUT pode escrever
  *                                                          (I2cBus_Mascara) e segundo endereco (I2cBus_Endereco2)
  *   @version      <b>1.2.0 - 04/11/2026</b> \n Luiz Neto \n I2cBus_EscreveIsr: o gerador de ondas grava o sensor
+ *   @version      <b>1.3.0 - 04/11/2026</b> \n Luiz Neto \n I2cBus_LeRegistro/EscreveRegistro: o sensor SPI usa o mapa
  *
  *   @copyright
  *   @{
@@ -243,6 +244,24 @@ i2cBusReturn_t I2cBus_EscreveIsr(uint8_t offset, const uint8_t *dados, uint8_t q
 	memcpy(&i2cBus.mapa[offset], dados, quantidade);
 
 	return eI2CBUS_RETURN_OK;
+}
+
+/***********************************************************************************************************************
+ * @brief      Registrador do mapa lido pelo DUT pela escrava SPI no modo registradores (ISR do SPI2, prioridade 5).
+ **********************************************************************************************************************/
+uint8_t I2cBus_LeRegistro(uint8_t registro)
+{
+	return i2cBus.mapa[registro];
+}
+
+/***********************************************************************************************************************
+ * @brief      Registrador escrito pelo DUT pela escrava SPI: so os bits gravaveis (mascara), como na escrita I2C.
+ **********************************************************************************************************************/
+void I2cBus_EscreveRegistro(uint8_t registro, uint8_t valor)
+{
+	uint8_t mascara = i2cBus.mascara[registro];
+
+	i2cBus.mapa[registro] = (uint8_t)((i2cBus.mapa[registro] & (uint8_t)~mascara) | (valor & mascara));
 }
 
 /***********************************************************************************************************************

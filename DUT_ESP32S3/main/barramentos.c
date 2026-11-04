@@ -19,6 +19,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 04/11/2026</b> \n Luiz Neto \n spiRegistro: endereco e dados em duas transferencias com o
+ *                                                          CS baixo (sensores por SPI)
  *
  *   @{
  **********************************************************************************************************************/
@@ -55,6 +57,7 @@
 #define dBAR_SPI_BUFFER          (240U)   ///< Multiplo de 4 (DMA); a transacao usa ate 239
 #define dBAR_SPI_ESPERA_MS       (100)    ///< Periodo em que a task do escravo confere o pedido de parada
 #define dBAR_CS_FOLGA_US         (20U)    ///< Entre o CS e o clock: a jiga escrava reage ao CS na ISR do EXTI
+#define dBAR_REGISTRO_PAUSA_US   (20U)    ///< Entre o endereco e os dados (registradores): a jiga busca o dado
 
 static const char *TAG = "BAR";
 
@@ -91,6 +94,7 @@ static struct barramentos
 
 DMA_ATTR WORD_ALIGNED_ATTR static uint8_t barSpiTx[dBAR_SPI_BUFFER];
 DMA_ATTR WORD_ALIGNED_ATTR static uint8_t barSpiRx[dBAR_SPI_BUFFER];
+DMA_ATTR WORD_ALIGNED_ATTR static uint8_t barSpiCabecalho[4];
 
 /***********************************************************************************************************************
  * PROTOTIPOS LOCAIS
@@ -105,6 +109,10 @@ static dutReturn_t Barramentos_I2cLe(uint8_t offset, uint8_t *dados, size_t quan
 static dutReturn_t Barramentos_SpiMestre(uint8_t modo, uint32_t frequencia, const uint8_t *escrita, uint8_t *leitura,
                                          size_t quantidade);
 static dutReturn_t Barramentos_SpiEscrava(uint8_t modo);
+static dutReturn_t Barramentos_SpiRegistro(uint8_t modo, uint32_t frequencia, uint8_t endereco, const uint8_t *escrita,
+                                           uint8_t *leitura, size_t quantidade);
+static dutReturn_t Barramentos_SpiTransfere(uint8_t modo, uint32_t frequencia, const uint8_t *cabecalho,
+                                            const uint8_t *escrita, uint8_t *leitura, size_t quantidade);
 static dutReturn_t Barramentos_SpiCarrega(const uint8_t *dados, size_t quantidade);
 static dutReturn_t Barramentos_SpiLe(uint8_t *dados, size_t *quantidade);
 static void Barramentos_SoltaPinos(uint64_t mascara);
@@ -137,6 +145,7 @@ const dutBarramentos_t *Barramentos_Init(void)
 		Barramentos_SpiEscrava,
 		Barramentos_SpiCarrega,
 		Barramentos_SpiLe,
+		Barramentos_SpiRegistro,
 	};
 
 	memset(&bar, 0, sizeof(bar));
@@ -315,6 +324,34 @@ static dutReturn_t Barramentos_I2cLe(uint8_t offset, uint8_t *dados, size_t quan
 static dutReturn_t Barramentos_SpiMestre(uint8_t modo, uint32_t frequencia, const uint8_t *escrita, uint8_t *leitura,
                                          size_t quantidade)
 {
+	return Barramentos_SpiTransfere(modo, frequencia, NULL, escrita, leitura, quantidade);
+}
+
+/***********************************************************************************************************************
+ * @brief      Registradores por SPI (sensor): o endereco numa transferencia e os dados em outra, com o CS baixo entre
+ *             as duas. A pausa entre elas (dezenas de us) e o tempo que a jiga escrava precisa para buscar o dado.
+ **********************************************************************************************************************/
+static dutReturn_t Barramentos_SpiRegistro(uint8_t modo, uint32_t frequencia, uint8_t endereco, const uint8_t *escrita,
+                                           uint8_t *leitura, size_t quantidade)
+{
+	static uint8_t vazio[dBAR_SPI_BUFFER];
+	static uint8_t descarte[dBAR_SPI_BUFFER];
+
+	if (quantidade > dBAR_SPI_BUFFER)
+	{
+		return eDUT_RETURN_INVALID_ARGUMENT;
+	}
+
+	return Barramentos_SpiTransfere(modo, frequencia, &endereco, (escrita != NULL) ? escrita : vazio,
+	                                (leitura != NULL) ? leitura : descarte, quantidade);
+}
+
+/***********************************************************************************************************************
+ * @brief      Uma transacao de mestre (CS por GPIO): o cabecalho opcional de 1 byte vai numa transferencia propria.
+ **********************************************************************************************************************/
+static dutReturn_t Barramentos_SpiTransfere(uint8_t modo, uint32_t frequencia, const uint8_t *cabecalho,
+                                            const uint8_t *escrita, uint8_t *leitura, size_t quantidade)
+{
 	spi_device_handle_t dispositivo = NULL;
 	esp_err_t erro;
 
@@ -358,7 +395,17 @@ static dutReturn_t Barramentos_SpiMestre(uint8_t modo, uint32_t frequencia, cons
 			gpio_set_direction(dDUT_PINO_SPI_CS, GPIO_MODE_OUTPUT);
 			gpio_set_level(dDUT_PINO_SPI_CS, 0);
 			esp_rom_delay_us(dBAR_CS_FOLGA_US);
-			erro = spi_device_transmit(dispositivo, &transacao);
+			if (cabecalho != NULL)
+			{
+				spi_transaction_t endereco = {.length = 8U, .tx_buffer = barSpiCabecalho, .rx_buffer = NULL};
+				barSpiCabecalho[0] = *cabecalho;
+				erro = spi_device_transmit(dispositivo, &endereco);
+				esp_rom_delay_us(dBAR_REGISTRO_PAUSA_US);
+			}
+			if (erro == ESP_OK)
+			{
+				erro = spi_device_transmit(dispositivo, &transacao);
+			}
 			esp_rom_delay_us(dBAR_CS_FOLGA_US);
 			gpio_set_level(dDUT_PINO_SPI_CS, 1);
 			esp_rom_delay_us(dBAR_CS_FOLGA_US);

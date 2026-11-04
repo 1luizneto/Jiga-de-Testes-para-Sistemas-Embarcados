@@ -35,6 +35,9 @@
 // Byte enviado pelo escravo depois do fim do buffer de transmissao
 #define dSPIBUS_BYTE_VAZIO (0xFFU)
 
+// Modo registradores (SPI_SLAVE_REG): o 'ou' completa o endereco de 7 bits (0x80 no BME280, registradores >= 0x80)
+#define dSPIBUS_REGISTROS_OU_MAX (0x80U)
+
 /***********************************************************************************************************************
  * TIPOS DE DADOS PUBLICOS
  **********************************************************************************************************************/
@@ -62,6 +65,9 @@ typedef spiBusReturn_t (*spiBusXferFunc_t)(const uint8_t *escrita, uint8_t *leit
 /// @brief Impede ou libera os eventos do escravo (IRQs) enquanto a task mexe nos buffers
 typedef void (*spiBusLockFunc_t)(void);
 
+/// @brief Liga ou desliga o modo registradores da escrava (o mapa e o da escrava I2C)
+typedef spiBusReturn_t (*spiBusRegistrosFunc_t)(uint8_t ativo, uint8_t ou);
+
 /// @brief Funcoes fornecidas pela BSP
 typedef struct spiBusFunc
 {
@@ -83,6 +89,8 @@ spiBusReturn_t SpiBus_Load(const uint8_t *dados, uint8_t quantidade);
 spiBusReturn_t SpiBus_Read(uint8_t *dados, uint8_t *quantidade);
 spiBusReturn_t SpiBus_MasterXfer(const uint8_t *escrita, uint8_t *leitura, uint8_t quantidade);
 spiBusReturn_t SpiBus_SafeState(void);
+spiBusReturn_t SpiBus_InitRegistros(spiBusRegistrosFunc_t registrosFunc);
+spiBusReturn_t SpiBus_Registros(uint8_t ativo, uint8_t ou);
 
 // Eventos do escravo: chamados pela BSP, dentro da ISR (SPI2 ou EXTI do CS)
 void SpiBus_PreparaTx(uint8_t tx[dSPIBUS_TAMANHO_BUFFER]);

@@ -1,0 +1,29 @@
+# CT26: sensor emulado no SPI. A jiga responde como um BME280 na escrava SPI (modo registradores) e, ao mesmo tempo,
+# como um MPU-6500 na escrava I2C; o ESP32-S3 le o BME280 com o driver pelo SPI (comando BMES) e o MPU-6500 pelo I2C.
+# Ligacao: a do CT20 (UART, I2C com pull-ups e SPI: PD7 <-> GPIO10 CS, PB15 <-> GPIO11 MOSI, PB10 <-> GPIO12 SCK,
+# PC2 <-> GPIO13 MISO, GND).
+# Restricao do SPI: o mestre precisa de uma pausa de alguns us entre o byte de endereco e os dados (o DUT de
+# referencia manda o endereco numa transferencia e os dados em outra, com o CS baixo e 20 us entre elas).
+# Rodar: python executar_bateria.py baterias/ct26_sensores_spi.yaml --repetir 10
+bateria: ct26-sensores-spi
+dut: ESP32-S3 (DUT de referencia)
+sensores:
+  bme280: {barramento: spi, modo: 0}
+  mpu6500: {barramento: i2c, endereco: 0x68}
+casos:
+  - nome: BME280 pelo SPI e MPU-6500 pelo I2C, valores padrão
+    verificar:
+      - uart_valores: {comando: "BMES\n", esperado: [25, 1013.25, 50], tolerancia: 0.02}
+      - uart_valores: {comando: "MPU\n", esperado: [0, 0, 1, 0, 0, 0, 25],
+                       tolerancia: [0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.02]}
+  - nome: tempestade chegando (pressão baixa e úmido)
+    estimulos:
+      - bme280: {temperatura: 22.4, pressao: 985.3, umidade: 91}
+    verificar:
+      - uart_valores: {comando: "BMES 1000000\n", esperado: [22.4, 985.3, 91], tolerancia: 0.02}
+  - nome: rampa de temperatura lida pelo SPI no meio
+    estimulos:
+      - onda: {alvo: bme280.temperatura, forma: rampa, de: 10, ate: 30, duracao_ms: 1000}
+      - espera_ms: 500
+    verificar:
+      - uart_valores: {comando: "BMES\n", esperado: [20, 1013.25, 50], tolerancia: [0.1, 0.05, 0.05], espera_ms: 10}
