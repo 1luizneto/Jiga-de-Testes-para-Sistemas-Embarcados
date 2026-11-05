@@ -1,3 +1,3 @@
 """Versao do software (Versionamento Semantico). Igual a projeto/App/System/Inc/Version.h."""
 
-__version__ = "0.14.1"
+__version__ = "1.0.0"

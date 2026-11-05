@@ -7,6 +7,24 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [1.0.0] - 2026-11-05
+
+Jiga funcional, com o protocolo da monografia completo e **todos os casos de teste passando**: a última etapa foi o
+osciloscópio em bancada. Firmware e protocolo iguais aos da 0.14.1.
+
+### Adicionado
+- Baterias para o osciloscópio:
+  - `ct19_osciloscopio.yaml`: pulsos de 1, 10 e 100 ms no GPIO1 (PC8) gerados pela base de tempo da rotina;
+    `ct19_pulso_100ms.yaml` só com o de 100 ms (o *single* dispara na primeira subida).
+  - `ct27_osciloscopio.yaml`: senoide de 1 kHz no DAC1 (PA4) e triangular na razão do PWM1 (PE9), 2 minutos cada,
+    para medir em modo contínuo; `ct27_pwm.yaml` só com o PWM.
+
+### Verificado
+- CT19 no osciloscópio: pulsos de 1,024, 10,019 e 100,02 ms (excesso fixo de 19 a 24 µs por passo, sem desvio
+  proporcional; critério: 50 µs).
+- CT27 no osciloscópio: senoide com 1 kHz e 2,015 V pico a pico (pedido: 2,000 V); PWM1 em 1 kHz com a razão
+  variando de 0 a 100 %.
+
 ## [0.14.1] - 2026-11-04
 
 Correções achadas no primeiro teste com o ESP32-S3 ligado na jiga. Na placa: **211 testes Unity**, **73 casos HIL**
@@ -448,7 +466,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.1...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.1...v1.0.0
 [0.14.1]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.12.0...v0.13.0

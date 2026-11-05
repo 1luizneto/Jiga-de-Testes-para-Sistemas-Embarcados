@@ -1,0 +1,11 @@
+# CT27 no osciloscopio, so o PWM: PWM1 (PE9) a 1 kHz com a razao ciclica em triangular de 0 a 100 % a cada
+# 100 ms, durante 2 minutos (a onda para quando a rotina termina).
+# Rodar: python executar_bateria.py baterias/ct27_pwm.yaml
+bateria: ct27-pwm
+dut: nenhum (osciloscopio no PE9)
+casos:
+  - nome: triangular na razão do PWM1 durante 2 min
+    estimulos:
+      - pwm: {canal: 1, frequencia: 1000, razao: 0}
+      - onda: {alvo: pwm1.razao, forma: triangular, min: 0, max: 100, periodo_ms: 100}
+      - espera_ms: 120000

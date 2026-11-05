@@ -1,0 +1,17 @@
+# CT27 no osciloscopio: as mesmas ondas da ondas_sem_fios.yaml, mas cada uma fica 2 minutos no ar, para medir
+# com o osciloscopio em modo continuo (a onda para quando a rotina termina).
+#   1) senoide de 1 kHz no DAC1 (PA4), 0,5 a 2,5 V, passo de 10 us por DMA
+#   2) PWM1 (PE9) a 1 kHz com a razao ciclica em triangular de 0 a 100 % a cada 100 ms
+# Rodar: python executar_bateria.py baterias/ct27_osciloscopio.yaml
+bateria: ct27-osciloscopio
+dut: nenhum (osciloscopio no PA4 e no PE9)
+casos:
+  - nome: senoide de 1 kHz no DAC1 por DMA durante 2 min
+    estimulos:
+      - onda: {alvo: dac1, forma: senoide, min: 0.5, max: 2.5, periodo_ms: 1, passo_us: 10}
+      - espera_ms: 120000
+  - nome: triangular na razão do PWM1 durante 2 min
+    estimulos:
+      - pwm: {canal: 1, frequencia: 1000, razao: 0}
+      - onda: {alvo: pwm1.razao, forma: triangular, min: 0, max: 100, periodo_ms: 100}
+      - espera_ms: 120000

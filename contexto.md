@@ -61,7 +61,12 @@ Especificação na monografia (LaTeX, seções 3.5, 3.6 e Apêndice A; casos de 
   Bancada: pull-up de 4,7 Ω no lugar de 4,7 kΩ e SCL no GPIO7 (corrigidos pelo usuário).
 - **Decisão de 04/11/2026: a validação do TCC é só com o ESP32-S3** (o usuário não tem o Arduino Uno). Objetivo
   específico (e), RNF02, CT22, resumos e conclusão da monografia reescritos; o sketch `DUT_ArduinoUno` fica como
-  não validado e entra nos trabalhos futuros. Falta para a 1.0.0: só o osciloscópio (CT19 e CT27).
+  não validado e entra nos trabalhos futuros.
+- **v1.0.0** (05/11/2026, todos os CT passando): osciloscópio em bancada. CT19: pulsos de 1,024 / 10,019 / 100,02 ms
+  no PC8 (excesso fixo de 19–24 µs). CT27: senoide no PA4 com 1 kHz e 2,015 Vpp (picos ~40 mV abaixo nos dois
+  extremos: offset do osciloscópio); PWM1 é o **PE9** (não o PA6, que é o PWM3) em 1 kHz com a razão de 0 a 100 %;
+  o período da triangular (100 ms) não foi medido (precisaria de filtro RC, o usuário não montou). Firmware igual
+  ao da 0.14.1. Falta na monografia: modelo do osciloscópio/multímetro, preços da BOM (RNF01), esquema elétrico.
 - Combinado em 04/11/2026: antes da 1.0.0 entram também 0.13.0 (gerador de ondas: rampa, senoide, triangular, quadrada,
   dente de serra, exponencial, pontos e ruído; `passo_us`, mínimo 100 µs no software e 1 µs no DAC por DMA) e 0.14.0
   (sensores em SPI, com a restrição da pausa entre o endereço e os dados; um sensor SPI por vez).

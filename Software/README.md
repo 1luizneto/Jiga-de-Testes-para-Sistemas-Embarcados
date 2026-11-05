@@ -99,6 +99,8 @@ validação: divida em dois.
 | `baterias/ct25_sensores.yaml` | a do CT20 (UART e I2C com o ESP32-S3) | CT25: o DUT lê o MPU-6500 e o BME280 emulados |
 | `baterias/ondas_sem_fios.yaml` | nenhuma | ondas num sensor emulado (lidas pelo mapa), no DAC por DMA e no PWM |
 | `baterias/ct26_sensores_spi.yaml` | a do CT20 (UART, I2C e SPI com o ESP32-S3) | CT26: BME280 no SPI e MPU-6500 no I2C ao mesmo tempo |
+| `baterias/ct19_osciloscopio.yaml` | osciloscópio no PC8 (GPIO1) | CT19: pulsos de 1, 10 e 100 ms (`ct19_pulso_100ms.yaml`: só o de 100 ms, para o *single*) |
+| `baterias/ct27_osciloscopio.yaml` | osciloscópio no PA4 (DAC1) e no PE9 (PWM1) | CT27: senoide e triangular na razão do PWM, 2 min cada, em modo contínuo (`ct27_pwm.yaml`: só o PWM) |
 | `baterias/exemplo_monografia.yaml` | DUT hipotético da figura | exemplo da seção 3.6.3 (compilado no CT06) |
 
 Sem os jumpers, a `loopback.yaml` falha nos casos analógicos, da UART e do SPI; os de GPIO dão resultado
