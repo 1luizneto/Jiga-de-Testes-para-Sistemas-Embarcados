@@ -13,3 +13,11 @@ gcc -std=c11 -w -DUNITY_INCLUDE_CONFIG_H -I"$UNITY" -c "$UNITY/unity.c" -o "$SAI
 gcc -std=c11 -Wall -Wextra -Werror -DUNITY_INCLUDE_CONFIG_H -I"$MAIN" -I"$UNITY" \
 	"$AQUI/test_dut.c" "$MAIN/comandos.c" "$MAIN/mapa_i2c.c" "$MAIN/ventilador.c" "$MAIN/drivers_sensores.c" "$SAIDA/unity.o" -o "$SAIDA/test_dut"
 "$SAIDA/test_dut"
+
+# Falhas injetadas no ventilador (CT22): a regra compilada com cada dVENTILADOR_DEFEITO que da para ver no PC
+for DEFEITO in 1 2 4; do
+	gcc -std=c11 -Wall -Wextra -Werror -DUNITY_INCLUDE_CONFIG_H -DdVENTILADOR_DEFEITO=$DEFEITO -I"$MAIN" -I"$UNITY" \
+		"$AQUI/test_falhas.c" "$MAIN/ventilador.c" "$SAIDA/unity.o" -o "$SAIDA/test_falhas_$DEFEITO"
+	echo "Falha injetada $DEFEITO:"
+	"$SAIDA/test_falhas_$DEFEITO"
+done
