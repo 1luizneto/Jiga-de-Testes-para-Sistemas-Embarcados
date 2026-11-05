@@ -1,0 +1,13 @@
+# CT19 no osciloscopio, so o pulso de 100 ms no GPIO1 (PC8): o single dispara na primeira subida, e na bateria
+# completa (ct19_osciloscopio.yaml) essa subida e a do pulso de 1 ms.
+# Rodar: python executar_bateria.py baterias/ct19_pulso_100ms.yaml
+bateria: ct19-pulso-100ms
+dut: nenhum (osciloscopio no PC8)
+casos:
+  - nome: pulso de 100 ms no GPIO1
+    estimulos:
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 5
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 100
+      - gpio_out: {pino: 1, nivel: 0}
