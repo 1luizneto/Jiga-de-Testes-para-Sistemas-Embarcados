@@ -14,16 +14,16 @@
  **********************************************************************************************************************/
 
 /// Incompatibilidade no protocolo PC <-> jiga
-#define dFW_VERSION_MAJOR (0U)
+#define dFW_VERSION_MAJOR (1U)
 
 /// Funcionalidade nova, compativel com a versao anterior
-#define dFW_VERSION_MINOR (14U)
+#define dFW_VERSION_MINOR (0U)
 
 /// Correcao de bug, sem funcionalidade nova
-#define dFW_VERSION_PATCH (1U)
+#define dFW_VERSION_PATCH (0U)
 
 /// Versao em texto, para logs e para o comando STATUS
-#define dFW_VERSION_STRING "0.14.1"
+#define dFW_VERSION_STRING "1.0.0"
 
 #endif /* SYSTEM_INC_VERSION_H_ */
 
