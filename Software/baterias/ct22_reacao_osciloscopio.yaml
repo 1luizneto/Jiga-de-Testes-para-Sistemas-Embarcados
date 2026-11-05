@@ -1,0 +1,16 @@
+# CT22 no osciloscopio: confere o tempo de reacao que a jiga mede (ESPERA_GPIO) com um instrumento independente.
+# Ligacao: a do CT22 com o ESP32-S3 (DAC1 PA4 -> GPIO1 do ESP32; GPIO4 do ESP32 -> GPIO5 PC12; GND comum).
+# Osciloscopio: canal 1 no PA4 (gatilho na subida, ~1,5 V, single), canal 2 no GPIO4 do ESP32 (ou no PC12).
+# Medir o tempo entre a subida do PA4 e a subida do GPIO4 (cursores ou "delay" entre canais) e comparar com o tempo
+# de reacao que a jiga registra no relatorio. Uma captura por execucao (rodar de novo para outra medida).
+# Rodar: python executar_bateria.py baterias/ct22_reacao_osciloscopio.yaml
+bateria: ct22-reacao-osciloscopio
+dut: ESP32-S3 (firmware ventilador)
+casos:
+  - nome: degrau de 1,0 para 2,0 V, reacao do ventilador
+    estimulos:
+      - dac: {canal: 1, tensao: 1.0}
+      - espera_ms: 100
+      - dac: {canal: 1, tensao: 2.0}
+    verificar:
+      - reacao_gpio: {pino: 5, nivel: 1, max_ms: 20}
