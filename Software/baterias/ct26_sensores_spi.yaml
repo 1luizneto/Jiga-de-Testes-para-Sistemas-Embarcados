@@ -22,10 +22,11 @@ casos:
     verificar:
       - uart_valores: {comando: "BMES 1000000\n", esperado: [22.4, 985.3, 91], tolerancia: 0.02}
   # A rampa sobe 0,02 grau/ms e o driver do DUT le a temperatura ~19 ms depois de receber o comando (a calibracao
-  # vem antes): na bancada sai 20,38. A tolerancia de 0,5 grau cobre essa latencia; pressao e umidade nao variam.
+  # vem antes): o esperado considera essa latencia, 10 + 20 x 0,519 = 20,38, com a tolerancia de 0,05 grau dos
+  # outros casos (o DUT simulado dos testes nao tem a latencia e le 20,00; ver tests/test_sensores.py).
   - nome: rampa de temperatura lida pelo SPI no meio
     estimulos:
       - onda: {alvo: bme280.temperatura, forma: rampa, de: 10, ate: 30, duracao_ms: 1000}
       - espera_ms: 500
     verificar:
-      - uart_valores: {comando: "BMES\n", esperado: [20, 1013.25, 50], tolerancia: [0.5, 0.05, 0.05]}
+      - uart_valores: {comando: "BMES\n", esperado: [20.38, 1013.25, 50], tolerancia: 0.05}
