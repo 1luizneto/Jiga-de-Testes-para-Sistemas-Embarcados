@@ -1,0 +1,15 @@
+# CT19 no osciloscopio: pulsos de largura conhecida no GPIO1 (PC8), gerados pela base de tempo da rotina (TIM5).
+# Ponta no PC8 (CN8), garra no GND; gatilho na borda de subida, modo normal (ou single), ~1,6 V.
+# A largura medida de cada pulso e a ESPERA pedida mais o custo fixo de um passo (dezenas de us); o
+# criterio e a tolerancia temporal de 50 us do quadro de criterios. Sem jumpers e sem DUT no PC8.
+# Rodar: python executar_bateria.py baterias/ct19_osciloscopio.yaml --repetir 10
+bateria: ct19-osciloscopio
+dut: nenhum (osciloscopio no PC8)
+casos:
+  - nome: pulso de 10 ms no GPIO1
+    estimulos:
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 5
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}

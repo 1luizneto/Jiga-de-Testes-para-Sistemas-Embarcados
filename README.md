@@ -9,7 +9,6 @@ emula escravos (I2C, SPI, UART) e lê as respostas do dispositivo sob teste (ADC
 | [`projeto/`](projeto) | Firmware da NUCLEO-F767ZI (STM32CubeIDE, HAL, FreeRTOS) |
 | [`Software/`](Software) | Aplicação desktop e testes do lado do PC ([README](Software/README.md)) |
 | [`DUT_ESP32S3/`](DUT_ESP32S3) | Firmware do DUT de referência (ESP32-S3, ESP-IDF) usado no CT20 e no CT22 ([README](DUT_ESP32S3/README.md)) |
-| [`DUT_ArduinoUno/`](DUT_ArduinoUno) | DUT alternativo do CT22 (Arduino Uno, mesmo comportamento; não validado, a validação do TCC é só com o ESP32-S3) ([README](DUT_ArduinoUno/README.md)) |
 | [`Monografia/`](Monografia) | PDF da monografia (as fontes LaTeX ficam fora deste repositório) |
 | [`CHANGELOG.md`](CHANGELOG.md) | O que mudou em cada versão |
 

@@ -12,8 +12,12 @@ No **CT22** o mesmo firmware tem um segundo comportamento, que roda o tempo todo
 comando nenhum: o **ventilador** (`main/ventilador.c`). Ele lê o "sensor" no GPIO1 a cada 1 ms e liga a saída
 GPIO4 acima de 1,80 V e desliga abaixo de 1,50 V (histerese). A jiga aplica a tensão no DAC1 e confere a
 saída no GPIO5, como faria com um firmware qualquer (teste *black-box*, bateria
-`Software/baterias/ct22_ventilador.yaml`). O Arduino Uno roda o mesmo comportamento
-([`DUT_ArduinoUno`](../DUT_ArduinoUno/README.md)).
+`Software/baterias/ct22_ventilador.yaml`).
+
+Para mostrar que o CT22 reprova um firmware errado, o ventilador pode ser compilado com uma falha injetada:
+`idf.py -B C:\esp\build_falha1 -DVENTILADOR_DEFEITO=1 build flash`, com 1 = sem histerese (limiar único de
+1,65 V), 2 = limiar de ligar em 2,10 V, 3 = saída atrasada 50 ms e 4 = saída presa em 0. Use uma pasta de build
+por falha (a opção fica no cache do CMake) e regrave o firmware correto (`build_dut`) no fim.
 
 ## Ligação com a jiga
 

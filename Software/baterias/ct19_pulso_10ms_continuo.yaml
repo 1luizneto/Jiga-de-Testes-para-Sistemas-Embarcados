@@ -1,0 +1,59 @@
+# CT19 no osciloscopio: trem de pulsos de 10 ms (periodo de 50 ms) no GPIO1 (PC8), para enquadrar o pulso
+# com o gatilho em modo normal. Rodar em loop: python executar_bateria.py baterias/ct19_pulso_10ms_continuo.yaml --repetir 300
+bateria: ct19-pulso-10ms-continuo
+dut: nenhum (osciloscopio no PC8)
+casos:
+  - nome: trem de pulsos de 10 ms no GPIO1
+    estimulos:
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40
+      - gpio_out: {pino: 1, nivel: 1}
+      - espera_ms: 10
+      - gpio_out: {pino: 1, nivel: 0}
+      - espera_ms: 40

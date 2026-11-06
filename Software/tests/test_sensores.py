@@ -161,7 +161,10 @@ def test_erros_de_descricao(texto, trecho):
 
 # 11. CT26: BME280 na escrava SPI (modo registradores, 'ou' 0x80) e MPU-6500 no I2C ao mesmo tempo, lidos pelo DUT
 def test_ct26_sensor_spi_com_o_dut_simulado():
-    relatorio = _executar(BATERIAS / "ct26_sensores_spi.yaml")
+    # O DUT simulado le a rampa sem a latencia de ~19 ms do driver real: no meio dela o esperado e 20,00 (na bancada, 20,38)
+    texto = (BATERIAS / "ct26_sensores_spi.yaml").read_text(encoding="utf-8")
+    assert "esperado: [20.38," in texto
+    relatorio = _executar(texto.replace("esperado: [20.38,", "esperado: [20,"))
     assert [c.veredito for c in relatorio.casos] == [PASSOU] * 3, relatorio.texto()
     preparo = CarregadorDeBaterias().carregar(BATERIAS / "ct26_sensores_spi.yaml").casos[0].preparo
     assert preparo[-4] == (CMD_SPI_SLAVE_REG, bytes([1, 0x80]))

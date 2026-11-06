@@ -14,6 +14,8 @@
  *
  *   Changelog
  *   @version      <b>1.0.0 - 03/11/2026</b> \n Luiz Neto \n Primeira versao
+ *   @version      <b>1.1.0 - 05/11/2026</b> \n Luiz Neto \n Falhas injetadas na compilacao (dVENTILADOR_DEFEITO 1 a 4)
+ *                 para mostrar o CT22 reprovando firmwares errados no hardware real
  *
  *   @{
  **********************************************************************************************************************/
@@ -50,6 +52,24 @@ static const char *TAG = "VENTILADOR";
  **********************************************************************************************************************/
 bool Ventilador_Atualiza(bool ligado, uint32_t tensaoMv)
 {
+#if (dVENTILADOR_DEFEITO == 1)
+	(void)ligado;
+	return (tensaoMv > dVENTILADOR_LIMIAR_UNICO_MV);
+#elif (dVENTILADOR_DEFEITO == 2)
+	if (tensaoMv > dVENTILADOR_LIGA_ERRADO_MV)
+	{
+		return true;
+	}
+	if (tensaoMv < dVENTILADOR_DESLIGA_MV)
+	{
+		return false;
+	}
+	return ligado;
+#elif (dVENTILADOR_DEFEITO == 4)
+	(void)ligado;
+	(void)tensaoMv;
+	return false;
+#else
 	if (tensaoMv > dVENTILADOR_LIGA_MV)
 	{
 		return true;
@@ -59,6 +79,7 @@ bool Ventilador_Atualiza(bool ligado, uint32_t tensaoMv)
 		return false;
 	}
 	return ligado;
+#endif
 }
 
 #ifdef ESP_PLATFORM
@@ -107,6 +128,10 @@ static void Ventilador_Task(void *parametro)
 			bool novo = Ventilador_Atualiza(ligado, (uint32_t)mv);
 			if (novo != ligado)
 			{
+#if (dVENTILADOR_DEFEITO == 3)
+				vTaskDelay(pdMS_TO_TICKS(dVENTILADOR_ATRASO_MS));
+				proximo = xTaskGetTickCount();
+#endif
 				ligado = novo;
 				gpio_set_level(dVENTILADOR_PINO_SAIDA, ligado ? 1 : 0);
 			}
@@ -127,6 +152,9 @@ void Ventilador_Inicia(void)
 	xTaskCreate(Ventilador_Task, "dut_ventilador", 4096, NULL, 4, NULL);
 	ESP_LOGI(TAG, "sensor no GPIO%d (ADC1 canal 0), saida no GPIO%d: liga > %u mV, desliga < %u mV",
 	         dVENTILADOR_PINO_SENSOR, dVENTILADOR_PINO_SAIDA, dVENTILADOR_LIGA_MV, dVENTILADOR_DESLIGA_MV);
+#if (dVENTILADOR_DEFEITO != 0)
+	ESP_LOGW(TAG, "FALHA INJETADA %d (firmware errado de proposito, para o CT22 reprovar)", dVENTILADOR_DEFEITO);
+#endif
 }
 
 #endif
