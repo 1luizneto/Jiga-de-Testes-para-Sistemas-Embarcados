@@ -7,6 +7,33 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [1.1.0] - 2026-11-06
+
+Versão da defesa: aplica o parecer da banca. Firmware da jiga e protocolo iguais aos da 1.0.0 (só a versão muda);
+o DUT de referência ganha as falhas injetadas.
+
+### Adicionado
+- Falhas injetadas no ventilador do DUT ESP32-S3 (`VENTILADOR_DEFEITO` 1 a 4, escolhido na compilação): histerese
+  ausente, limiar de ligar em 2,10 V, saída atrasada em 50 ms e saída presa em 0. Testes no computador
+  (`DUT_ESP32S3/test_host/test_falhas.c`).
+- `Software/medir_dac_multimetro.py`: conferência do DAC com multímetro nos 11 pontos do CT10, com o erro e o
+  critério de 33 mV; pede confirmação de leituras muito longe do esperado (erro de digitação).
+- Baterias para o osciloscópio: `ct22_reacao_osciloscopio.yaml` (degrau de 1,0 para 2,0 V e reação do DUT),
+  `ct19_pulso_10ms.yaml` e `ct19_pulso_10ms_continuo.yaml` (trem de pulsos de 10 ms para enquadrar).
+- `Software/medicoes/medicao_dac1_multimetro.csv`: DAC1 nos 11 pontos com o Fluke 117.
+
+### Alterado
+- Validação só com o ESP32-S3: removido o sketch do Arduino Uno; READMEs atualizados.
+- CT26: esperado da rampa considerando a latência do *driver* do DUT (20,38).
+- Monografia (`Monografia/TCC_Jiga_de_Testes.pdf`) com o parecer da banca aplicado, banca e data da defesa.
+
+### Verificado
+- CT22 com falhas: firmware correto 6/6; cada versão com defeito reprovada nas três execuções, nos casos que o
+  defeito afeta.
+- CT26 revisado: 10/10.
+- DAC1 no multímetro (Fluke 117): 11 pontos dentro do critério, pior erro de 2,2 mV.
+- Reação do CT22 no osciloscópio: 850 µs nos cursores, 0,814 ms registrados pela jiga.
+
 ## [1.0.0] - 2026-11-05
 
 Jiga funcional, com o protocolo da monografia completo e **todos os casos de teste passando**: a última etapa foi o
@@ -466,7 +493,8 @@ Escravo e mestre I2C completos e testados no Unity e pelo USB, **sem validação
 - Firmware: esqueleto da máquina de estados do protocolo.
 - Software: terminal USB-CDC de linha de comando (`terminal_usb.py`) e gráfico com PySide6 (`terminal_gui.py`).
 
-[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v1.0.0...HEAD
+[Não lançado]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.1...v1.0.0
 [0.14.1]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/1luizneto/Jiga-de-Testes-para-Sistemas-Embarcados/compare/v0.13.0...v0.14.0
