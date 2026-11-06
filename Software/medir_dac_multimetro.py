@@ -51,6 +51,13 @@ def main():
             nominal = TENSAO_REFERENCIA * codigo / DAC_VALOR_MAX
             cliente.dac_set(args.canal, codigo)
             medida = ler_tensao(f"codigo {codigo:4d} (nominal {nominal:.4f} V): ")
+            while medida is not None and abs(medida - nominal) > 10 * TOLERANCIA_V:
+                # erro de digitacao (ex.: 0.98 em vez de 0.098, ou 719 em vez de 0.719): pede para confirmar
+                print(f"  {medida} V esta longe de {nominal:.4f} V; digite de novo (ou repita o mesmo valor)")
+                repetida = ler_tensao("  leitura: ")
+                if repetida == medida:
+                    break
+                medida = repetida
             if medida is None:
                 continue
             erro_mv = (medida - nominal) * 1000
